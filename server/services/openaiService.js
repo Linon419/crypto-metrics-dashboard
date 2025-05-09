@@ -1,4 +1,4 @@
-// server/services/openaiService.js
+// server/services/openaiService.js - 修复日期解析问题
 const { OpenAI } = require('openai');
 require('dotenv').config();
 
@@ -18,20 +18,25 @@ async function processRawData(rawText) {
     console.log('============ 原始输入数据 ============');
     console.log(rawText);
     
+    // 预处理日期 - 在发送到AI前先修复常见格式问题
+    const processedText = preprocessDateFormat(rawText);
+    
     // 构建提示
     const prompt = `
 你是一个加密货币数据处理专家。请将以下非结构化数据转换为规范的JSON格式。
 
 数据示例:
 \`\`\`
-${rawText}
+${processedText}
 \`\`\`
 
 关于日期格式的特别说明：
-1. 如果原始数据的第一行包含形如"5.9"的日期，表示5月9日
-2. 此时输出的date字段必须格式为"2025-05-09"（年份使用当前年份）
+1. 如果原始数据的第一行包含形如"5.9"的日期，表示5月9日（不是10月5日）
+2. 输出的date字段必须格式为"2025-05-09"（年份使用当前年份）
 3. 月份和日期必须是两位数格式，如05而非5
-4. 切勿将"5.9"解析为10月30日或其他错误格式
+4. 一定要理解"5.9"这种格式中，点号前是月份，点号后是日期
+5. 切勿将"5.9"解析为10月30日或其他错误格式
+6. 始终使用美式日期顺序解析：月.日
 
 仅返回有效的JSON格式，不要包含其他文本或解释。
 
@@ -70,7 +75,7 @@ ${rawText}
   "dailyReminder": "..." // 每日提醒部分的文字
 }
 
-日期格式应为YYYY-MM-DD，如果原始数据包含日期信息（如"5.7"表示5月7日），请使用当前年份和该日期。如果没有包含日期信息，请使用当前日期。
+日期格式应为YYYY-MM-DD，例如如果原始数据第一行有"5.9"，应解析为"2025-05-09"，表示5月9日，而不是10月5日或其他日期。
 
 对于币种识别：
 1. 标准币种符号应大写(BTC, ETH等)
@@ -91,7 +96,7 @@ ${rawText}
       messages: [
         {
           role: "system",
-          content: "你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。"
+          content: "你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。记住日期格式很重要：5.9表示5月9日而不是10月5日或其他日期。"
         },
         {
           role: "user",
@@ -120,17 +125,16 @@ ${rawText}
       console.log('日期存在:', !!parsedData.date);
       console.log('原始日期:', parsedData.date);
       
-      // 处理日期
+      // 处理日期 - 确保正确解析并格式化
       const currentYear = new Date().getFullYear();
       if (!parsedData.date) {
         const today = new Date();
         parsedData.date = today.toISOString().split('T')[0];
         console.log('添加默认日期:', parsedData.date);
-      } else if (parsedData.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        // 确保使用当前年份
-        const newDate = `${currentYear}-${parsedData.date.substring(5)}`;
-        console.log('更新年份:', parsedData.date, '->', newDate);
-        parsedData.date = newDate;
+      } else {
+        // 二次检查日期格式，确保正确解析
+        parsedData.date = validateAndFixDate(parsedData.date, rawText, currentYear);
+        console.log('最终日期:', parsedData.date);
       }
       
       // 验证币种数据
@@ -165,6 +169,96 @@ ${rawText}
     console.error('错误详情:', error.stack);
     throw new Error(`Failed to process data: ${error.message}`);
   }
+}
+
+/**
+ * 预处理原始文本中的日期格式，确保AI能正确理解
+ * @param {string} rawText - 原始文本
+ * @returns {string} - 预处理后的文本
+ */
+function preprocessDateFormat(rawText) {
+  if (!rawText) return rawText;
+  
+  // 查找类似"5.9"格式的日期（通常在第一行）
+  const lines = rawText.split('\n');
+  if (lines.length > 0) {
+    // 尝试匹配第一行中的日期格式 x.y
+    const dateMatch = lines[0].match(/^\s*(\d{1,2})\.(\d{1,2})\s*$/);
+    if (dateMatch) {
+      const month = parseInt(dateMatch[1], 10);
+      const day = parseInt(dateMatch[2], 10);
+      
+      // 添加显式标记，帮助AI正确理解
+      const currentYear = new Date().getFullYear();
+      const formattedDate = `${month}.${day} (月.日，即 ${currentYear}年${month}月${day}日)`;
+      lines[0] = formattedDate;
+      
+      console.log(`预处理日期: 原始"${dateMatch[0]}" -> 处理后"${formattedDate}"`);
+      return lines.join('\n');
+    }
+  }
+  
+  return rawText;
+}
+
+/**
+ * 验证并修复日期格式，确保正确解析日期
+ * @param {string} date - 原始日期字符串
+ * @param {string} rawText - 原始输入文本
+ * @param {number} currentYear - 当前年份
+ * @returns {string} - 修复后的日期字符串 (YYYY-MM-DD)
+ */
+function validateAndFixDate(date, rawText, currentYear) {
+  // 如果已经是正确的YYYY-MM-DD格式，验证月份和日期的值是否合理
+  if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    const [yearStr, monthStr, dayStr] = date.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const day = parseInt(dayStr, 10);
+    
+    // 提取原始输入中的日期信息，用于比较验证
+    const originalDateMatch = rawText.split('\n')[0].match(/(\d{1,2})\.(\d{1,2})/);
+    
+    // 如果原始输入包含日期，且解析后的月/日与原始不符，则可能需要修复
+    if (originalDateMatch) {
+      const originalMonth = parseInt(originalDateMatch[1], 10);
+      const originalDay = parseInt(originalDateMatch[2], 10);
+      
+      // 检查是否存在月/日颠倒的情况
+      if (month !== originalMonth || day !== originalDay) {
+        console.log(`日期解析可能有误: AI返回 ${month}-${day}, 原始输入为 ${originalMonth}.${originalDay}`);
+        
+        // 使用原始输入中解析的值构造正确日期
+        const fixedMonth = originalMonth.toString().padStart(2, '0');
+        const fixedDay = originalDay.toString().padStart(2, '0');
+        
+        return `${currentYear}-${fixedMonth}-${fixedDay}`;
+      }
+    }
+    
+    // 确保年份使用当前年份
+    if (year !== currentYear) {
+      return `${currentYear}-${monthStr}-${dayStr}`;
+    }
+    
+    return date;
+  }
+  
+  // 如果不是YYYY-MM-DD格式，尝试从原始文本解析
+  const dateMatch = rawText.split('\n')[0].match(/(\d{1,2})\.(\d{1,2})/);
+  if (dateMatch) {
+    const month = parseInt(dateMatch[1], 10);
+    const day = parseInt(dateMatch[2], 10);
+    
+    // 验证月份和日期在有效范围内
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${currentYear}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+    }
+  }
+  
+  // 如果无法从原始文本解析，使用当前日期
+  const today = new Date();
+  return today.toISOString().split('T')[0];
 }
 
 module.exports = { processRawData };

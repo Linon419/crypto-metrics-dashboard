@@ -1,60 +1,148 @@
-import React, { useState, useEffect } from 'react';
-import { Layout, Spin, Alert, DatePicker, Space, Typography } from 'antd';
+// src/components/Dashboard.jsx - 修复数据加载和显示问题
+import React, { useState, useEffect, useCallback } from 'react';
+import { Layout, Spin, Alert, DatePicker, Space, Typography, Button, Modal, notification } from 'antd';
+import { ReloadOutlined, InfoCircleOutlined, WarningOutlined, ApiOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import SearchBar from './SearchBar';
 import CoinList from './CoinList';
 import CoinDetailChart from './CoinDetailChart';
-import LoadingPlaceholder from './LoadingPlaceholder';
 import OtcIndexTable from './OtcIndexTable';
-import { useLatestMetrics } from '../hooks/useApi';
+import LoadingPlaceholder from './LoadingPlaceholder';
+import { fetchLatestMetrics } from '../services/api';
 
-const { Header, Content } = Layout;
-const { Title } = Typography;
+const { Header, Content, Footer } = Layout;
+const { Title, Text } = Typography;
 
 function Dashboard() {
+  // 状态管理
   const [selectedDate, setSelectedDate] = useState(dayjs());
-  const [selectedCoin, setSelectedCoin] = useState('BTC');
+  const [selectedCoin, setSelectedCoin] = useState(null);
+  const [allCoins, setAllCoins] = useState([]);
   const [favorites, setFavorites] = useState(
     JSON.parse(localStorage.getItem('favoriteCrypto') || '["BTC", "ETH"]')
   );
-  const { latestData, loading, error, refetch } = useLatestMetrics();
+  const [loading, setLoading] = useState(true); // 初始加载状态为true
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [error, setError] = useState(null);
+  const [latestDateStr, setLatestDateStr] = useState('');
+  const [infoModalVisible, setInfoModalVisible] = useState(false);
+  const [apiStatusModalVisible, setApiStatusModalVisible] = useState(false);
+  const [apiStatus, setApiStatus] = useState({ ok: false, message: '正在检查API状态...' });
+  
+  // 加载数据 - 使用useCallback确保可以在其他地方引用
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const result = await fetchLatestMetrics();
+      console.log("API数据加载结果:", result);
+      
+      if (result) {
+        // 格式化币种数据
+        const formattedCoins = formatCoinsData(result);
+        setAllCoins(formattedCoins);
+        
+        // 设置默认选中的币种
+        if (!selectedCoin && formattedCoins.length > 0) {
+          // 优先选择BTC，如果没有则选择第一个币种
+          const btcCoin = formattedCoins.find(c => c.symbol === 'BTC');
+          setSelectedCoin(btcCoin ? btcCoin.symbol : formattedCoins[0].symbol);
+        }
+        
+        // 设置最新日期
+        if (result.date) {
+          setLatestDateStr(result.date);
+          setSelectedDate(dayjs(result.date));
+        }
+        
+        // 更新API状态
+        setApiStatus({ ok: true, message: '数据加载成功，API连接正常' });
+        
+        // 如果这是首次加载，显示一个通知
+        if (!initialLoadComplete) {
+          notification.success({
+            message: '数据加载成功',
+            description: `已获取最新的加密货币指标数据 (${result.date})`,
+            duration: 3
+          });
+          setInitialLoadComplete(true);
+        }
+      }
+    } catch (err) {
+      console.error("加载数据失败:", err);
+      setError(`加载数据失败：${err.message || "未知错误"}`);
+      setApiStatus({ ok: false, message: `API连接错误: ${err.message}` });
+      
+      // 显示错误通知
+      notification.error({
+        message: '数据加载失败',
+        description: err.message || '无法从服务器获取数据，请检查网络连接',
+        duration: 4,
+        btn: (
+          <Button type="primary" size="small" onClick={checkApiStatus}>
+            检查API状态
+          </Button>
+        )
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCoin, initialLoadComplete]);
   
   // 格式化数据以供组件使用
   const formatCoinsData = (data) => {
     if (!data || !data.coins) return [];
     
     return data.coins.map(coin => ({
-      symbol: coin.symbol,
-      name: coin.name || coin.symbol,
-      price: coin.current_price || 0,
-      priceChangePercent: 0, // 这个数据可能需要从其他API获取
-      otcIndex: coin.metrics?.otc_index || 0,
-      explosionIndex: coin.metrics?.explosion_index || 0,
-      schellingPoint: coin.metrics?.schelling_point || 0,
-      entryExitType: coin.metrics?.entry_exit_type || 'neutral',
-      entryExitDay: coin.metrics?.entry_exit_day || 0
+      symbol: coin.symbol || 'UNKNOWN',
+      name: coin.name || coin.symbol || 'Unknown Coin',
+      price: typeof coin.price === 'number' ? coin.price : 
+             typeof coin.current_price === 'number' ? coin.current_price : undefined,
+      priceChangePercent: typeof coin.priceChangePercent === 'number' ? coin.priceChangePercent : undefined,
+      otcIndex: typeof coin.otcIndex === 'number' ? coin.otcIndex : 
+                coin.metrics?.otc_index !== undefined ? coin.metrics.otc_index : undefined,
+      explosionIndex: typeof coin.explosionIndex === 'number' ? coin.explosionIndex : 
+                      coin.metrics?.explosion_index !== undefined ? coin.metrics.explosion_index : undefined,
+      schellingPoint: typeof coin.schellingPoint === 'number' ? coin.schellingPoint : 
+                      coin.metrics?.schelling_point !== undefined ? coin.metrics.schelling_point : undefined,
+      entryExitType: coin.entryExitType || coin.metrics?.entry_exit_type || 'neutral',
+      entryExitDay: typeof coin.entryExitDay === 'number' ? coin.entryExitDay : 
+                    typeof coin.metrics?.entry_exit_day === 'number' ? coin.metrics.entry_exit_day : undefined
     }));
   };
   
-  // 找到选中的币种数据
-  const findSelectedCoinData = (coinsData) => {
-    return coinsData.find(coin => coin.symbol === selectedCoin) || coinsData[0];
-  };
+  // 首次加载
+  useEffect(() => {
+    loadData();
+    
+    // 每5分钟自动刷新一次数据
+    const refreshInterval = setInterval(() => {
+      loadData();
+    }, 5 * 60 * 1000);
+    
+    return () => clearInterval(refreshInterval);
+  }, [loadData]);
   
-  // 处理日期变更
+  // 处理日期变更 - 可以通过日期显示历史数据
   const handleDateChange = (date) => {
-    setSelectedDate(date);
-    // 这里可以添加根据日期获取数据的逻辑
+    if (date) {
+      setSelectedDate(date);
+      // 这里可以添加根据日期获取数据的逻辑
+      // fetchDataByDate(date.format('YYYY-MM-DD'));
+    }
   };
   
   // 处理币种选择
   const handleCoinSelect = (symbol) => {
-    setSelectedCoin(symbol);
+    if (symbol) {
+      setSelectedCoin(symbol);
+    }
   };
   
   // 手动刷新数据
   const handleRefresh = () => {
-    refetch();
+    loadData();
   };
   
   // 处理收藏切换
@@ -69,28 +157,80 @@ function Dashboard() {
       return newFavorites;
     });
   };
-
-  const coins = latestData ? formatCoinsData(latestData) : [];
-  const selectedCoinData = findSelectedCoinData(coins);
   
+  // 找到选中的币种数据
+  const getSelectedCoinData = () => {
+    return allCoins.find(coin => coin.symbol === selectedCoin);
+  };
+  
+  // 打开币种信息模态框
+  const openInfoModal = () => {
+    setInfoModalVisible(true);
+  };
+  
+  // 检查API状态
+  const checkApiStatus = async () => {
+    setApiStatusModalVisible(true);
+    setApiStatus({ ok: false, message: '正在检查API连接...' });
+    
+    try {
+      // 尝试调用API
+      await fetchLatestMetrics();
+      setApiStatus({ ok: true, message: 'API连接正常，服务器响应成功' });
+    } catch (err) {
+      setApiStatus({ 
+        ok: false, 
+        message: `API连接失败: ${err.message || '未知错误'}` 
+      });
+    }
+  };
+
   return (
     <Layout className="min-h-screen bg-gray-50">
-      <Header className="bg-gray-900 px-4 flex items-center justify-between shadow-sm">
-        <div className="flex items-center">
+      <Header className="bg-gray-900 px-4 flex flex-wrap justify-between items-center shadow-sm">
+        <div className="flex items-center mb-2 sm:mb-0">
           <div className="mr-4 text-xl font-bold text-white">加密货币指标看板</div>
           <SearchBar 
-            coins={coins} 
+            coins={allCoins} 
             onSelect={handleCoinSelect} 
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
+            loading={loading}
           />
         </div>
-        <Space>
+        <Space wrap className="mb-2 sm:mb-0">
+          {latestDateStr && (
+            <Text className="text-gray-300 mr-2">
+              最新数据: {latestDateStr}
+            </Text>
+          )}
           <DatePicker
             value={selectedDate}
             onChange={handleDateChange}
             format="YYYY-MM-DD"
+            allowClear={false}
           />
+          <Button 
+            type="primary" 
+            icon={<ReloadOutlined />} 
+            onClick={handleRefresh}
+            loading={loading}
+          >
+            刷新数据
+          </Button>
+          <Button
+            icon={<InfoCircleOutlined />}
+            onClick={openInfoModal}
+          >
+            指标说明
+          </Button>
+          <Button
+            icon={<ApiOutlined />}
+            onClick={checkApiStatus}
+            danger={!apiStatus.ok}
+          >
+            API状态
+          </Button>
         </Space>
       </Header>
       
@@ -102,40 +242,141 @@ function Dashboard() {
             type="error"
             showIcon
             className="mb-4"
+            action={
+              <Space>
+                <Button type="primary" size="small" onClick={handleRefresh}>
+                  重试
+                </Button>
+                <Button size="small" onClick={checkApiStatus}>
+                  检查API
+                </Button>
+              </Space>
+            }
           />
         )}
         
-        {loading ? (
-          <div className="flex flex-col items-center justify-center">
-            <Spin size="large" />
-            <div className="mt-4">加载数据中...</div>
-          </div>
+        {loading && !allCoins.length ? (
+          <LoadingPlaceholder />
         ) : (
           <>
             <CoinList
-              coins={coins}
+              coins={allCoins}
               onCoinSelect={handleCoinSelect}
               selectedCoin={selectedCoin}
               favorites={favorites}
               onToggleFavorite={handleToggleFavorite}
+              loading={loading}
+              error={error}
+              onRefresh={handleRefresh}
             />
             
-            {selectedCoinData ? (
+            {selectedCoin && getSelectedCoinData() ? (
               <CoinDetailChart
-                coin={selectedCoinData}
+                coin={getSelectedCoinData()}
                 onRefresh={handleRefresh}
               />
             ) : (
-              <div className="text-center py-10">
+              <div className="text-center py-10 bg-white rounded-lg shadow mb-4">
+                <WarningOutlined style={{ fontSize: 32 }} className="text-gray-400 mb-4" />
                 <Title level={4}>请选择一个币种查看详情</Title>
+                <Text className="text-gray-500">
+                  点击上方的币种卡片查看详细图表和指标数据
+                </Text>
               </div>
             )}
             
             {/* 添加场外指数表格 */}
-            <OtcIndexTable coins={coins} />
+            <OtcIndexTable 
+              coins={allCoins} 
+              loading={loading}
+              onRefresh={handleRefresh}
+            />
           </>
         )}
       </Content>
+      
+      <Footer className="text-center bg-gray-100">
+        加密货币指标看板 ©2025 Created with Ant Design & React
+      </Footer>
+      
+      {/* 指标说明模态框 */}
+      <Modal
+        title="指标说明"
+        open={infoModalVisible}
+        onCancel={() => setInfoModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setInfoModalVisible(false)}>
+            关闭
+          </Button>
+        ]}
+        width={700}
+      >
+        <div className="space-y-4">
+          <div>
+            <Title level={5}>场外指数 (OTC Index)</Title>
+            <Text>场外指数是衡量加密货币场外交易活跃度的指标。数值越高表示场外交易越活跃，通常与市场情绪有关。</Text>
+          </div>
+          
+          <div>
+            <Title level={5}>爆破指数 (Explosion Index)</Title>
+            <Text>爆破指数反映市场可能大幅波动的风险。当指数低于200时，表示市场处于风险区间，可能存在较大的下跌风险。指数高于200通常被视为安全区间。</Text>
+          </div>
+          
+          <div>
+            <Title level={5}>谢林点 (Schelling Point)</Title>
+            <Text>谢林点是一种市场共识价格，表示多数交易者认为合理的价格水平。这个指标有助于判断市场对价格的整体预期。</Text>
+          </div>
+          
+          <div>
+            <Title level={5}>进/退场期 (Entry/Exit Period)</Title>
+            <Text>进场期表示适合买入的市场阶段，退场期表示适合卖出的市场阶段。后面的数字表示当前阶段的持续天数。</Text>
+          </div>
+        </div>
+      </Modal>
+      
+      {/* API状态检查模态框 */}
+      <Modal
+        title="API连接状态"
+        open={apiStatusModalVisible}
+        onCancel={() => setApiStatusModalVisible(false)}
+        footer={[
+          <Button 
+            key="retry" 
+            type="primary" 
+            onClick={checkApiStatus}
+            loading={apiStatus.message.includes('正在检查')}
+          >
+            重新检查
+          </Button>,
+          <Button key="close" onClick={() => setApiStatusModalVisible(false)}>
+            关闭
+          </Button>
+        ]}
+      >
+        <div className="p-4 flex items-center">
+          {apiStatus.ok ? (
+            <div className="w-4 h-4 rounded-full bg-green-500 mr-2"></div>
+          ) : (
+            <div className="w-4 h-4 rounded-full bg-red-500 mr-2"></div>
+          )}
+          <Text>{apiStatus.message}</Text>
+        </div>
+        
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <Title level={5}>API连接信息</Title>
+          <Text>API基础URL: {process.env.REACT_APP_API_URL || 'http://localhost:3001/api'}</Text>
+          
+          <div className="mt-2">
+            <Text strong>常见问题：</Text>
+            <ul className="mt-1 list-disc pl-5">
+              <li>检查API服务器是否正在运行</li>
+              <li>确认网络连接正常</li>
+              <li>验证API端点配置是否正确</li>
+              <li>查看后端服务器日志获取详细错误信息</li>
+            </ul>
+          </div>
+        </div>
+      </Modal>
     </Layout>
   );
 }
