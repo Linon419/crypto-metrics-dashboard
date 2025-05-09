@@ -1,12 +1,19 @@
-// src/components/CoinDetailChart.jsx - 修复图表不显示的问题
+// src/components/CoinDetailChart.jsx - 确保与卡片数据一致
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, 
   Tooltip, Area, AreaChart, ResponsiveContainer, 
-  ReferenceArea, ReferenceLine 
+  ReferenceArea, ReferenceLine, Legend
 } from 'recharts';
-import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty } from 'antd';
-import { ZoomInOutlined, ZoomOutOutlined, UndoOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty, Radio } from 'antd';
+import { 
+  ZoomInOutlined, 
+  ZoomOutOutlined, 
+  UndoOutlined, 
+  ReloadOutlined, 
+  InfoCircleOutlined,
+  LineChartOutlined
+} from '@ant-design/icons';
 import { fetchCoinMetrics } from '../services/api';
 
 const { Title, Text } = Typography;
@@ -19,6 +26,7 @@ function CoinDetailChart({ coin, onRefresh }) {
   const [timeRange, setTimeRange] = useState('1M'); // 默认显示1个月
   const [zoomState, setZoomState] = useState(null);
   const [displayData, setDisplayData] = useState([]);
+  const [chartMode, setChartMode] = useState('blast'); // 'blast', 'otc', 'both'
   const chartRef = useRef(null);
   
   // 重置图表缩放
@@ -71,6 +79,44 @@ function CoinDetailChart({ coin, onRefresh }) {
     setDisplayData(filteredData.length ? filteredData : metrics);
     setZoomState(null);
   };
+  
+  // 处理指标切换
+  const handleChartModeChange = (mode) => {
+    setChartMode(mode);
+  };
+  
+  // 数据一致性：确保最新数据与传入的coin对象一致
+  useEffect(() => {
+    if (coin && metrics.length > 0) {
+      const lastIndex = metrics.length - 1;
+      
+      // 创建一个新的数组，避免直接修改原数组
+      const updatedMetrics = [...metrics];
+      
+      // 始终使用传入的coin对象的当前值来更新最近的日期的数据
+      if (coin.explosionIndex !== undefined) {
+        updatedMetrics[lastIndex].blastIndex = coin.explosionIndex;
+      }
+      if (coin.otcIndex !== undefined) {
+        updatedMetrics[lastIndex].otcIndex = coin.otcIndex;
+      }
+      if (coin.schellingPoint !== undefined) {
+        updatedMetrics[lastIndex].schellingPoint = coin.schellingPoint;
+      }
+      
+      // 更新状态
+      setMetrics(updatedMetrics);
+      
+      // 如果当前显示的是原始数据的子集（缩放状态），也更新displayData
+      if (displayData.length > 0 && displayData[displayData.length - 1].date === updatedMetrics[lastIndex].date) {
+        const updatedDisplayData = [...displayData];
+        updatedDisplayData[updatedDisplayData.length - 1] = updatedMetrics[lastIndex];
+        setDisplayData(updatedDisplayData);
+      } else {
+        setDisplayData(updatedMetrics);
+      }
+    }
+  }, [coin]);
   
   // 加载币种历史指标数据
   useEffect(() => {
@@ -133,14 +179,29 @@ function CoinDetailChart({ coin, onRefresh }) {
           console.log(`获取到 ${data.length} 条历史指标数据`);
           
           // 处理数据 - 将API返回的格式转换为图表需要的格式
-          const processedData = data.map(metric => ({
-            date: metric.date,
-            blastIndex: metric.explosion_index || 0,
-            otcIndex: metric.otc_index || 0,
-            schellingPoint: metric.schelling_point || 0,
-            actionType: metric.entry_exit_type === 'entry' ? '进场' : metric.entry_exit_type === 'exit' ? '退场' : '中性',
-            actionDay: metric.entry_exit_day || 0
-          }));
+          const processedData = data.map((metric, index) => {
+            // 如果是最后一条数据，使用传入的coin对象的当前值
+            if (index === data.length - 1) {
+              return {
+                date: metric.date,
+                blastIndex: coin.explosionIndex !== undefined ? coin.explosionIndex : metric.explosion_index || 0,
+                otcIndex: coin.otcIndex !== undefined ? coin.otcIndex : metric.otc_index || 0,
+                schellingPoint: coin.schellingPoint !== undefined ? coin.schellingPoint : metric.schelling_point || 0,
+                actionType: coin.entryExitType || metric.entry_exit_type || 'neutral',
+                actionDay: coin.entryExitDay !== undefined ? coin.entryExitDay : metric.entry_exit_day || 0
+              };
+            }
+            
+            // 其他数据正常处理
+            return {
+              date: metric.date,
+              blastIndex: metric.explosion_index || 0,
+              otcIndex: metric.otc_index || 0,
+              schellingPoint: metric.schelling_point || 0,
+              actionType: metric.entry_exit_type === 'entry' ? '进场' : metric.entry_exit_type === 'exit' ? '退场' : '中性',
+              actionDay: metric.entry_exit_day || 0
+            };
+          });
           
           // 按日期排序
           processedData.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -163,18 +224,19 @@ function CoinDetailChart({ coin, onRefresh }) {
     };
     
     loadMetricsData();
-  }, [coin, timeRange]);
+  }, [coin?.symbol, timeRange]); // 仅在coin.symbol或timeRange变化时重新加载
   
   // 创建模拟数据函数 - 当API无法获取数据时使用
   const createMockData = (coin, startDate, endDate) => {
     const mockData = [];
     const dayCount = Math.floor((endDate - startDate) / (24 * 60 * 60 * 1000));
     
-    // 起始值 - 根据币种当前值设置合理范围
+    // 直接使用传入的coin对象的当前值作为基准
     const baseExplosionIndex = coin.explosionIndex || 180;
     const baseOtcIndex = coin.otcIndex || 1200;
     const baseSchellingPoint = coin.schellingPoint || 1000;
-    const entryExitType = coin.entryExitType || 'neutral';
+    const entryExitType = coin.entryExitType === 'entry' ? '进场' : 
+                          coin.entryExitType === 'exit' ? '退场' : '中性';
     const entryExitDay = coin.entryExitDay || 0;
     
     // 生成每天的数据
@@ -183,7 +245,20 @@ function CoinDetailChart({ coin, onRefresh }) {
       currentDate.setDate(startDate.getDate() + i);
       const dateStr = currentDate.toISOString().split('T')[0];
       
-      // 随机波动 - 但保持趋势
+      // 最后一天使用精确的传入值，确保一致性
+      if (i === dayCount) {
+        mockData.push({
+          date: dateStr,
+          blastIndex: baseExplosionIndex,
+          otcIndex: baseOtcIndex,
+          schellingPoint: baseSchellingPoint,
+          actionType: entryExitType,
+          actionDay: entryExitDay
+        });
+        continue;
+      }
+      
+      // 其他天生成合理的随机值
       const randomFactor = Math.sin(i / 10) * 20 + (Math.random() - 0.5) * 15;
       const explosionChange = i === 0 ? 0 : mockData[i-1].blastIndex - baseExplosionIndex + randomFactor;
       
@@ -192,12 +267,29 @@ function CoinDetailChart({ coin, onRefresh }) {
         blastIndex: Math.max(100, Math.min(300, baseExplosionIndex + explosionChange * 0.2)),
         otcIndex: Math.max(500, Math.min(2000, baseOtcIndex + randomFactor * 5)),
         schellingPoint: Math.max(100, baseSchellingPoint * (1 + (randomFactor / 1000))),
-        actionType: entryExitType === 'entry' ? '进场' : entryExitType === 'exit' ? '退场' : '中性',
-        actionDay: entryExitType !== 'neutral' ? entryExitDay + i : 0
+        actionType: entryExitType,
+        actionDay: entryExitType !== '中性' ? Math.max(0, entryExitDay - (dayCount - i)) : 0
       });
     }
     
     return mockData;
+  };
+  
+  // 获取Y轴域
+  const getYAxisDomain = (dataKey) => {
+    if (!displayData || displayData.length === 0) return [0, 100];
+    
+    const values = displayData.map(d => d[dataKey]).filter(v => v !== undefined && v !== null);
+    if (values.length === 0) return [0, 100];
+    
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const padding = (max - min) * 0.1;
+    
+    return [
+      Math.max(0, Math.floor(min - padding)), 
+      Math.ceil(max + padding)
+    ];
   };
   
   // 自定义提示框
@@ -249,6 +341,33 @@ function CoinDetailChart({ coin, onRefresh }) {
     return null;
   };
   
+  // 调试信息 - 展示数据一致性
+  const renderDebugInfo = () => {
+    if (!coin || !displayData.length) return null;
+    
+    const latestData = displayData[displayData.length - 1];
+    const isConsistent = 
+      latestData.blastIndex === coin.explosionIndex &&
+      latestData.otcIndex === coin.otcIndex;
+    
+    if (!isConsistent) {
+      console.error('数据不一致!', {
+        '图表爆破指数': latestData.blastIndex,
+        '卡片爆破指数': coin.explosionIndex,
+        '图表场外指数': latestData.otcIndex,
+        '卡片场外指数': coin.otcIndex
+      });
+    }
+    
+    return (
+      <div className="text-xs text-gray-400 mt-1 mb-2">
+        {isConsistent ? 
+          '✓ 数据已同步' : 
+          '⚠️ 警告: 数据不同步! 请刷新'}
+      </div>
+    );
+  };
+  
   return (
     <Card className="w-full mt-4 mb-4 overflow-hidden">
       {loading ? (
@@ -279,25 +398,25 @@ function CoinDetailChart({ coin, onRefresh }) {
             <div>
               <Title level={3} className="mb-0">
                 {coin?.name || coin?.symbol} ({coin?.symbol})
-                {displayData.length > 0 && displayData[displayData.length - 1].actionType === '进场' && (
+                {coin?.entryExitType === 'entry' && (
                   <span className="ml-3 px-2 py-1 text-xs font-bold bg-green-100 text-green-800 rounded-full">
-                    进场期第{displayData[displayData.length - 1].actionDay}天
+                    进场期第{coin.entryExitDay}天
                   </span>
                 )}
-                {displayData.length > 0 && displayData[displayData.length - 1].actionType === '退场' && (
+                {coin?.entryExitType === 'exit' && (
                   <span className="ml-3 px-2 py-1 text-xs font-bold bg-red-100 text-red-800 rounded-full">
-                    退场期第{displayData[displayData.length - 1].actionDay}天
+                    退场期第{coin.entryExitDay}天
                   </span>
                 )}
               </Title>
               
               <div className="flex items-center mt-1">
-                {displayData.length > 0 && (
+                {coin && (
                   <Text className={`flex items-center ${
-                    displayData[displayData.length - 1].blastIndex < 200 ? 'text-red-600' : 'text-green-600'
+                    coin.explosionIndex < 200 ? 'text-red-600' : 'text-green-600'
                   } font-medium`}>
-                    爆破指数: {displayData[displayData.length - 1].blastIndex}
-                    {displayData[displayData.length - 1].blastIndex < 200 && (
+                    爆破指数: {coin.explosionIndex}
+                    {coin.explosionIndex < 200 && (
                       <Text className="ml-2 text-amber-500">
                         ⚠️ 低于安全阈值(200)
                       </Text>
@@ -305,6 +424,8 @@ function CoinDetailChart({ coin, onRefresh }) {
                   </Text>
                 )}
               </div>
+              
+              {renderDebugInfo()}
             </div>
             
             <div className="flex flex-wrap items-center mt-2 sm:mt-0">
@@ -334,50 +455,67 @@ function CoinDetailChart({ coin, onRefresh }) {
             </div>
           </div>
           
-          <div className="mb-2 flex flex-wrap gap-2">
-            <Button 
-              icon={<UndoOutlined />} 
-              onClick={handleReset}
-              size="small"
-            >
-              重置缩放
-            </Button>
-            <Button 
-              icon={<ZoomInOutlined />} 
-              size="small"
-              onClick={() => {
-                if (!displayData.length) return;
-                // 缩小显示范围 (放大显示)
-                const mid = Math.floor(displayData.length / 2);
-                const quarter = Math.floor(displayData.length / 4);
-                setDisplayData(displayData.slice(mid - quarter, mid + quarter));
-              }}
-            >
-              放大
-            </Button>
-            <Button 
-              icon={<ZoomOutOutlined />} 
-              size="small"
-              onClick={() => {
-                // 重置到原始数据 (缩小显示)
-                setDisplayData(metrics);
-              }}
-            >
-              缩小
-            </Button>
-            <Button
-              icon={<ReloadOutlined />}
-              size="small"
-              onClick={() => {
-                // 刷新图表数据
-                if (onRefresh) onRefresh();
-              }}
-            >
-              刷新数据
-            </Button>
-            <Text type="secondary" className="ml-2 text-sm">
-              提示: 在图表上拖拽可以放大查看特定时间范围
-            </Text>
+          {/* 指标选择与图表控制 */}
+          <div className="mb-4 flex flex-wrap justify-between items-center bg-gray-50 p-3 rounded-lg">
+            <div className="flex flex-wrap items-center gap-4 mb-2 sm:mb-0">
+              <div className="font-medium flex items-center">
+                <LineChartOutlined className="mr-1" />
+                显示指标:
+              </div>
+              <Radio.Group 
+                value={chartMode} 
+                onChange={e => handleChartModeChange(e.target.value)}
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="blast">爆破指数</Radio.Button>
+                <Radio.Button value="otc">场外指数</Radio.Button>
+                <Radio.Button value="both">双指标对比</Radio.Button>
+              </Radio.Group>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              <Button 
+                icon={<UndoOutlined />} 
+                onClick={handleReset}
+                size="small"
+              >
+                重置缩放
+              </Button>
+              <Button 
+                icon={<ZoomInOutlined />} 
+                size="small"
+                onClick={() => {
+                  if (!displayData.length) return;
+                  // 缩小显示范围 (放大显示)
+                  const mid = Math.floor(displayData.length / 2);
+                  const quarter = Math.floor(displayData.length / 4);
+                  setDisplayData(displayData.slice(mid - quarter, mid + quarter));
+                }}
+              >
+                放大
+              </Button>
+              <Button 
+                icon={<ZoomOutOutlined />} 
+                size="small"
+                onClick={() => {
+                  // 重置到原始数据 (缩小显示)
+                  setDisplayData(metrics);
+                }}
+              >
+                缩小
+              </Button>
+              <Button
+                icon={<ReloadOutlined />}
+                size="small"
+                onClick={() => {
+                  // 刷新图表数据
+                  if (onRefresh) onRefresh();
+                }}
+              >
+                刷新数据
+              </Button>
+            </div>
           </div>
           
           {/* 爆破指数图表 */}
@@ -395,6 +533,11 @@ function CoinDetailChart({ coin, onRefresh }) {
                   <linearGradient id="colorBlast" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
                     <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                  </linearGradient>
+                  
+                  <linearGradient id="colorOtc" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                   </linearGradient>
                   
                   <pattern id="entrancePattern" patternUnits="userSpaceOnUse" width="10" height="10">
@@ -419,20 +562,57 @@ function CoinDetailChart({ coin, onRefresh }) {
                   }}
                 />
                 
-                <YAxis 
-                  domain={[
-                    dataMin => Math.max(100, Math.floor(dataMin * 0.9)), 
-                    dataMax => Math.ceil(dataMax * 1.1)
-                  ]} 
-                  label={{ 
-                    value: '爆破指数', 
-                    angle: -90, 
-                    position: 'insideLeft',
-                    offset: -5
-                  }}
-                />
+                {/* 爆破指数Y轴 - 只有在显示爆破指数时显示 */}
+                {(chartMode === 'blast' || chartMode === 'both') && (
+                  <YAxis 
+                    yAxisId="left"
+                    domain={getYAxisDomain('blastIndex')}
+                    label={{ 
+                      value: '爆破指数', 
+                      angle: -90, 
+                      position: 'insideLeft',
+                      offset: -5,
+                      style: { fill: '#ef4444' }
+                    }}
+                    tick={{ fill: '#ef4444' }}
+                  />
+                )}
+                
+                {/* 场外指数Y轴 - 只有在显示场外指数时显示 */}
+                {chartMode === 'otc' && (
+                  <YAxis 
+                    yAxisId="left"
+                    domain={getYAxisDomain('otcIndex')}
+                    label={{ 
+                      value: '场外指数', 
+                      angle: -90, 
+                      position: 'insideLeft',
+                      offset: -5,
+                      style: { fill: '#3b82f6' }
+                    }}
+                    tick={{ fill: '#3b82f6' }}
+                  />
+                )}
+                
+                {/* 双指标模式下的第二Y轴 */}
+                {chartMode === 'both' && (
+                  <YAxis 
+                    yAxisId="right"
+                    orientation="right"
+                    domain={getYAxisDomain('otcIndex')}
+                    label={{ 
+                      value: '场外指数', 
+                      angle: 90, 
+                      position: 'insideRight',
+                      offset: -5,
+                      style: { fill: '#3b82f6' }
+                    }}
+                    tick={{ fill: '#3b82f6' }}
+                  />
+                )}
                 
                 <Tooltip content={<CustomTooltip />} />
+                <Legend />
                 
                 {/* 进场期区域 */}
                 <Area
@@ -443,6 +623,7 @@ function CoinDetailChart({ coin, onRefresh }) {
                   fillOpacity={0.2}
                   activeDot={false}
                   name="进场期"
+                  yAxisId={chartMode === 'otc' ? 'left' : 'left'}
                 />
                 
                 {/* 退场期区域 */}
@@ -454,33 +635,72 @@ function CoinDetailChart({ coin, onRefresh }) {
                   fillOpacity={0.2}
                   activeDot={false}
                   name="退场期"
+                  yAxisId={chartMode === 'otc' ? 'left' : 'left'}
                 />
                 
-                {/* 安全阈值线 */}
-                <ReferenceLine
-                  y={200}
-                  stroke="#f59e0b"
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  label={{
-                    value: '安全阈值(200)',
-                    position: 'insideBottomRight',
-                    fill: '#f59e0b'
-                  }}
-                />
+                {/* 安全阈值线 - 只在显示爆破指数时显示 */}
+                {(chartMode === 'blast' || chartMode === 'both') && (
+                  <ReferenceLine
+                    y={200}
+                    yAxisId="left"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    label={{
+                      value: '安全阈值(200)',
+                      position: 'insideBottomRight',
+                      fill: '#f59e0b'
+                    }}
+                  />
+                )}
                 
                 {/* 爆破指数线 */}
-                <Area 
-                  type="monotone" 
-                  dataKey="blastIndex" 
-                  stroke="#ef4444" 
-                  fillOpacity={1} 
-                  fill="url(#colorBlast)" 
-                  strokeWidth={2.5}
-                  activeDot={{ r: 8, stroke: "#ef4444", strokeWidth: 2, fill: "white" }}
-                  animationDuration={1000}
-                  name="爆破指数"
-                />
+                {(chartMode === 'blast' || chartMode === 'both') && (
+                  <Area 
+                    type="monotone" 
+                    dataKey="blastIndex" 
+                    stroke="#ef4444" 
+                    fillOpacity={0.5} 
+                    fill="url(#colorBlast)" 
+                    strokeWidth={2.5}
+                    activeDot={{ r: 8, stroke: "#ef4444", strokeWidth: 2, fill: "white" }}
+                    animationDuration={1000}
+                    name="爆破指数"
+                    yAxisId="left"
+                  />
+                )}
+                
+                {/* 场外指数线 */}
+                {chartMode === 'otc' && (
+                  <Area 
+                    type="monotone" 
+                    dataKey="otcIndex" 
+                    stroke="#3b82f6" 
+                    fillOpacity={0.5} 
+                    fill="url(#colorOtc)" 
+                    strokeWidth={2.5}
+                    activeDot={{ r: 8, stroke: "#3b82f6", strokeWidth: 2, fill: "white" }}
+                    animationDuration={1000}
+                    name="场外指数"
+                    yAxisId="left"
+                  />
+                )}
+                
+                {/* 双指标模式下的场外指数线 */}
+                {chartMode === 'both' && (
+                  <Area 
+                    type="monotone" 
+                    dataKey="otcIndex" 
+                    stroke="#3b82f6" 
+                    fillOpacity={0.5} 
+                    fill="url(#colorOtc)" 
+                    strokeWidth={2.5}
+                    activeDot={{ r: 8, stroke: "#3b82f6", strokeWidth: 2, fill: "white" }}
+                    animationDuration={1000}
+                    name="场外指数"
+                    yAxisId="right"
+                  />
+                )}
                 
                 {/* 缩放选择区域 */}
                 {zoomState && (
@@ -490,6 +710,7 @@ function CoinDetailChart({ coin, onRefresh }) {
                     strokeOpacity={0.3}
                     fill="#8884d8"
                     fillOpacity={0.1}
+                    yAxisId={chartMode === 'otc' ? 'left' : 'left'}
                   />
                 )}
               </AreaChart>
@@ -497,7 +718,7 @@ function CoinDetailChart({ coin, onRefresh }) {
           </div>
           
           {/* 指标数据 */}
-          {displayData.length > 0 && (
+          {coin && (
             <Row gutter={16} className="mt-4">
               <Col span={8}>
                 <Statistic 
@@ -507,7 +728,7 @@ function CoinDetailChart({ coin, onRefresh }) {
                       <InfoCircleOutlined className="ml-1 text-gray-400" title="反映场外交易活跃度的指标" />
                     </div>
                   }
-                  value={displayData[displayData.length - 1].otcIndex} 
+                  value={coin.otcIndex} 
                   valueStyle={{ color: '#1677ff' }}
                 />
               </Col>
@@ -519,12 +740,12 @@ function CoinDetailChart({ coin, onRefresh }) {
                       <InfoCircleOutlined className="ml-1 text-gray-400" title="值低于200表示市场风险较高" />
                     </div>
                   }
-                  value={displayData[displayData.length - 1].blastIndex}
+                  value={coin.explosionIndex}
                   valueStyle={{ 
-                    color: displayData[displayData.length - 1].blastIndex < 200 ? '#ff6b6b' : '#52c41a'
+                    color: coin.explosionIndex < 200 ? '#ff6b6b' : '#52c41a'
                   }}
                   suffix={
-                    displayData[displayData.length - 1].blastIndex < 200 ? 
+                    coin.explosionIndex < 200 ? 
                     <Text type="danger">风险</Text> : 
                     <Text type="success">安全</Text>
                   }
@@ -538,12 +759,12 @@ function CoinDetailChart({ coin, onRefresh }) {
                       <InfoCircleOutlined className="ml-1 text-gray-400" title="市场共识价格水平" />
                     </div>
                   }
-                  value={displayData[displayData.length - 1].schellingPoint}
+                  value={coin.schellingPoint}
                   valueStyle={{ color: '#722ed1' }}
                   precision={
-                    displayData[displayData.length - 1].schellingPoint > 1000 ? 0 :
-                    displayData[displayData.length - 1].schellingPoint > 100 ? 1 :
-                    displayData[displayData.length - 1].schellingPoint > 10 ? 2 : 4
+                    coin.schellingPoint > 1000 ? 0 :
+                    coin.schellingPoint > 100 ? 1 :
+                    coin.schellingPoint > 10 ? 2 : 4
                   }
                 />
               </Col>

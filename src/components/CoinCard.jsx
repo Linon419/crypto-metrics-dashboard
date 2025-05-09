@@ -1,4 +1,4 @@
-// src/components/CoinCard.jsx - 修复显示NaN问题
+// src/components/CoinCard.jsx - 调整布局，突出爆破指数，去掉价格
 import React from 'react';
 import { Card, Typography, Tag } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, WarningOutlined } from '@ant-design/icons';
@@ -6,17 +6,15 @@ import { ArrowUpOutlined, ArrowDownOutlined, WarningOutlined } from '@ant-design
 const { Title, Text } = Typography;
 
 function CoinCard({ coin }) {
-  // 防御性数据处理 - 确保所有属性都有默认值，防止NaN显示
+  // 防御性数据处理 - 确保所有属性都有默认值
   const { 
     symbol = 'UNKNOWN',
     name,
-    price,
-    priceChangePercent,
     entryExitType,
     entryExitDay,
-    explosionIndex,
-    otcIndex,
-    schellingPoint
+    explosionIndex = 0,
+    otcIndex = 0,
+    schellingPoint = 0
   } = coin || {};
 
   // 安全数值转换函数，防止NaN
@@ -27,18 +25,8 @@ function CoinCard({ coin }) {
     return Number(value);
   };
 
-  // 安全格式化价格的函数
-  const formatPrice = (value) => {
-    const num = safeNumber(value);
-    if (num > 1000) return num.toLocaleString();
-    if (num > 1) return num.toFixed(2);
-    if (num > 0.001) return num.toFixed(4);
-    return num.toFixed(6);
-  };
-
-  // 判断价格变化方向
-  const priceChange = safeNumber(priceChangePercent);
-  const isPositiveChange = priceChange >= 0;
+  // 爆破指数是否安全（高于200为安全）
+  const isExplosionSafe = safeNumber(explosionIndex) >= 200;
   
   // 渲染币种图标 - 使用首字母和颜色映射
   const renderIcon = () => {
@@ -66,7 +54,7 @@ function CoinCard({ coin }) {
     const displayChar = symbol ? symbol.charAt(0) : '?';
     
     return (
-      <div className={`flex items-center justify-center w-8 h-8 rounded-full ${bgColor} text-white font-bold`}>
+      <div className={`flex items-center justify-center w-10 h-10 rounded-full ${bgColor} text-white font-bold text-lg`}>
         {displayChar}
       </div>
     );
@@ -89,54 +77,40 @@ function CoinCard({ coin }) {
 
   return (
     <Card className="coin-card w-full shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-center space-x-3">
+      <div className="flex items-start space-x-3">
         {renderIcon()}
         <div className="flex-1">
           <div className="flex items-center">
-            <Title level={5} className="m-0">{name || symbol}</Title>
+            <Title level={5} className="m-0">{symbol}</Title>
+            {name && name !== symbol && (
+              <Text type="secondary" className="ml-1">({name})</Text>
+            )}
             {renderEntryExitTag()}
           </div>
-          <div className="flex items-baseline">
-            {price !== undefined && price !== null ? (
-              <>
-                <Text strong className="text-lg">${formatPrice(price)}</Text>
-                {priceChangePercent !== undefined && (
-                  <Text 
-                    className={`ml-2 ${isPositiveChange ? 'text-green-500' : 'text-red-500'}`}
-                  >
-                    {isPositiveChange ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                    {Math.abs(priceChange).toFixed(2)}%
-                  </Text>
-                )}
-              </>
-            ) : (
-              // 当价格数据不可用时的回退显示
-              <Text className="text-gray-400">价格数据加载中...</Text>
-            )}
+          
+          {/* 突出显示爆破指数 */}
+          <div className="mt-2 mb-1">
+            <div className={`flex items-center ${isExplosionSafe ? 'text-green-600' : 'text-red-600'} font-medium text-base`}>
+              <span className="mr-2">爆破指数:</span>
+              <span className="font-bold text-lg">{safeNumber(explosionIndex)}</span>
+              {!isExplosionSafe && (
+                <WarningOutlined className="ml-2" title="低于安全阈值200" />
+              )}
+            </div>
           </div>
           
-          {/* 指标区域 - 添加爆破指数和场外指数 */}
-          <div className="mt-1 flex flex-wrap gap-2">
-            {/* 爆破指数 */}
-            {explosionIndex !== undefined && (
-              <Text className={`text-sm ${safeNumber(explosionIndex) > 200 ? 'text-green-600' : 'text-red-600'}`}>
-                爆破指数: {safeNumber(explosionIndex)}
-              </Text>
-            )}
-
-            {/* 场外指数 */}
-            {otcIndex !== undefined && (
-              <Text className="text-sm text-blue-600">
-                场外指数: {safeNumber(otcIndex)}
-              </Text>
-            )}
-            
-            {/* 谢林点 - 可选显示 */}
-            {schellingPoint !== undefined && (
-              <Text className="text-sm text-purple-600 hidden sm:inline-block">
-                谢林点: {safeNumber(schellingPoint).toLocaleString()}
-              </Text>
-            )}
+          {/* 其他指标 */}
+          <div className="grid grid-cols-2 gap-1 text-sm">
+            <div>
+              <span className="text-blue-600 font-medium">场外指数: </span>
+              <span>{safeNumber(otcIndex)}</span>
+            </div>
+            <div>
+              <span className="text-purple-600 font-medium">谢林点: </span>
+              <span>{typeof schellingPoint === 'number' ? 
+                schellingPoint > 1000 ? schellingPoint.toLocaleString() : schellingPoint.toFixed(2) 
+                : '-'}</span>
+            </div>
           </div>
         </div>
       </div>

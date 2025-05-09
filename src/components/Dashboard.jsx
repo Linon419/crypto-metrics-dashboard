@@ -1,7 +1,15 @@
-// src/components/Dashboard.jsx - 修复数据加载和显示问题
+// src/components/Dashboard.jsx - 改进按钮颜色和可见性
 import React, { useState, useEffect, useCallback } from 'react';
 import { Layout, Spin, Alert, DatePicker, Space, Typography, Button, Modal, notification } from 'antd';
-import { ReloadOutlined, InfoCircleOutlined, WarningOutlined, ApiOutlined } from '@ant-design/icons';
+import { 
+  ReloadOutlined, 
+  InfoCircleOutlined, 
+  ApiOutlined, 
+  SearchOutlined,
+  FireOutlined,
+  StarOutlined,
+  DatabaseOutlined
+} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import SearchBar from './SearchBar';
 import CoinList from './CoinList';
@@ -21,15 +29,16 @@ function Dashboard() {
   const [favorites, setFavorites] = useState(
     JSON.parse(localStorage.getItem('favoriteCrypto') || '["BTC", "ETH"]')
   );
-  const [loading, setLoading] = useState(true); // 初始加载状态为true
+  const [loading, setLoading] = useState(true); 
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [error, setError] = useState(null);
   const [latestDateStr, setLatestDateStr] = useState('');
   const [infoModalVisible, setInfoModalVisible] = useState(false);
   const [apiStatusModalVisible, setApiStatusModalVisible] = useState(false);
   const [apiStatus, setApiStatus] = useState({ ok: false, message: '正在检查API状态...' });
+  const [viewMode, setViewMode] = useState('all'); // 'all', 'favorites', 'popular'
   
-  // 加载数据 - 使用useCallback确保可以在其他地方引用
+  // 加载数据
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -185,6 +194,12 @@ function Dashboard() {
     }
   };
 
+  // 改进的按钮样式 - 使用更高对比度的颜色
+  const buttonStyle = {
+    fontWeight: 500,
+    borderWidth: '2px', 
+  };
+
   return (
     <Layout className="min-h-screen bg-gray-50">
       <Header className="bg-gray-900 px-4 flex flex-wrap justify-between items-center shadow-sm">
@@ -209,18 +224,21 @@ function Dashboard() {
             onChange={handleDateChange}
             format="YYYY-MM-DD"
             allowClear={false}
+            className="mr-2"
           />
           <Button 
             type="primary" 
             icon={<ReloadOutlined />} 
             onClick={handleRefresh}
             loading={loading}
+            style={{ background: '#1890ff', borderColor: '#1890ff', ...buttonStyle }}
           >
             刷新数据
           </Button>
           <Button
             icon={<InfoCircleOutlined />}
             onClick={openInfoModal}
+            style={{ background: '#722ed1', borderColor: '#722ed1', color: 'white', ...buttonStyle }}
           >
             指标说明
           </Button>
@@ -228,6 +246,12 @@ function Dashboard() {
             icon={<ApiOutlined />}
             onClick={checkApiStatus}
             danger={!apiStatus.ok}
+            style={{ 
+              background: !apiStatus.ok ? '#ff4d4f' : '#52c41a', 
+              borderColor: !apiStatus.ok ? '#ff4d4f' : '#52c41a', 
+              color: 'white',
+              ...buttonStyle
+            }}
           >
             API状态
           </Button>
@@ -255,6 +279,55 @@ function Dashboard() {
           />
         )}
         
+        {/* 币种视图选择按钮 */}
+        <div className="flex flex-wrap mb-4 gap-2">
+          <Button 
+            type="primary"
+            icon={<DatabaseOutlined />}
+            onClick={() => setViewMode('all')}
+            style={{ 
+              background: viewMode === 'all' ? '#1890ff' : '#f0f0f0', 
+              borderColor: viewMode === 'all' ? '#1890ff' : '#d9d9d9',
+              color: viewMode === 'all' ? 'white' : 'rgba(0, 0, 0, 0.85)',
+              ...buttonStyle
+            }}
+          >
+            全部币种
+          </Button>
+          <Button 
+            icon={<StarOutlined />}
+            onClick={() => setViewMode('favorites')}
+            style={{ 
+              background: viewMode === 'favorites' ? '#faad14' : '#f0f0f0', 
+              borderColor: viewMode === 'favorites' ? '#faad14' : '#d9d9d9',
+              color: viewMode === 'favorites' ? 'white' : 'rgba(0, 0, 0, 0.85)',
+              ...buttonStyle
+            }}
+          >
+            收藏币种
+          </Button>
+          <Button 
+            icon={<FireOutlined />}
+            onClick={() => setViewMode('popular')}
+            style={{ 
+              background: viewMode === 'popular' ? '#ff4d4f' : '#f0f0f0', 
+              borderColor: viewMode === 'popular' ? '#ff4d4f' : '#d9d9d9',
+              color: viewMode === 'popular' ? 'white' : 'rgba(0, 0, 0, 0.85)',
+              ...buttonStyle
+            }}
+          >
+            热门币种
+          </Button>
+          <Button 
+            icon={<ReloadOutlined />} 
+            onClick={handleRefresh}
+            loading={loading}
+            style={{ marginLeft: 'auto', ...buttonStyle }}
+          >
+            刷新
+          </Button>
+        </div>
+        
         {loading && !allCoins.length ? (
           <LoadingPlaceholder />
         ) : (
@@ -268,6 +341,7 @@ function Dashboard() {
               loading={loading}
               error={error}
               onRefresh={handleRefresh}
+              viewMode={viewMode}
             />
             
             {selectedCoin && getSelectedCoinData() ? (
@@ -277,7 +351,7 @@ function Dashboard() {
               />
             ) : (
               <div className="text-center py-10 bg-white rounded-lg shadow mb-4">
-                <WarningOutlined style={{ fontSize: 32 }} className="text-gray-400 mb-4" />
+                <SearchOutlined style={{ fontSize: 32 }} className="text-gray-400 mb-4" />
                 <Title level={4}>请选择一个币种查看详情</Title>
                 <Text className="text-gray-500">
                   点击上方的币种卡片查看详细图表和指标数据

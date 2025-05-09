@@ -1,12 +1,21 @@
-// src/components/CoinList.jsx - 修复数据加载和显示问题
+// src/components/CoinList.jsx - 更新以匹配新的布局和按钮颜色
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Carousel, Pagination, Spin, Empty, Button, Alert, Card } from 'antd';
+import { Row, Col, Carousel, Pagination, Spin, Empty, Button, Alert, Card, Badge } from 'antd';
 import { ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import CoinCard from './CoinCard';
 
-function CoinList({ coins = [], onCoinSelect, selectedCoin, favorites = [], onToggleFavorite, loading = false, error = null, onRefresh }) {
+function CoinList({ 
+  coins = [], 
+  onCoinSelect, 
+  selectedCoin, 
+  favorites = [], 
+  onToggleFavorite, 
+  loading = false, 
+  error = null, 
+  onRefresh,
+  viewMode = 'all' // 来自父组件的viewMode
+}) {
   const [currentPage, setCurrentPage] = useState(1);
-  const [viewMode, setViewMode] = useState('all'); // 'all', 'favorites', 'popular'
   const pageSize = 8; // 每页显示8个币种
   
   // 当没有选定币种且有可用数据时自动选择第一个
@@ -18,7 +27,7 @@ function CoinList({ coins = [], onCoinSelect, selectedCoin, favorites = [], onTo
     }
   }, [coins, selectedCoin, onCoinSelect]);
 
-  // 根据当前视图模式筛选币种
+  // 用viewMode筛选币种
   const filterCoins = () => {
     // 确保数据是数组类型
     const safeCoins = Array.isArray(coins) ? coins : [];
@@ -27,8 +36,12 @@ function CoinList({ coins = [], onCoinSelect, selectedCoin, favorites = [], onTo
       case 'favorites':
         return safeCoins.filter(coin => favorites.includes(coin.symbol));
       case 'popular':
-        // 这里可以根据特定指标筛选热门币种，比如爆破指数或场外指数较高的
-        return safeCoins.filter(coin => (coin.explosionIndex || 0) > 170);
+        // 热门币种：高场外指数或爆破指数较高
+        return safeCoins.filter(coin => {
+          const otcIndex = parseInt(coin.otcIndex) || 0;
+          const explosionIndex = parseInt(coin.explosionIndex) || 0;
+          return otcIndex > 1000 || explosionIndex > 180;
+        });
       default:
         return safeCoins;
     }
@@ -81,37 +94,6 @@ function CoinList({ coins = [], onCoinSelect, selectedCoin, favorites = [], onTo
 
   return (
     <div className="mb-6">
-      {/* 顶部控制栏 */}
-      <div className="flex flex-wrap justify-between items-center mb-4">
-        <div className="flex space-x-2 mb-2 sm:mb-0">
-          <Button 
-            type={viewMode === 'all' ? 'primary' : 'default'}
-            onClick={() => setViewMode('all')}
-          >
-            全部币种
-          </Button>
-          <Button 
-            type={viewMode === 'favorites' ? 'primary' : 'default'}
-            onClick={() => setViewMode('favorites')}
-          >
-            收藏币种
-          </Button>
-          <Button 
-            type={viewMode === 'popular' ? 'primary' : 'default'} 
-            onClick={() => setViewMode('popular')}
-          >
-            热门币种
-          </Button>
-        </div>
-        <Button 
-          icon={<ReloadOutlined />} 
-          onClick={handleRefresh}
-          loading={loading}
-        >
-          刷新
-        </Button>
-      </div>
-
       {/* 错误提示 */}
       {error && (
         <Alert
@@ -148,16 +130,22 @@ function CoinList({ coins = [], onCoinSelect, selectedCoin, favorites = [], onTo
               <Row gutter={[16, 16]} className="mb-4">
                 {getCurrentPageCoins().map((coin, index) => (
                   <Col key={`${coin.symbol}-${index}`} xs={24} sm={12} md={6}>
-                    <div 
-                      onClick={() => handleCoinClick(coin)}
-                      className={`cursor-pointer transition-all duration-200 ${
-                        selectedCoin === coin.symbol 
-                          ? 'ring-2 ring-blue-500 shadow-md rounded-lg transform scale-[1.02]' 
-                          : 'hover:shadow-md hover:scale-[1.01]'
-                      }`}
+                    <Badge.Ribbon 
+                      text={coin.entryExitType === 'entry' ? '进场' : coin.entryExitType === 'exit' ? '退场' : ''}
+                      color={coin.entryExitType === 'entry' ? 'green' : coin.entryExitType === 'exit' ? 'red' : 'blue'}
+                      style={{ display: coin.entryExitType === 'neutral' ? 'none' : 'block' }}
                     >
-                      <CoinCard coin={coin} />
-                    </div>
+                      <div 
+                        onClick={() => handleCoinClick(coin)}
+                        className={`cursor-pointer transition-all duration-200 ${
+                          selectedCoin === coin.symbol 
+                            ? 'ring-2 ring-blue-500 shadow-md rounded-lg transform scale-[1.02]' 
+                            : 'hover:shadow-md hover:scale-[1.01]'
+                        }`}
+                      >
+                        <CoinCard coin={coin} />
+                      </div>
+                    </Badge.Ribbon>
                   </Col>
                 ))}
               </Row>
@@ -181,14 +169,20 @@ function CoinList({ coins = [], onCoinSelect, selectedCoin, favorites = [], onTo
               <Carousel autoplay dotPosition="bottom">
                 {getCurrentPageCoins().map((coin, index) => (
                   <div key={`${coin.symbol}-${index}`} className="px-2 pb-8">
-                    <div 
-                      onClick={() => handleCoinClick(coin)}
-                      className={`cursor-pointer ${
-                        selectedCoin === coin.symbol ? 'ring-2 ring-blue-500 rounded-lg' : ''
-                      }`}
+                    <Badge.Ribbon 
+                      text={coin.entryExitType === 'entry' ? '进场' : coin.entryExitType === 'exit' ? '退场' : ''}
+                      color={coin.entryExitType === 'entry' ? 'green' : coin.entryExitType === 'exit' ? 'red' : 'blue'}
+                      style={{ display: coin.entryExitType === 'neutral' ? 'none' : 'block' }}
                     >
-                      <CoinCard coin={coin} />
-                    </div>
+                      <div 
+                        onClick={() => handleCoinClick(coin)}
+                        className={`cursor-pointer ${
+                          selectedCoin === coin.symbol ? 'ring-2 ring-blue-500 rounded-lg' : ''
+                        }`}
+                      >
+                        <CoinCard coin={coin} />
+                      </div>
+                    </Badge.Ribbon>
                   </div>
                 ))}
               </Carousel>
