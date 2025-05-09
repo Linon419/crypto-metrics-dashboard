@@ -1,4 +1,4 @@
-// src/components/Dashboard.jsx - 改进按钮颜色和可见性
+// src/components/Dashboard.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { Layout, Spin, Alert, DatePicker, Space, Typography, Button, Modal, notification } from 'antd';
 import { 
@@ -15,10 +15,11 @@ import SearchBar from './SearchBar';
 import CoinList from './CoinList';
 import CoinDetailChart from './CoinDetailChart';
 import OtcIndexTable from './OtcIndexTable';
+import LiquidityRadialChart from './LiquidityRadialChart'; // 导入流动性图表组件
 import LoadingPlaceholder from './LoadingPlaceholder';
 import { fetchLatestMetrics } from '../services/api';
 
-const { Header, Content, Footer } = Layout;
+const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 function Dashboard() {
@@ -37,6 +38,7 @@ function Dashboard() {
   const [apiStatusModalVisible, setApiStatusModalVisible] = useState(false);
   const [apiStatus, setApiStatus] = useState({ ok: false, message: '正在检查API状态...' });
   const [viewMode, setViewMode] = useState('all'); // 'all', 'favorites', 'popular'
+  const [liquidityData, setLiquidityData] = useState(null); // 新增：存储流动性数据
   
   // 加载数据
   const loadData = useCallback(async () => {
@@ -63,6 +65,11 @@ function Dashboard() {
         if (result.date) {
           setLatestDateStr(result.date);
           setSelectedDate(dayjs(result.date));
+        }
+        
+        // 存储流动性数据
+        if (result.liquidity) {
+          setLiquidityData(result.liquidity);
         }
         
         // 更新API状态
@@ -359,6 +366,12 @@ function Dashboard() {
               </div>
             )}
             
+            {/* 新增：流动性概况图表 */}
+            <LiquidityRadialChart
+              liquidity={liquidityData}
+              loading={loading}
+            />
+            
             {/* 添加场外指数表格 */}
             <OtcIndexTable 
               coins={allCoins} 
@@ -368,10 +381,7 @@ function Dashboard() {
           </>
         )}
       </Content>
-      
-      <Footer className="text-center bg-gray-100">
-        加密货币指标看板 ©2025 Created with Ant Design & React
-      </Footer>
+
       
       {/* 指标说明模态框 */}
       <Modal
@@ -404,6 +414,12 @@ function Dashboard() {
           <div>
             <Title level={5}>进/退场期 (Entry/Exit Period)</Title>
             <Text>进场期表示适合买入的市场阶段，退场期表示适合卖出的市场阶段。后面的数字表示当前阶段的持续天数。</Text>
+          </div>
+          
+          {/* 新增流动性概况的说明 */}
+          <div>
+            <Title level={5}>流动性概况 (Liquidity Overview)</Title>
+            <Text>流动性概况展示了主要加密货币资金流入流出情况，包括BTC、ETH和SOL的资金变化以及总市场资金变化。正值表示资金流入，负值表示资金流出，单位为亿美元。</Text>
           </div>
         </div>
       </Modal>

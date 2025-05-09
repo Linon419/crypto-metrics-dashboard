@@ -1,11 +1,13 @@
-// src/services/api.js - 增加超时时间并添加重试机制
+// src/services/api.js - 增加超时时间并添加重试机制 + 导出数据库功能
 import axios from 'axios';
 
 // 创建统一数据缓存存储
 const dataCache = {
   latestMetrics: null,
   lastFetchTime: 0,
-  coinDetails: new Map()
+  coinDetails: new Map(),
+  allDatabaseData: null,
+  lastDatabaseFetchTime: 0
 };
 
 // 创建axios实例 - 增加超时时间
@@ -87,6 +89,8 @@ export const submitRawData = async (rawData) => {
       dataCache.latestMetrics = null;
       dataCache.lastFetchTime = 0;
       dataCache.coinDetails.clear();
+      dataCache.allDatabaseData = null; // 同时清除数据库数据缓存
+      dataCache.lastDatabaseFetchTime = 0;
       
       // 立即获取最新数据
       try {
@@ -164,9 +168,6 @@ export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
     return createMockHistoricalData(symbol);
   }
 };
-
-// 其他API函数，使用原来的实现
-// ...
 
 // 确保我们有最新的单个币种数据
 async function ensureLatestCoinData(symbol) {
@@ -261,6 +262,97 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
   } catch (error) {
     console.error('获取最新指标数据失败:', error);
     return getFallbackMetricsData();
+  }
+};
+
+// 新增: 导出所有数据库数据 - 使用缓存和重试机制
+export const exportAllData = async (forceRefresh = false) => {
+  try {
+    // 检查导出缓存是否有效 (10分钟内有效)
+    const now = Date.now();
+    const isCacheValid = dataCache.allDatabaseData && 
+                         now - dataCache.lastDatabaseFetchTime < 10 * 60 * 1000;
+    
+    // 如果缓存有效且不强制刷新，直接返回缓存数据
+    if (isCacheValid && !forceRefresh) {
+      console.log('使用缓存的数据库导出数据');
+      return dataCache.allDatabaseData;
+    }
+    
+    console.log('开始获取所有数据库数据以供导出');
+    
+    // 首先确保我们有最新的指标数据
+    await fetchLatestMetrics(forceRefresh);
+    
+    // 使用重试机制获取关键数据
+    const [coinsResponse, metricsResponse, liquidityResponse, datesResponse] = await Promise.all([
+      callApiWithRetry(() => api.get('/coins')),
+      callApiWithRetry(() => api.get('/metrics')),
+      callApiWithRetry(() => api.get('/liquidity')),
+      callApiWithRetry(() => api.get('/data/debug/date-range')),
+    ]);
+    
+    // 尝试获取所有币种的历史指标数据 - 这部分如果失败不会阻止整体导出
+    let historicalData = {};
+    try {
+      const coins = coinsResponse.data;
+      const mainCoins = ['BTC', 'ETH', 'BNB', 'SOL', 'USDT', 'XRP'].filter(
+        symbol => coins.some(coin => coin.symbol === symbol)
+      );
+      
+      // 只为主要币种获取历史数据以减少请求量
+      for (const symbol of mainCoins) {
+        try {
+          const metrics = await fetchCoinMetrics(symbol);
+          if (Array.isArray(metrics) && metrics.length > 0) {
+            historicalData[symbol] = metrics;
+          }
+        } catch (err) {
+          console.warn(`获取 ${symbol} 历史数据失败，将使用模拟数据`, err);
+          historicalData[symbol] = createMockHistoricalData(symbol);
+        }
+      }
+    } catch (historyError) {
+      console.warn('获取历史数据失败，将继续导出其他数据', historyError);
+    }
+    
+    // 组织导出数据
+    const exportData = {
+      metadata: {
+        exportDate: new Date().toISOString(),
+        appVersion: '1.0.0',
+        dataLatest: dataCache.latestMetrics?.date || new Date().toISOString().split('T')[0],
+        availableDates: datesResponse.data.dates || [],
+      },
+      coins: coinsResponse.data || [],
+      metrics: metricsResponse.data || [],
+      liquidity: liquidityResponse.data || [],
+      latestData: dataCache.latestMetrics || {},
+      historicalData: historicalData,
+    };
+    
+    // 更新缓存
+    dataCache.allDatabaseData = exportData;
+    dataCache.lastDatabaseFetchTime = now;
+    
+    return exportData;
+  } catch (error) {
+    console.error('导出数据库数据失败:', error);
+    
+    // 返回基本导出数据 - 即使有错误也尝试返回尽可能多的数据
+    return {
+      metadata: {
+        exportDate: new Date().toISOString(),
+        appVersion: '1.0.0',
+        exportError: error.message,
+        partialExport: true
+      },
+      coins: [],
+      metrics: [],
+      liquidity: {},
+      latestData: dataCache.latestMetrics || {},
+      historicalData: {}
+    };
   }
 };
 
