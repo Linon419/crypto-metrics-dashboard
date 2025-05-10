@@ -1,19 +1,26 @@
-version: '3.8'
+version: '2'
 
 services:
   crypto-dashboard:
-    image: ${DOCKER_REGISTRY}/crypto-dashboard:${TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
+    image: crypto-dashboard:latest
+    container_name: crypto-dashboard
+    restart: unless-stopped
     ports:
       - "3001:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_KEY=your_openai_api_key_here
+      # 确保配置文件使用正确的数据库路径
+      - DB_STORAGE=/data/db/database.sqlite
     volumes:
-      - crypto-data:/app/data
+      - sqlite-data:/data/db
+      # 如果需要查看或调试，可以挂载源代码目录
+      # - ./server:/app/server
 
+# 定义命名卷
 volumes:
-  crypto-data:
+  sqlite-data:
