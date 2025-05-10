@@ -19,12 +19,9 @@ FROM node:18-alpine
 WORKDIR /app
 
 # 复制服务器代码
-WORKDIR /app
-COPY server/ ./server/
+COPY server/ ./
 
 # 安装后端依赖
-WORKDIR /app/server
-COPY server/package.json ./
 RUN npm install --production
 # 安装认证所需模块
 RUN npm install jsonwebtoken bcryptjs
@@ -32,12 +29,11 @@ RUN npm install jsonwebtoken bcryptjs
 # 创建数据目录
 RUN mkdir -p /data/db
 
-# 创建前端文件目录
-# 注意：路径必须与后端代码中期望的路径匹配
-RUN mkdir -p /client/build
+# 创建前端文件目录 - 注意路径是 /app/client/build
+RUN mkdir -p /app/client/build
 
-# 从前一阶段复制构建好的前端文件
-COPY --from=frontend-builder /app/build/ /client/build/
+# 从前一阶段复制构建好的前端文件到正确路径
+COPY --from=frontend-builder /app/build/ /app/client/build/
 
 # 环境变量
 ENV NODE_ENV=production
