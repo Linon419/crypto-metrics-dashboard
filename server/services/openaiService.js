@@ -60,7 +60,7 @@ ${processedText}
     "ethFundChange": -1.7,
     "solFundChange": 0.8,
     "totalMarketFundChange": 0.5,
-    "comments": "..." // 提取流动性概况中的文字描述
+    "comments": "..." // 提取流动性概况中的文字描述，，不要吞字
   },
   "trendingCoins": [
     {
@@ -80,6 +80,9 @@ ${processedText}
 对于币种识别：
 1. 标准币种符号应大写(BTC, ETH等)
 2. 非标准命名应尽量规范为通用符号
+3. 美股纳指 OTC == NASDAQ
+4. 币市流动性 == LIQUIDITY
+5. 期权波动率（比特币Vega交易）== VEGA
 
 对于进退场期识别：
 1. "进场期"对应entryExitType="entry"
@@ -96,7 +99,7 @@ ${processedText}
       messages: [
         {
           role: "system",
-          content: "你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。记住日期格式很重要：5.9表示5月9日而不是10月5日或其他日期。"
+          content: "你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。"
         },
         {
           role: "user",
