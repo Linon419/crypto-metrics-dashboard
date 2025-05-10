@@ -68,3 +68,97 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+```
+crypto-metrics-dashboard
+├─ .dockerignore
+├─ Dockerfile
+├─ README.md
+├─ database.sqlite
+├─ docker-compose.yml
+├─ package-lock.json
+├─ package.json
+├─ postcss.config.js
+├─ public
+│  ├─ favicon.ico
+│  ├─ index.html
+│  ├─ logo192.png
+│  ├─ logo512.png
+│  ├─ manifest.json
+│  └─ robots.txt
+├─ seeders
+│  └─ 20250510032835-demo-coins.js
+├─ server
+│  ├─ config
+│  │  └─ config.json
+│  ├─ index.js
+│  ├─ middleware
+│  │  └─ auth.js
+│  ├─ migrations
+│  │  ├─ 20250509053304-create-coin.js
+│  │  ├─ 20250509053343-create-daily-metric.js
+│  │  ├─ 20250509053343-create-liquidity-overview.js
+│  │  ├─ 20250509053344-create-trending-coin.js
+│  │  └─ 20250510063333-create-user.js
+│  ├─ models
+│  │  ├─ coin.js
+│  │  ├─ dailymetric.js
+│  │  ├─ index.js
+│  │  ├─ liquidityoverview.js
+│  │  ├─ trendingcoin.js
+│  │  └─ user.js
+│  ├─ package.json
+│  ├─ routes
+│  │  ├─ auth.js
+│  │  ├─ coins.js
+│  │  ├─ dashboard.js
+│  │  ├─ data.js
+│  │  ├─ debug.js
+│  │  ├─ liquidity.js
+│  │  └─ metrics.js
+│  ├─ scripts
+│  │  ├─ createAdmin.js
+│  │  └─ fixDatabase.js
+│  ├─ seeders
+│  └─ services
+│     └─ openaiService.js
+├─ src
+│  ├─ App.css
+│  ├─ App.js
+│  ├─ App.test.js
+│  ├─ components
+│  │  ├─ ChangePassword.jsx
+│  │  ├─ CoinCard.jsx
+│  │  ├─ CoinDetailChart.jsx
+│  │  ├─ CoinList.jsx
+│  │  ├─ Dashboard.jsx
+│  │  ├─ DataInputForm.jsx
+│  │  ├─ LiquidityRadialChart.jsx
+│  │  ├─ LoadingPlaceholder.jsx
+│  │  ├─ Login.jsx
+│  │  ├─ OtcIndexTable.jsx
+│  │  ├─ ProtectedRoute.jsx
+│  │  ├─ Register.jsx
+│  │  ├─ SearchBar.jsx
+│  │  └─ UserProfile.jsx
+│  ├─ helpers
+│  │  └─ strategyAdvisor.js
+│  ├─ hooks
+│  │  └─ useApi.js
+│  ├─ index.css
+│  ├─ index.js
+│  ├─ logo.svg
+│  ├─ redux
+│  │  ├─ slices
+│  │  │  ├─ authSlice.js
+│  │  │  ├─ coinsSlice.js
+│  │  │  ├─ liquiditySlice.js
+│  │  │  └─ metricsSlice.js
+│  │  └─ store.js
+│  ├─ reportWebVitals.js
+│  ├─ services
+│  │  └─ api.js
+│  └─ setupTests.js
+└─ tailwind.config.js
+
+```

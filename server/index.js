@@ -65,14 +65,26 @@ safelyLoadRoutes('./routes/debug', '/api/debug');
 
 // 提供静态文件（生产环境）
 if (process.env.NODE_ENV === 'production') {
-  // 设置静态文件夹
-  app.use(express.static(path.join(__dirname, '../client/build')));
-  
-  // 所有未匹配的路由都返回index.html
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
-  });
-}
+    // 设置静态文件夹 - 【重要修改点】
+    const staticPath = path.join(__dirname, 'client/build'); // <--- 修改这里
+    console.log(`[服务器] 生产环境，提供静态文件于: ${staticPath}`);
+    app.use(express.static(staticPath));
+    
+    // 所有未匹配的路由都返回index.html - 【重要修改点】
+    app.get('*', (req, res) => {
+      const indexPath = path.join(__dirname, 'client/build', 'index.html'); // <--- 修改这里
+      console.log(`[服务器] 为路由 ${req.path} 提供 SPA 入口: ${indexPath}`);
+      res.sendFile(indexPath, (err) => { // 添加错误处理回调
+        if (err) {
+          console.error('[服务器] 发送 index.html 出错:', err);
+          res.status(500).json({
+            error: "无法提供应用入口文件",
+            message: err.message
+          });
+        }
+      });
+    });
+  }
 
 // 错误处理中间件
 app.use((err, req, res, next) => {
