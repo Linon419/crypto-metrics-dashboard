@@ -2,6 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const { Coin, DailyMetric, LiquidityOverview, TrendingCoin } = require('../models');
+const { Op } = require('sequelize'); // 确保 Op 已导入
+
 const openaiService = require('../services/openaiService');
 
 // 处理原始数据输入并存储
@@ -228,59 +230,110 @@ async function storeProcessedData(data) {
   return result;
 }
 
-// 获取最新数据
-router.get('/latest', async (req, res) => {
-  try {
-    console.log('请求获取最新数据');
-    
-    // 获取最新日期
-    const latestMetric = await DailyMetric.findOne({
-      order: [['date', 'DESC']]
-    });
-    
-    if (!latestMetric) {
-      console.log('未找到任何指标数据');
-      return res.status(404).json({ error: 'No metrics data found' });
-    }
-    
-    const latestDate = latestMetric.date;
-    console.log('找到最新日期:', latestDate);
-    
-    // 获取该日期的所有币种指标
-    const metrics = await DailyMetric.findAll({
-      where: { date: latestDate },
-      include: [{
-        model: Coin,
-        as: 'coin',
-        attributes: ['symbol', 'name', 'current_price', 'logo_url']
-      }]
-    });
-    
-    console.log(`找到 ${metrics.length} 条最新指标记录`);
-    
-    // 获取流动性概况
-    const liquidity = await LiquidityOverview.findOne({
-      where: { date: latestDate }
-    });
-    
-    // 获取热点币种
-    const trendingCoins = await TrendingCoin.findAll({
-      where: { date: latestDate }
-    });
-    
-    console.log(`找到 ${trendingCoins.length} 条热点币种记录`);
-    
-    res.json({
-      date: latestDate,
-      metrics,
-      liquidity,
-      trendingCoins
-    });
-  } catch (error) {
-    console.error('获取最新数据时出错:', error);
-    res.status(500).json({ error: 'Failed to fetch latest data' });
+// Helper function to get the date string for the day before
+function getPreviousDate(dateString) {
+    const date = new Date(dateString);
+    date.setDate(date.getDate() - 1);
+    return date.toISOString().split('T')[0];
   }
-});
+// 获取最新数据
+// 获取最新数据 (增强版，包含前一天对比数据)
+router.get('/latest', async (req, res) => {
+    try {
+      console.log('请求获取最新数据 (增强版)');
+      
+      const latestMetricEntry = await DailyMetric.findOne({
+        order: [['date', 'DESC']]
+      });
+      
+      if (!latestMetricEntry) {
+        console.log('未找到任何指标数据');
+        return res.status(404).json({ error: 'No metrics data found' });
+      }
+      
+      const latestDate = latestMetricEntry.date;
+      const previousDate = getPreviousDate(latestDate); // 计算前一天的日期
+      console.log('最新日期:', latestDate, '; 前一天日期:', previousDate);
+      
+      // 1. 获取最新日期的所有币种指标
+      const latestDayMetrics = await DailyMetric.findAll({
+        where: { date: latestDate },
+        include: [{
+          model: Coin,
+          as: 'coin',
+          attributes: ['id', 'symbol', 'name', 'current_price', 'logo_url'] // Include id
+        }]
+      });
+      console.log(`找到 ${latestDayMetrics.length} 条 ${latestDate} 的指标记录`);
+  
+      // 2. 获取前一天的所有币种指标 (用于对比)
+      const previousDayMetricsRaw = await DailyMetric.findAll({
+        where: { date: previousDate },
+        // No need to include Coin again if we map by coin_id
+      });
+      console.log(`找到 ${previousDayMetricsRaw.length} 条 ${previousDate} 的指标记录`);
+  
+      // 将前一天的数据转换为以 coin_id 为键的 Map，方便查找
+      const previousDayMetricsMap = new Map();
+      previousDayMetricsRaw.forEach(metric => {
+        previousDayMetricsMap.set(metric.coin_id, {
+          otc_index: metric.otc_index,
+          explosion_index: metric.explosion_index,
+          // Add other fields if needed for comparison later
+        });
+      });
+  
+      // 3. 组合数据，加入前一天对比值
+      const metricsWithComparison = latestDayMetrics.map(currentMetric => {
+        const coinId = currentMetric.coin.id; // coin.id is available due to include
+        const previousMetrics = previousDayMetricsMap.get(coinId);
+        
+        return {
+          // ...currentMetric.toJSON(), // Spread all fields from currentMetric
+          // Manually list fields to ensure structure and include coin details directly
+          id: currentMetric.id, // metric id
+          coin_id: coinId,
+          date: currentMetric.date,
+          otc_index: currentMetric.otc_index,
+          explosion_index: currentMetric.explosion_index,
+          schelling_point: currentMetric.schelling_point,
+          entry_exit_type: currentMetric.entry_exit_type,
+          entry_exit_day: currentMetric.entry_exit_day,
+          near_threshold: currentMetric.near_threshold,
+          coin: currentMetric.coin.toJSON(), // Include the full coin object
+          previous_day_data: previousMetrics ? { // Add previous day data if found
+            otc_index: previousMetrics.otc_index,
+            explosion_index: previousMetrics.explosion_index,
+          } : null // Set to null if no previous day data
+        };
+      });
+      
+      // 获取流动性概况
+      const liquidity = await LiquidityOverview.findOne({
+        where: { date: latestDate }
+      });
+      
+      // 获取热点币种 (也可以为它们添加前一天对比，如果 TrendingCoin 模型有历史数据)
+      // For simplicity, let's assume trendingCoins don't need previous day data for now,
+      // or their structure in the DB would need similar handling.
+      const trendingCoins = await TrendingCoin.findAll({
+        where: { date: latestDate }
+        // Potentially add comparison data here too if needed and feasible
+      });
+      
+      console.log(`找到 ${trendingCoins.length} 条热点币种记录`);
+      
+      res.json({
+        date: latestDate,
+        metrics: metricsWithComparison, // 使用包含对比数据的新数组
+        liquidity,
+        trendingCoins
+      });
+    } catch (error) {
+      console.error('获取最新数据时出错:', error);
+      res.status(500).json({ error: 'Failed to fetch latest data' });
+    }
+  });
 
 // 调试路由 - 显示所有支持的字段
 router.get('/debug/fields', async (req, res) => {

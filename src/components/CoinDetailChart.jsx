@@ -719,56 +719,70 @@ function CoinDetailChart({ coin, onRefresh }) {
           
           {/* 指标数据 */}
           {coin && (
-            <Row gutter={16} className="mt-4">
-              <Col span={8}>
-                <Statistic 
-                  title={
-                    <div className="flex items-center">
-                      <span>场外指数</span>
-                      <InfoCircleOutlined className="ml-1 text-gray-400" title="反映场外交易活跃度的指标" />
-                    </div>
-                  }
-                  value={coin.otcIndex} 
-                  valueStyle={{ color: '#1677ff' }}
-                />
-              </Col>
-              <Col span={8}>
-                <Statistic 
-                  title={
-                    <div className="flex items-center">
-                      <span>爆破指数</span>
-                      <InfoCircleOutlined className="ml-1 text-gray-400" title="值低于200表示市场风险较高" />
-                    </div>
-                  }
-                  value={coin.explosionIndex}
-                  valueStyle={{ 
-                    color: coin.explosionIndex < 200 ? '#ff6b6b' : '#52c41a'
-                  }}
-                  suffix={
-                    coin.explosionIndex < 200 ? 
-                    <Text type="danger">风险</Text> : 
-                    <Text type="success">安全</Text>
-                  }
-                />
-              </Col>
-              <Col span={8}>
-                <Statistic 
-                  title={
-                    <div className="flex items-center">
-                      <span>谢林点</span>
-                      <InfoCircleOutlined className="ml-1 text-gray-400" title="市场共识价格水平" />
-                    </div>
-                  }
-                  value={coin.schellingPoint}
-                  valueStyle={{ color: '#722ed1' }}
-                  precision={
-                    coin.schellingPoint > 1000 ? 0 :
-                    coin.schellingPoint > 100 ? 1 :
-                    coin.schellingPoint > 10 ? 2 : 4
-                  }
-                />
-              </Col>
-            </Row>
+            <Card className="mt-4" bodyStyle={{ padding: '16px 24px' }}>
+              <Row gutter={[32, 16]} align="middle" justify="space-around">
+                <Col xs={24} sm={12} md={8} className="text-center sm:text-left">
+                  <Statistic 
+                    title={
+                      <div className="flex items-center justify-center sm:justify-start">
+                        <span>场外指数</span>
+                        <Tooltip title="反映场外交易活跃度的指标">
+                          <InfoCircleOutlined className="ml-1 text-gray-400 cursor-help" />
+                        </Tooltip>
+                      </div>
+                    }
+                    value={coin.otcIndex} 
+                    valueStyle={{ color: '#1677ff', fontSize: '22px' }} // Slightly smaller font
+                  />
+                </Col>
+                <Col xs={24} sm={12} md={8} className="text-center sm:text-left">
+                  <Statistic 
+                    title={
+                      <div className="flex items-center justify-center sm:justify-start">
+                        <span>爆破指数</span>
+                        <Tooltip title="值低于200表示市场风险较高">
+                           <InfoCircleOutlined className="ml-1 text-gray-400 cursor-help" />
+                        </Tooltip>
+                      </div>
+                    }
+                    value={coin.explosionIndex}
+                    valueStyle={{ 
+                      color: coin.explosionIndex < 200 ? '#ff6b6b' : '#52c41a',
+                      fontSize: '22px' // Slightly smaller font
+                    }}
+                    suffix={
+                      coin.explosionIndex < 200 ? 
+                      <Text type="danger" style={{fontSize: '14px', marginLeft: '4px'}}>风险</Text> : 
+                      <Text type="success" style={{fontSize: '14px', marginLeft: '4px'}}>安全</Text>
+                    }
+                  />
+                </Col>
+                <Col xs={24} sm={24} md={8} className="text-center sm:text-left"> {/* Schelling point can take full width on small if needed */}
+                  <Statistic 
+                    title={
+                      <div className="flex items-center justify-center sm:justify-start">
+                        <span>谢林点</span>
+                        <Tooltip title="市场共识价格水平">
+                           <InfoCircleOutlined className="ml-1 text-gray-400 cursor-help" />
+                        </Tooltip>
+                      </div>
+                    }
+                    value={coin.schellingPoint}
+                    valueStyle={{ color: '#722ed1', fontSize: '22px' }} // Slightly smaller font
+                    formatter={(value) => { // Custom formatter for better readability
+                        if (typeof value !== 'number') return '-';
+                        if (value === 0 && coin.symbol !== "BTC" && coin.symbol !== "ETH") return '-'; // Show '-' for 0 for non-majors unless it's actually 0
+                        if (value > 10000) return value.toLocaleString(undefined, {notation: 'compact', compactDisplay: 'short'});
+                        if (value > 1000) return value.toLocaleString();
+                        if (value > 100) return value.toFixed(1);
+                        if (value > 10) return value.toFixed(2);
+                        if (value >= 0) return value.toFixed(4); // For very small values
+                        return '-';
+                    }}
+                  />
+                </Col>
+              </Row>
+            </Card>
           )}
         </>
       )}

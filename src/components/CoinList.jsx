@@ -1,7 +1,7 @@
 // src/components/CoinList.jsx - 更新以匹配新的布局和按钮颜色
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Carousel, Pagination, Spin, Empty, Button, Alert, Card, Badge } from 'antd';
-import { ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import { ReloadOutlined, WarningOutlined, StarFilled, StarOutlined } from '@ant-design/icons'; // Import Star icons
 import CoinCard from './CoinCard';
 
 function CoinList({ 
@@ -9,7 +9,7 @@ function CoinList({
   onCoinSelect, 
   selectedCoin, 
   favorites = [], 
-  onToggleFavorite, 
+  onToggleFavorite, // Make sure this is passed from Dashboard
   loading = false, 
   error = null, 
   onRefresh,
@@ -18,46 +18,54 @@ function CoinList({
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 8; // 每页显示8个币种
   
-  // 当没有选定币种且有可用数据时自动选择第一个
-  useEffect(() => {
-    if (!selectedCoin && coins.length > 0 && onCoinSelect) {
-      // 优先选择BTC如果存在
-      const btcCoin = coins.find(c => c.symbol === 'BTC');
-      onCoinSelect(btcCoin ? btcCoin.symbol : coins[0].symbol);
-    }
-  }, [coins, selectedCoin, onCoinSelect]);
+  const safeCoins = Array.isArray(coins) ? coins : [];
 
   // 用viewMode筛选币种
   const filterCoins = () => {
-    // 确保数据是数组类型
-    const safeCoins = Array.isArray(coins) ? coins : [];
-    
     switch (viewMode) {
       case 'favorites':
         return safeCoins.filter(coin => favorites.includes(coin.symbol));
       case 'popular':
-        // 热门币种：高场外指数或爆破指数较高
         return safeCoins.filter(coin => {
           const otcIndex = parseInt(coin.otcIndex) || 0;
           const explosionIndex = parseInt(coin.explosionIndex) || 0;
-          return otcIndex > 1000 || explosionIndex > 180;
+          return otcIndex > 1000 && explosionIndex > 180;
         });
       default:
         return safeCoins;
     }
   };
 
+  const [displayedCoins, setDisplayedCoins] = useState(filterCoins());
+
+  // 当coins, viewMode, or favorites改变时，更新displayedCoins并重置页码
+  useEffect(() => {
+    setDisplayedCoins(filterCoins());
+    setCurrentPage(1); // 重置到第一页
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coins, viewMode, favorites, safeCoins]); // Added safeCoins to dependency array if it's derived outside and changes
+
+  // 当没有选定币种且有可用数据时自动选择第一个
+  useEffect(() => {
+    if (!selectedCoin && displayedCoins.length > 0 && onCoinSelect) {
+      const firstCoinToSelect = displayedCoins[0];
+      // 优先选择BTC如果存在于当前显示的币种中
+      const btcCoin = displayedCoins.find(c => c.symbol === 'BTC');
+      onCoinSelect(btcCoin ? btcCoin.symbol : firstCoinToSelect.symbol);
+    }
+  }, [displayedCoins, selectedCoin, onCoinSelect]);
+
+
   // 获取当前页的币种
   const getCurrentPageCoins = () => {
-    const filteredCoins = filterCoins();
     const startIndex = (currentPage - 1) * pageSize;
-    return filteredCoins.slice(startIndex, startIndex + pageSize);
+    return displayedCoins.slice(startIndex, startIndex + pageSize);
   };
 
-  // 处理币种点击
-  const handleCoinClick = (coin) => {
+  // 处理币种点击 (不包括星星)
+  const handleCoinClick = (coinSymbol) => {
     if (onCoinSelect) {
-      onCoinSelect(coin.symbol);
+      onCoinSelect(coinSymbol);
     }
   };
   
@@ -92,6 +100,8 @@ function CoinList({
     );
   };
 
+  const currentCoinsToDisplay = getCurrentPageCoins();
+
   return (
     <div className="mb-6">
       {/* 错误提示 */}
@@ -111,7 +121,7 @@ function CoinList({
       )}
 
       {/* 列表内容 */}
-      {loading && getCurrentPageCoins().length === 0 ? (
+      {loading && currentCoinsToDisplay.length === 0 ? (
         // 加载状态 - 使用骨架屏
         <div className="hidden md:block">
           <Row gutter={[16, 16]} className="mb-4">
@@ -126,24 +136,28 @@ function CoinList({
         <>
           {/* 桌面端显示 */}
           <div className="hidden md:block">
-            {getCurrentPageCoins().length > 0 ? (
+            {currentCoinsToDisplay.length > 0 ? (
               <Row gutter={[16, 16]} className="mb-4">
-                {getCurrentPageCoins().map((coin, index) => (
+                {currentCoinsToDisplay.map((coin, index) => (
                   <Col key={`${coin.symbol}-${index}`} xs={24} sm={12} md={6}>
                     <Badge.Ribbon 
-                      text={coin.entryExitType === 'entry' ? '进场' : coin.entryExitType === 'exit' ? '退场' : ''}
+                      text={coin.entryExitType === 'entry' ? `进${coin.entryExitDay || 0}` : coin.entryExitType === 'exit' ? `退${coin.entryExitDay || 0}` : ''}
                       color={coin.entryExitType === 'entry' ? 'green' : coin.entryExitType === 'exit' ? 'red' : 'blue'}
-                      style={{ display: coin.entryExitType === 'neutral' ? 'none' : 'block' }}
+                      style={{ display: coin.entryExitType === 'neutral' || !coin.entryExitType ? 'none' : 'block', fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '10px' }}
                     >
                       <div 
-                        onClick={() => handleCoinClick(coin)}
-                        className={`cursor-pointer transition-all duration-200 ${
+                        className={`cursor-pointer transition-all duration-200 relative ${ // Added relative for star positioning
                           selectedCoin === coin.symbol 
-                            ? 'ring-2 ring-blue-500 shadow-md rounded-lg transform scale-[1.02]' 
-                            : 'hover:shadow-md hover:scale-[1.01]'
+                            ? 'ring-2 ring-blue-500 shadow-lg rounded-lg transform scale-[1.02]' 
+                            : 'hover:shadow-lg hover:scale-[1.01] rounded-lg' // ensure rounded-lg for non-selected too
                         }`}
                       >
-                        <CoinCard coin={coin} />
+                        <CoinCard 
+                            coin={coin} 
+                            onCardClick={() => handleCoinClick(coin.symbol)} // Pass specific click handler for card body
+                            isFavorite={favorites.includes(coin.symbol)}
+                            onToggleFavorite={() => onToggleFavorite(coin.symbol)} // Pass toggle favorite handler
+                        />
                       </div>
                     </Badge.Ribbon>
                   </Col>
@@ -165,22 +179,26 @@ function CoinList({
           
           {/* 移动端轮播 */}
           <div className="block md:hidden">
-            {getCurrentPageCoins().length > 0 ? (
+            {currentCoinsToDisplay.length > 0 ? (
               <Carousel autoplay dotPosition="bottom">
-                {getCurrentPageCoins().map((coin, index) => (
+                {currentCoinsToDisplay.map((coin, index) => (
                   <div key={`${coin.symbol}-${index}`} className="px-2 pb-8">
                     <Badge.Ribbon 
-                      text={coin.entryExitType === 'entry' ? '进场' : coin.entryExitType === 'exit' ? '退场' : ''}
+                      text={coin.entryExitType === 'entry' ? `进${coin.entryExitDay || 0}` : coin.entryExitType === 'exit' ? `退${coin.entryExitDay || 0}` : ''}
                       color={coin.entryExitType === 'entry' ? 'green' : coin.entryExitType === 'exit' ? 'red' : 'blue'}
-                      style={{ display: coin.entryExitType === 'neutral' ? 'none' : 'block' }}
+                      style={{ display: coin.entryExitType === 'neutral' || !coin.entryExitType ? 'none' : 'block', fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '10px' }}
                     >
                       <div 
-                        onClick={() => handleCoinClick(coin)}
-                        className={`cursor-pointer ${
-                          selectedCoin === coin.symbol ? 'ring-2 ring-blue-500 rounded-lg' : ''
+                        className={`cursor-pointer relative ${ // Added relative for star positioning
+                          selectedCoin === coin.symbol ? 'ring-2 ring-blue-500 rounded-lg' : 'rounded-lg'
                         }`}
                       >
-                        <CoinCard coin={coin} />
+                         <CoinCard 
+                            coin={coin} 
+                            onCardClick={() => handleCoinClick(coin.symbol)}
+                            isFavorite={favorites.includes(coin.symbol)}
+                            onToggleFavorite={() => onToggleFavorite(coin.symbol)}
+                        />
                       </div>
                     </Badge.Ribbon>
                   </div>
@@ -205,23 +223,22 @@ function CoinList({
           </div>
 
           {/* 分页控件 */}
-          {filterCoins().length > pageSize && (
+          {displayedCoins.length > pageSize && (
             <div className="flex justify-center mt-4">
               <Pagination
                 current={currentPage}
                 onChange={setCurrentPage}
-                total={filterCoins().length}
+                total={displayedCoins.length}
                 pageSize={pageSize}
                 showSizeChanger={false}
-                simple={filterCoins().length > 50} // 简化版本的分页组件，适合大量数据
+                simple={displayedCoins.length > 50} 
               />
             </div>
           )}
         </>
       )}
       
-      {/* 无数据情况下的提示 */}
-      {!loading && coins.length === 0 && !error && (
+      {!loading && !error && safeCoins.length === 0 && (
         <Alert
           message="没有找到数据"
           description="暂无币种数据，请检查API连接或点击刷新按钮重试。"

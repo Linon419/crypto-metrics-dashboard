@@ -42,17 +42,14 @@ async function callApiWithRetry(apiCall, maxRetries = 3, retryDelay = 2000) {
     } catch (error) {
       lastError = error;
       console.error(`API调用失败 (尝试 ${attempt}/${maxRetries}):`, error.message);
-      
-      // 如果不是最后一次尝试，等待一段时间后重试
       if (attempt < maxRetries) {
         console.log(`${retryDelay / 1000}秒后重试...`);
         await new Promise(resolve => setTimeout(resolve, retryDelay));
-        // 每次重试增加延迟
         retryDelay *= 1.5;
       }
     }
   }
-  throw lastError; // 所有重试都失败，抛出最后一个错误
+  throw lastError;
 }
 
 // 提交原始数据 - 添加重试机制和更长的超时
@@ -61,45 +58,27 @@ export const submitRawData = async (rawData) => {
     if (!rawData || typeof rawData !== 'string') {
       throw new Error('原始数据必须是字符串');
     }
-    
-    console.log('开始提交数据，长度:', rawData.length);
-    console.log('前100个字符:', rawData.substring(0, 100));
-    
-    // 创建一个特殊的提交实例，超时时间更长
     const submitApi = axios.create({
       baseURL: process.env.REACT_APP_API_URL || 'http://localhost:3001/api',
       timeout: 120000, // 2分钟超时
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      headers: { 'Content-Type': 'application/json' }
     });
-    
-    // 使用重试机制提交数据
     const response = await callApiWithRetry(
-      () => submitApi.post('/data/input', { rawData }),
-      3, // 最多重试3次
-      3000 // 初始等待3秒
+      () => submitApi.post('/data/input', { rawData }), 3, 3000
     );
-    
-    console.log('提交成功，响应:', response.data);
-    
-    // 重要：提交成功后，强制刷新缓存
     if (response.data && response.data.success) {
       console.log('数据提交成功，强制刷新缓存');
       dataCache.latestMetrics = null;
       dataCache.lastFetchTime = 0;
       dataCache.coinDetails.clear();
-      dataCache.allDatabaseData = null; // 同时清除数据库数据缓存
+      dataCache.allDatabaseData = null;
       dataCache.lastDatabaseFetchTime = 0;
-      
-      // 立即获取最新数据
       try {
         await fetchLatestMetrics(true);
       } catch (refreshError) {
         console.warn('刷新数据失败，但数据已提交成功:', refreshError);
       }
     }
-    
     return response.data;
   } catch (error) {
     console.error('提交数据失败:', error);
@@ -118,22 +97,15 @@ export const submitRawData = async (rawData) => {
 // 获取特定币种的指标数据 - 确保与最新数据一致
 export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
   try {
-    // 首先确保我们有最新的单个币种数据
-    await ensureLatestCoinData(symbol);
-    
+    await ensureLatestCoinData(symbol); // Ensures latest single coin data is in cache if needed
     const params = {};
     if (startDate) params.startDate = startDate;
     if (endDate) params.endDate = endDate;
-    
-    console.log(`获取 ${symbol} 的历史指标数据`);
     const response = await api.get(`/coins/${symbol}/metrics`, { params });
-    
     if (!Array.isArray(response.data)) {
       console.warn(`fetchCoinMetrics: ${symbol} 响应不是数组格式`, response.data);
       return createMockHistoricalData(symbol);
     }
-    
-    // 确保每条指标记录都有必要的字段，防止NaN值
     const metrics = response.data.map(metric => ({
       date: metric.date || new Date().toISOString().split('T')[0],
       otc_index: typeof metric.otc_index === 'number' ? metric.otc_index : 0,
@@ -142,17 +114,12 @@ export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
       entry_exit_type: metric.entry_exit_type || 'neutral',
       entry_exit_day: typeof metric.entry_exit_day === 'number' ? metric.entry_exit_day : 0
     }));
-    
-    // 关键步骤：确保最新的指标值与卡片上显示的一致
     if (metrics.length > 0) {
-      const latestMetric = metrics[metrics.length - 1];
+      const latestMetricEntry = metrics[metrics.length - 1];
       const cachedData = dataCache.coinDetails.get(symbol);
-      
-      // 如果有缓存数据，替换最新一天的数据，确保一致性
-      if (cachedData && latestMetric.date === cachedData.date) {
-        console.log(`使用缓存数据更新 ${symbol} 的最新指标`);
+      if (cachedData && latestMetricEntry.date === cachedData.date) {
         metrics[metrics.length - 1] = {
-          date: latestMetric.date,
+          date: latestMetricEntry.date,
           otc_index: cachedData.otcIndex,
           explosion_index: cachedData.explosionIndex,
           schelling_point: cachedData.schellingPoint,
@@ -161,7 +128,6 @@ export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
         };
       }
     }
-    
     return metrics;
   } catch (error) {
     console.error(`获取${symbol}指标数据失败:`, error);
@@ -174,33 +140,26 @@ async function ensureLatestCoinData(symbol) {
   const now = Date.now();
   const cachedData = dataCache.coinDetails.get(symbol);
   const isCacheValid = cachedData && now - cachedData.lastFetchTime < 5 * 60 * 1000;
-  
   if (!isCacheValid) {
     console.log(`缓存中没有 ${symbol} 的最新数据，获取中...`);
     try {
-      // 获取最新的所有币种数据
-      await fetchLatestMetrics(true);
+      await fetchLatestMetrics(true); // This will populate dataCache.coinDetails
     } catch (error) {
       console.error(`无法获取 ${symbol} 的最新数据:`, error);
     }
   }
 }
 
-// 获取最新指标数据 - 确保数据一致性
+// 获取最新指标数据 (利用后端返回的 previous_day_data)
 export const fetchLatestMetrics = async (forceRefresh = false) => {
   try {
-    // 检查缓存是否有效 (5分钟内)
     const now = Date.now();
-    const isCacheValid = dataCache.latestMetrics && 
-                         now - dataCache.lastFetchTime < 5 * 60 * 1000;
-    
-    // 如果缓存有效且不强制刷新，直接返回缓存数据
-    if (isCacheValid && !forceRefresh) {
+    if (!forceRefresh && dataCache.latestMetrics && (now - dataCache.lastFetchTime < 5 * 60 * 1000)) {
       console.log('使用缓存的最新指标数据');
       return dataCache.latestMetrics;
     }
     
-    console.log('获取最新指标数据 (强制刷新:', forceRefresh, ')');
+    console.log('获取最新指标数据 (后端已增强)');
     const response = await api.get('/data/latest');
     
     if (!response.data || typeof response.data !== 'object') {
@@ -208,49 +167,117 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
       return getFallbackMetricsData();
     }
     
-    // 确保date字段存在
-    const date = response.data.date || new Date().toISOString().split('T')[0];
-    
-    // 处理币种和指标数据
+    const latestDate = response.data.date || new Date().toISOString().split('T')[0];
     let coinsWithMetrics = [];
+    
     if (Array.isArray(response.data.metrics)) {
-      // 将API返回的复杂格式转换为前端所需的简单格式
       coinsWithMetrics = response.data.metrics.map(metric => {
-        const coin = metric.coin || {};
+        const coinData = metric.coin || {}; // Backend now nests coin object inside each metric
+        let otcIndexChangePercent = null;
+        let explosionIndexChangePercent = null;
+
+        if (metric.previous_day_data) {
+          const currentOtc = metric.otc_index;
+          const prevOtc = metric.previous_day_data.otc_index;
+          if (typeof currentOtc === 'number' && typeof prevOtc === 'number') {
+            if (prevOtc !== 0) {
+              otcIndexChangePercent = ((currentOtc - prevOtc) / prevOtc) * 100;
+            } else if (currentOtc !== 0) { // Current is non-zero, previous was zero
+              otcIndexChangePercent = Infinity; 
+            }
+          }
+
+          const currentExplosion = metric.explosion_index;
+          const prevExplosion = metric.previous_day_data.explosion_index;
+          if (typeof currentExplosion === 'number' && typeof prevExplosion === 'number') {
+            if (prevExplosion !== 0) {
+              explosionIndexChangePercent = ((currentExplosion - prevExplosion) / prevExplosion) * 100;
+            } else if (currentExplosion !== 0) { // Current is non-zero, previous was zero
+              explosionIndexChangePercent = Infinity;
+            }
+          }
+        }
+
         return {
-          id: metric.coin_id || 0,
-          symbol: coin.symbol || 'UNKNOWN',
-          name: coin.name || coin.symbol || 'Unknown Coin',
-          current_price: coin.current_price || 0,
-          logo_url: coin.logo_url || null,
+          id: metric.coin_id || coinData.id || 0, 
+          symbol: coinData.symbol || 'UNKNOWN',
+          name: coinData.name || coinData.symbol || 'Unknown Coin',
+          current_price: coinData.current_price === null ? undefined : (coinData.current_price || 0), // Handle null price from backend
+          logo_url: coinData.logo_url || null,
           otcIndex: metric.otc_index || 0,
           explosionIndex: metric.explosion_index || 0,
-          schellingPoint: metric.schelling_point || 0,
+          schellingPoint: metric.schelling_point === null ? 0 : (metric.schelling_point || 0), // Handle null schelling_point
           entryExitType: metric.entry_exit_type || 'neutral',
           entryExitDay: metric.entry_exit_day || 0,
-          nearThreshold: !!metric.near_threshold
+          nearThreshold: !!metric.near_threshold,
+          otcIndexChangePercent: otcIndexChangePercent,
+          explosionIndexChangePercent: explosionIndexChangePercent,
         };
+      });
+    }
+
+    // Merge trendingCoins (they might not have previous_day_data from backend unless also modified)
+    if (Array.isArray(response.data.trendingCoins)) {
+      response.data.trendingCoins.forEach(trendingCoin => {
+        if (trendingCoin.symbol) {
+          const existingCoin = coinsWithMetrics.find(c => c.symbol === trendingCoin.symbol);
+          if (!existingCoin) {
+            // For trending coins, if backend provides previous_day_data, it should be handled here.
+            // Assuming for now it does not, or is not part of this specific requirement.
+            let trendOtcChangePercent = null;
+            let trendExplosionChangePercent = null;
+
+            // Hypothetical: if trendingCoin object itself contained a 'previous_day_data' field from backend
+            if (trendingCoin.previous_day_data) {
+                 const currentOtc = trendingCoin.otc_index;
+                 const prevOtc = trendingCoin.previous_day_data.otc_index;
+                 if (typeof currentOtc === 'number' && typeof prevOtc === 'number') {
+                    if (prevOtc !== 0) trendOtcChangePercent = ((currentOtc - prevOtc) / prevOtc) * 100;
+                    else if (currentOtc !== 0) trendOtcChangePercent = Infinity;
+                 }
+                 const currentExplosion = trendingCoin.explosion_index;
+                 const prevExplosion = trendingCoin.previous_day_data.explosion_index;
+                 if (typeof currentExplosion === 'number' && typeof prevExplosion === 'number') {
+                    if (prevExplosion !== 0) trendExplosionChangePercent = ((currentExplosion - prevExplosion) / prevExplosion) * 100;
+                    else if (currentExplosion !== 0) trendExplosionChangePercent = Infinity;
+                 }
+            }
+
+
+            coinsWithMetrics.push({
+              id: typeof trendingCoin.id === 'number' ? trendingCoin.id : 0, 
+              symbol: trendingCoin.symbol,
+              name: trendingCoin.name || trendingCoin.symbol,
+              current_price: trendingCoin.current_price === null ? undefined : (trendingCoin.current_price || 0),
+              logo_url: trendingCoin.logo_url || null,
+              otcIndex: trendingCoin.otc_index || 0,
+              explosionIndex: trendingCoin.explosion_index || 0,
+              schellingPoint: trendingCoin.schelling_point === null ? 0 : (trendingCoin.schelling_point || 0),
+              entryExitType: trendingCoin.entry_exit_type || 'neutral',
+              entryExitDay: trendingCoin.entry_exit_day || 0,
+              nearThreshold: !!trendingCoin.near_threshold,
+              otcIndexChangePercent: trendOtcChangePercent, 
+              explosionIndexChangePercent: trendExplosionChangePercent,
+            });
+          }
+        }
       });
     }
     
     if (coinsWithMetrics.length === 0) {
-      console.warn('fetchLatestMetrics: 未找到币种数据，使用备用数据');
       coinsWithMetrics = getFallbackCoins();
     }
     
-    // 准备结果
     const result = {
-      date,
+      date: latestDate,
       coins: coinsWithMetrics,
       liquidity: response.data.liquidity || getDefaultLiquidity(),
       trendingCoins: Array.isArray(response.data.trendingCoins) ? response.data.trendingCoins : []
     };
     
-    // 更新缓存
     dataCache.latestMetrics = result;
     dataCache.lastFetchTime = now;
     
-    // 同时更新单个币种缓存
     coinsWithMetrics.forEach(coin => {
       dataCache.coinDetails.set(coin.symbol, {
         ...coin,
@@ -268,55 +295,53 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
 // 新增: 导出所有数据库数据 - 使用缓存和重试机制
 export const exportAllData = async (forceRefresh = false) => {
   try {
-    // 检查导出缓存是否有效 (10分钟内有效)
     const now = Date.now();
-    const isCacheValid = dataCache.allDatabaseData && 
-                         now - dataCache.lastDatabaseFetchTime < 10 * 60 * 1000;
-    
-    // 如果缓存有效且不强制刷新，直接返回缓存数据
-    if (isCacheValid && !forceRefresh) {
+    if (!forceRefresh && dataCache.allDatabaseData && (now - dataCache.lastDatabaseFetchTime < 10 * 60 * 1000)) {
       console.log('使用缓存的数据库导出数据');
       return dataCache.allDatabaseData;
     }
     
     console.log('开始获取所有数据库数据以供导出');
+    // Ensure latest metrics (which now include change%) are fetched if needed, they populate dataCache.latestMetrics
+    // Pass forceRefresh to this call as well, so it behaves consistently with the exportAllData call.
+    await fetchLatestMetrics(forceRefresh); 
     
-    // 首先确保我们有最新的指标数据
-    await fetchLatestMetrics(forceRefresh);
-    
-    // 使用重试机制获取关键数据
     const [coinsResponse, metricsResponse, liquidityResponse, datesResponse] = await Promise.all([
       callApiWithRetry(() => api.get('/coins')),
-      callApiWithRetry(() => api.get('/metrics')),
+      callApiWithRetry(() => api.get('/metrics')), // This gets ALL metrics from DB
       callApiWithRetry(() => api.get('/liquidity')),
       callApiWithRetry(() => api.get('/data/debug/date-range')),
     ]);
     
-    // 尝试获取所有币种的历史指标数据 - 这部分如果失败不会阻止整体导出
     let historicalData = {};
     try {
-      const coins = coinsResponse.data;
-      const mainCoins = ['BTC', 'ETH', 'BNB', 'SOL', 'USDT', 'XRP'].filter(
-        symbol => coins.some(coin => coin.symbol === symbol)
-      );
-      
-      // 只为主要币种获取历史数据以减少请求量
-      for (const symbol of mainCoins) {
+      const allDisplayableCoinsSymbols = (dataCache.latestMetrics?.coins || []).map(c => c.symbol).filter(Boolean);
+      const symbolsToFetchHistoryFor = Array.from(new Set([
+        'BTC', 'ETH', 'BNB', 'SOL', // Core coins
+        ...allDisplayableCoinsSymbols
+      ]));
+
+      for (const symbol of symbolsToFetchHistoryFor) {
+        if (!symbol || symbol === 'UNKNOWN') continue;
         try {
-          const metrics = await fetchCoinMetrics(symbol);
+          // fetchCoinMetrics will get full history for the chart for this symbol
+          const metrics = await fetchCoinMetrics(symbol); 
           if (Array.isArray(metrics) && metrics.length > 0) {
             historicalData[symbol] = metrics;
+          } else if (!historicalData[symbol]) {
+            historicalData[symbol] = createMockHistoricalData(symbol);
           }
         } catch (err) {
-          console.warn(`获取 ${symbol} 历史数据失败，将使用模拟数据`, err);
-          historicalData[symbol] = createMockHistoricalData(symbol);
+          console.warn(`[exportAllData] 获取 ${symbol} 历史数据失败:`, err.message);
+          if (!historicalData[symbol]) {
+            historicalData[symbol] = createMockHistoricalData(symbol);
+          }
         }
       }
     } catch (historyError) {
-      console.warn('获取历史数据失败，将继续导出其他数据', historyError);
+      console.warn('[exportAllData] 获取历史数据主逻辑失败', historyError);
     }
     
-    // 组织导出数据
     const exportData = {
       metadata: {
         exportDate: new Date().toISOString(),
@@ -325,33 +350,20 @@ export const exportAllData = async (forceRefresh = false) => {
         availableDates: datesResponse.data.dates || [],
       },
       coins: coinsResponse.data || [],
-      metrics: metricsResponse.data || [],
+      metrics: metricsResponse.data || [], // Full historical metrics from /api/metrics
       liquidity: liquidityResponse.data || [],
-      latestData: dataCache.latestMetrics || {},
-      historicalData: historicalData,
+      latestData: dataCache.latestMetrics || {}, // This already contains coins with change%
+      historicalData: historicalData, // Full history for selected coins for charts/details
     };
     
-    // 更新缓存
     dataCache.allDatabaseData = exportData;
     dataCache.lastDatabaseFetchTime = now;
-    
     return exportData;
   } catch (error) {
     console.error('导出数据库数据失败:', error);
-    
-    // 返回基本导出数据 - 即使有错误也尝试返回尽可能多的数据
     return {
-      metadata: {
-        exportDate: new Date().toISOString(),
-        appVersion: '1.0.0',
-        exportError: error.message,
-        partialExport: true
-      },
-      coins: [],
-      metrics: [],
-      liquidity: {},
-      latestData: dataCache.latestMetrics || {},
-      historicalData: {}
+      metadata: { /* ... error metadata ... */ partialExport: true, exportError: error.message },
+      coins: [], metrics: [], liquidity: {}, latestData: dataCache.latestMetrics || {}, historicalData: {}
     };
   }
 };
@@ -359,77 +371,68 @@ export const exportAllData = async (forceRefresh = false) => {
 // 创建模拟历史数据
 function createMockHistoricalData(symbol) {
   console.log(`为 ${symbol} 创建模拟历史数据`);
+  const cachedData = dataCache.coinDetails.get(symbol); // coinDetails now has change% if backend worked
   
-  // 获取缓存中的币种数据作为基准
-  const cachedData = dataCache.coinDetails.get(symbol);
-  
-  // 设置基准值 - 优先使用缓存数据
-  const baseExplosionIndex = cachedData ? cachedData.explosionIndex : 180;
-  const baseOtcIndex = cachedData ? cachedData.otcIndex : 1200;
-  const baseSchellingPoint = cachedData ? cachedData.schellingPoint : 1000;
-  const entryExitType = cachedData ? cachedData.entryExitType : 'neutral';
-  const entryExitDay = cachedData ? cachedData.entryExitDay : 0;
+  const baseExplosionIndex = cachedData?.explosionIndex ?? 180;
+  const baseOtcIndex = cachedData?.otcIndex ?? 1200;
+  const baseSchellingPoint = cachedData?.schellingPoint ?? 1000;
+  const entryExitType = cachedData?.entryExitType ?? 'neutral';
+  const entryExitDay = cachedData?.entryExitDay ?? 0;
   
   const mockData = [];
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(endDate.getDate() - 30);
+  const dayCount = Math.floor((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
   
-  const dayCount = Math.floor((endDate - startDate) / (24 * 60 * 60 * 1000));
-  
-  // 生成每天的数据
   for (let i = 0; i <= dayCount; i++) {
-    const currentDate = new Date(startDate);
+    const currentDate = new Date(startDate.getTime());
     currentDate.setDate(startDate.getDate() + i);
     const dateStr = currentDate.toISOString().split('T')[0];
-    
     const randomFactor = Math.sin(i / 10) * 20 + (Math.random() - 0.5) * 15;
-    const explosionChange = i === 0 ? 0 : mockData[i-1].explosion_index - baseExplosionIndex + randomFactor;
     
     mockData.push({
       date: dateStr,
-      explosion_index: Math.max(100, Math.min(300, baseExplosionIndex + explosionChange * 0.2)),
+      explosion_index: Math.max(100, Math.min(300, baseExplosionIndex + (i > 0 ? (mockData[i-1].explosion_index - baseExplosionIndex) * 0.2 : 0) + randomFactor * 0.2)),
       otc_index: Math.max(500, Math.min(2000, baseOtcIndex + randomFactor * 5)),
       schelling_point: Math.max(100, baseSchellingPoint * (1 + (randomFactor / 1000))),
       entry_exit_type: entryExitType,
-      entry_exit_day: entryExitType !== 'neutral' ? entryExitDay + i : 0
+      entry_exit_day: entryExitType !== 'neutral' ? Math.max(0, entryExitDay - (dayCount - i)) : 0 // Mock E/E day decreasing towards past
     });
   }
   
-  // 确保最后一天的数据与缓存一致
   if (cachedData && mockData.length > 0) {
-    mockData[mockData.length - 1].explosion_index = cachedData.explosionIndex;
-    mockData[mockData.length - 1].otc_index = cachedData.otcIndex;
-    mockData[mockData.length - 1].schelling_point = cachedData.schellingPoint;
-    mockData[mockData.length - 1].entry_exit_type = cachedData.entryExitType;
-    mockData[mockData.length - 1].entry_exit_day = cachedData.entryExitDay;
+    const lastMockEntry = mockData[mockData.length - 1];
+    // Only overwrite if the last mock date corresponds to "today" or the cached data's date
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (lastMockEntry.date === todayStr || lastMockEntry.date === cachedData.date) {
+        lastMockEntry.explosion_index = cachedData.explosionIndex;
+        lastMockEntry.otc_index = cachedData.otcIndex;
+        lastMockEntry.schelling_point = cachedData.schellingPoint;
+        lastMockEntry.entry_exit_type = cachedData.entryExitType;
+        lastMockEntry.entry_exit_day = cachedData.entryExitDay;
+    }
   }
-  
   return mockData;
 }
 
-// 获取其他API功能 - 这些是占位符，实际项目需要实现完整功能
+// 获取其他API功能
 export const fetchCoins = async () => {
-  // 实现此函数
+  try {
+    const response = await api.get('/coins');
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch coins list:', error);
+    return [];
+  }
 };
 
-export const fetchDashboardData = async (date) => {
-  // 实现此函数
-};
+export const fetchDashboardData = async (date) => { /* ... placeholder ... */ };
+export const fetchLiquidityOverview = async (date) => { /* ... placeholder ... */ };
 
-export const fetchLiquidityOverview = async (date) => {
-  // 实现此函数
-};
-
-// 备用数据函数 - 这些是占位符，实际项目需要实现
-function getFallbackCoins() {
-  return []; // 返回备用币种数据
-}
-
-function getDefaultLiquidity() {
-  return {}; // 返回默认流动性数据
-}
-
+// 备用数据函数
+function getFallbackCoins() { return []; }
+function getDefaultLiquidity() { return { btc_fund_change: 0, eth_fund_change: 0, sol_fund_change: 0, total_market_fund_change: 0, comments: "暂无数据" }; }
 function getFallbackMetricsData() {
   return {
     date: new Date().toISOString().split('T')[0],
