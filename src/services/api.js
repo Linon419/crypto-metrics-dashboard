@@ -18,7 +18,66 @@ const api = axios.create({
     'Content-Type': 'application/json'
   }
 });
-
+// Add interceptor to include authorization token in all requests
+api.interceptors.request.use(
+    (config) => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    },
+    (error) => {
+      return Promise.reject(error);
+    }
+  );
+  
+  // Add response interceptor to handle authentication errors
+  api.interceptors.response.use(
+    (response) => {
+      return response;
+    },
+    (error) => {
+      if (error.response && error.response.status === 401) {
+        // Clear authentication data and redirect to login
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }
+      return Promise.reject(error);
+    }
+  );
+  
+  // Authentication API calls
+  export const login = async (credentials) => {
+    try {
+      const response = await api.post('/auth/login', credentials);
+      return response.data;
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error.response?.data || error;
+    }
+  };
+  
+  export const register = async (userData) => {
+    try {
+      const response = await api.post('/auth/register', userData);
+      return response.data;
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw error.response?.data || error;
+    }
+  };
+  
+  export const verifyToken = async () => {
+    try {
+      const response = await api.get('/auth/verify');
+      return response.data;
+    } catch (error) {
+      console.error('Token verification error:', error);
+      throw error.response?.data || error;
+    }
+  };
 // 添加响应拦截器用于调试
 api.interceptors.response.use(
   response => {
@@ -441,3 +500,55 @@ function getFallbackMetricsData() {
     trendingCoins: []
   };
 }
+export const importDatabaseDump = async (dumpData) => {
+    try {
+        console.log('开始批量导入数据库，数据大小:', JSON.stringify(dumpData).length);
+        
+        // 设置更长的超时时间，因为大型数据集导入可能需要更多时间
+        const response = await api.post('/data/import-database', dumpData, {
+          timeout: 300000, // 60秒超时
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Database-Import': 'true' // 添加自定义头，标识这是数据库导入请求
+          }
+        });
+        
+        console.log('批量导入成功，响应:', response.data);
+        return response.data;
+      }catch (error) {
+        console.error('批量导入数据库失败:', error);
+    
+        // 详细的错误日志
+        if (error.response) {
+          console.error('响应状态码:', error.response.status);
+          console.error('响应数据:', error.response.data);
+          throw { 
+            error: '导入失败', 
+            details: error.response.data?.error || error.response.data?.details || error.message,
+            statusCode: error.response.status
+          };
+        } else if (error.request) {
+          console.error('未收到响应，请求超时或网络问题');
+          throw { 
+            error: '导入失败', 
+            details: '请求超时或网络连接失败。数据可能太大或服务器未响应。',
+            statusCode: 0
+          };
+        }
+        throw { error: '导入失败', details: error.message };
+    }
+  };
+// Change password
+export const changePassword = async (passwordData) => {
+    try {
+      const response = await api.put('/auth/change-password', passwordData);
+      return response.data;
+    } catch (error) {
+      console.error('Password change error:', error);
+      if (error.response && error.response.data) {
+        throw error.response.data;
+      } else {
+        throw { error: '密码修改失败，请稍后重试' };
+      }
+    }
+  };

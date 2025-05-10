@@ -40,4 +40,7 @@ Object.keys(db).forEach(modelName => {
 db.sequelize = sequelize;
 db.Sequelize = Sequelize;
 
+console.log("[models/index.js] Exporting db object:", typeof db, db ? Object.keys(db) : 'db is null/undefined'); // <--- 添加这个日志
+console.log("[models/index.js] db.sequelize is:", typeof db.sequelize); // 
+
 module.exports = db;
