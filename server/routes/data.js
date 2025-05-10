@@ -2,298 +2,283 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../models');
-const { Coin, DailyMetric, LiquidityOverview, TrendingCoin } = db;
-const { Op } = require('sequelize'); // 确保 Op 已导入
+const { Coin, DailyMetric, LiquidityOverview, TrendingCoin, sequelize } = db; // 从 db 中获取 sequelize
+const { Op } = require('sequelize');
 
 const openaiService = require('../services/openaiService');
 
-// 处理原始数据输入并存储
+// --- 辅助函数：计算百分比变化 ---
+function calculateChangePercent(current, previous) {
+  if (typeof current !== 'number' || typeof previous !== 'number') return null;
+  if (previous === 0) {
+    return current === 0 ? 0 : Infinity; // 从0到非0是无限大，0到0是0%
+  }
+  return ((current - previous) / previous) * 100;
+}
+
+// --- 路由：处理原始数据输入并存储 ---
 router.post('/input', async (req, res) => {
+  const { rawData } = req.body;
+  if (!rawData || typeof rawData !== 'string' || rawData.trim() === '') {
+    return res.status(400).json({ success: false, error: 'Raw data is required and must be a non-empty string' });
+  }
+
+  console.log(`[DATA_INPUT] Received raw data input request, length: ${rawData.length}`);
+
   try {
-    const { rawData } = req.body;
-    
-    if (!rawData) {
-      return res.status(400).json({ error: 'Raw data is required' });
+    console.log('[DATA_INPUT] Calling OpenAI to process data...');
+    const processedData = await openaiService.processRawData(rawData);
+    console.log('[DATA_INPUT] OpenAI processing complete. Validating data structure...');
+
+    if (!processedData || typeof processedData !== 'object' || !processedData.date || !Array.isArray(processedData.coins)) {
+      console.error('[DATA_INPUT] OpenAI processed data validation failed. Structure:', JSON.stringify(processedData, null, 2));
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid processed data structure from OpenAI',
+        details: 'Processed data must be an object including a date string and a coins array.'
+      });
     }
-    
-    console.log('接收到原始数据输入请求，长度:', rawData.length);
-    
-    // 使用OpenAI处理原始数据
-    try {
-      console.log('开始调用OpenAI处理数据...');
-      const processedData = await openaiService.processRawData(rawData);
-      console.log('OpenAI处理完成，开始数据验证...');
-      
-      // 数据验证
-      if (!processedData.date || !processedData.coins || !Array.isArray(processedData.coins)) {
-        console.error('数据验证失败:', JSON.stringify(processedData, null, 2));
-        return res.status(400).json({ 
-          error: 'Invalid processed data structure', 
-          details: 'Data must include date and coins array'
-        });
+
+    console.log('[DATA_INPUT] Storing processed data into database...');
+    const result = await storeProcessedData(processedData);
+    console.log('[DATA_INPUT] Data storage complete.');
+
+    res.json({
+      success: true,
+      message: 'Data processed and stored successfully.',
+      date: processedData.date,
+      processedSummary: {
+        coinsProcessed: result.coins.length,
+        liquidityUpdated: result.liquidityUpdated,
+        trendingCoinsProcessed: result.trendingCoins.length
       }
-      
-      // 存储处理后的数据
-      console.log('开始将处理后的数据存入数据库...');
-      const result = await storeProcessedData(processedData);
-      console.log('数据存储完成');
-      
-      res.json({
-        success: true,
-        date: processedData.date,
-        processed: {
-          coins: result.coins.length,
-          liquidityUpdated: result.liquidityUpdated,
-          trendingCoins: result.trendingCoins.length
-        }
-      });
-    } catch (processingError) {
-      console.error('处理数据时出错:', processingError);
-      res.status(500).json({ 
-        error: 'Error processing data', 
-        details: processingError.message 
-      });
-    }
-  } catch (error) {
-    console.error('数据输入路由错误:', error);
-    res.status(500).json({ 
-      error: 'Failed to process data',
-      details: error.message
+    });
+
+  } catch (processingError) {
+    console.error('[DATA_INPUT] Error during data processing or storage:', processingError);
+    res.status(500).json({
+      success: false,
+      error: 'Error processing or storing data',
+      details: processingError.message,
+      stack: process.env.NODE_ENV !== 'production' ? processingError.stack : undefined
     });
   }
 });
 
-// 辅助函数：存储处理后的数据
+// --- 辅助函数：存储 OpenAI 处理后的数据 ---
 async function storeProcessedData(data) {
-  console.log('============ 开始存储数据 ============');
-  console.log('处理数据:', JSON.stringify(data, null, 2));
-  
-  const { date, coins, liquidity, trendingCoins } = data;
-  const result = { coins: [], liquidityUpdated: false, trendingCoins: [] };
-  
-  console.log('数据日期:', date);
-  console.log('币种数量:', coins ? coins.length : 0);
-  
-  // 处理币种和指标数据
-  for (const coinData of (coins || [])) {
-    console.log(`\n处理币种: ${coinData.symbol}`);
-    try {
-      // 找到或创建币种
-      console.log('尝试查找或创建币种');
-      const [coin, coinCreated] = await Coin.findOrCreate({
-        where: { symbol: coinData.symbol.toUpperCase() },
-        defaults: {
-          name: coinData.symbol.toUpperCase(),
-          current_price: 0
-        }
-      });
-      
-      console.log(`币种 ${coin.symbol} ${coinCreated ? '已创建' : '已存在'}, ID: ${coin.id}`);
-      
-      // 准备日常指标数据
-      const metricData = {
-        coin_id: coin.id,
-        date: date,
-        otc_index: coinData.otcIndex,
-        explosion_index: coinData.explosionIndex,
-        schelling_point: coinData.schellingPoint,
-        entry_exit_type: coinData.entryExitType,
-        entry_exit_day: coinData.entryExitDay,
-        near_threshold: !!coinData.nearThreshold
-      };
-      
-      console.log('准备保存指标数据:', JSON.stringify(metricData, null, 2));
-      
-      // 查询是否已存在该日期的记录
-      console.log(`查询是否已存在币种 ${coin.id} 在日期 ${date} 的记录`);
-      const existingMetric = await DailyMetric.findOne({
-        where: {
-          coin_id: coin.id,
-          date: date
-        }
-      });
-      
-      let metric;
-      if (existingMetric) {
-        console.log('找到现有记录，进行更新');
-        // 检查现有记录的字段
-        console.log('现有记录:', JSON.stringify(existingMetric, null, 2));
-        
-        // 更新记录
-        await existingMetric.update(metricData);
-        metric = existingMetric;
-        console.log('记录已更新');
-      } else {
-        console.log('未找到现有记录，创建新记录');
-        // 创建新记录
-        metric = await DailyMetric.create(metricData);
-        console.log('新记录已创建');
+  console.log('======== [STORE_DATA] STARTING DATA STORAGE ========');
+  // console.log('[STORE_DATA] Received data:', JSON.stringify(data, null, 2));
+
+  const { date, coins = [], liquidity, trendingCoins = [] } = data;
+  const storageResult = { coins: [], liquidityUpdated: false, trendingCoins: [] };
+  const transaction = await sequelize.transaction(); // 使用事务
+
+  try {
+    console.log(`[STORE_DATA] Processing data for date: ${date}`);
+    console.log(`[STORE_DATA] Number of coins to process: ${coins.length}`);
+
+    for (const coinData of coins) {
+      if (!coinData || !coinData.symbol) {
+        console.warn('[STORE_DATA] Skipping coin data due to missing symbol:', coinData);
+        continue;
       }
-      
-      // 验证保存结果
-      console.log('检索保存后的记录进行验证');
-      const verifiedMetric = await DailyMetric.findByPk(metric.id);
-      console.log('验证保存的指标记录:', JSON.stringify(verifiedMetric, null, 2));
-      
-      result.coins.push({
-        symbol: coin.symbol,
-        metricId: metric.id,
-        created: !existingMetric
-      });
-    } catch (err) {
-      console.error(`处理币种 ${coinData.symbol} 时出错:`, err);
-      console.error('错误详情:', err.stack);
-    }
-  }
-  
-  // 处理流动性数据
-  if (liquidity) {
-    console.log('\n处理流动性数据');
-    try {
-      const [liquidityRecord, created] = await LiquidityOverview.findOrCreate({
-        where: { date },
-        defaults: {
-          btc_fund_change: liquidity.btcFundChange,
-          eth_fund_change: liquidity.ethFundChange,
-          sol_fund_change: liquidity.solFundChange,
-          total_market_fund_change: liquidity.totalMarketFundChange,
-          comments: liquidity.comments
-        }
-      });
-      
-      // 如果找到已存在的记录，则更新它
-      if (!created) {
-        console.log('找到现有流动性记录，进行更新');
-        await liquidityRecord.update({
-          btc_fund_change: liquidity.btcFundChange,
-          eth_fund_change: liquidity.ethFundChange,
-          sol_fund_change: liquidity.solFundChange,
-          total_market_fund_change: liquidity.totalMarketFundChange,
-          comments: liquidity.comments
-        });
-      } else {
-        console.log('创建了新的流动性记录');
-      }
-      
-      result.liquidityUpdated = true;
-    } catch (err) {
-      console.error('处理流动性数据时出错:', err);
-    }
-  }
-  
-  // 处理热点币种
-  if (trendingCoins && Array.isArray(trendingCoins)) {
-    console.log('\n处理热点币种数据');
-    for (const trendingCoinData of trendingCoins) {
+      const symbolUpper = coinData.symbol.toUpperCase();
+      // console.log(`\n[STORE_DATA] Processing coin: ${symbolUpper}`);
+
       try {
-        console.log(`处理热点币种: ${trendingCoinData.symbol}`);
-        const [trendingCoin, created] = await TrendingCoin.findOrCreate({
-          where: {
-            date,
-            symbol: trendingCoinData.symbol.toUpperCase()
-          },
+        const [coinInstance, coinCreated] = await Coin.findOrCreate({
+          where: { symbol: symbolUpper },
           defaults: {
-            otc_index: trendingCoinData.otcIndex,
-            explosion_index: trendingCoinData.explosionIndex,
-            entry_exit_type: trendingCoinData.entryExitType,
-            entry_exit_day: trendingCoinData.entryExitDay,
-            schelling_point: trendingCoinData.schellingPoint
+            name: coinData.name || symbolUpper,
+            current_price: typeof coinData.current_price === 'number' ? coinData.current_price : null, // OpenAI 可能不提供价格
+            logo_url: coinData.logo_url || null,
+          },
+          transaction
+        });
+
+        // 如果 Coin 已存在，且 OpenAI 提供了新的 name/logo (通常OpenAI不提供价格)
+        // Coin 的 current_price 通常由其他服务（如 CoinGecko）更新，OpenAI 主要提供指标
+        if (!coinCreated) {
+          let needsUpdate = false;
+          const updatePayload = {};
+          if (coinData.name && coinInstance.name !== coinData.name) {
+            updatePayload.name = coinData.name;
+            needsUpdate = true;
           }
-        });
-        
-        // 如果找到已存在的记录，则更新它
-        if (!created) {
-          console.log('找到现有热点币种记录，进行更新');
-          await trendingCoin.update({
-            otc_index: trendingCoinData.otcIndex,
-            explosion_index: trendingCoinData.explosionIndex,
-            entry_exit_type: trendingCoinData.entryExitType,
-            entry_exit_day: trendingCoinData.entryExitDay,
-            schelling_point: trendingCoinData.schellingPoint
-          });
-        } else {
-          console.log('创建了新的热点币种记录');
+          if (coinData.logo_url && coinInstance.logo_url !== coinData.logo_url) {
+            updatePayload.logo_url = coinData.logo_url;
+            needsUpdate = true;
+          }
+          // 注意：不轻易用 OpenAI 的数据覆盖 current_price，除非这是明确的来源
+          // if (typeof coinData.current_price === 'number' && coinInstance.current_price !== coinData.current_price) {
+          //   updatePayload.current_price = coinData.current_price;
+          //   needsUpdate = true;
+          // }
+          if (needsUpdate) {
+            await coinInstance.update(updatePayload, { transaction });
+            // console.log(`[STORE_DATA] Updated existing coin: ${symbolUpper}`);
+          }
         }
-        
-        result.trendingCoins.push({
-          symbol: trendingCoin.symbol,
-          created
+        // console.log(`[STORE_DATA] Coin ${symbolUpper} ${coinCreated ? 'created' : 'found/updated'}. ID: ${coinInstance.id}`);
+
+        const metricPayload = {
+          coin_id: coinInstance.id,
+          date: date,
+          otc_index: typeof coinData.otcIndex === 'number' ? coinData.otcIndex : null,
+          explosion_index: typeof coinData.explosionIndex === 'number' ? coinData.explosionIndex : null,
+          schelling_point: typeof coinData.schellingPoint === 'number' ? coinData.schellingPoint : null,
+          entry_exit_type: coinData.entryExitType || 'neutral',
+          entry_exit_day: typeof coinData.entryExitDay === 'number' ? coinData.entryExitDay : 0,
+          near_threshold: !!coinData.nearThreshold
+        };
+        // console.log('[STORE_DATA] Metric payload:', JSON.stringify(metricPayload, null, 2));
+
+        const [metricInstance, metricCreated] = await DailyMetric.findOrCreate({
+          where: { coin_id: coinInstance.id, date: date },
+          defaults: metricPayload,
+          transaction
         });
-      } catch (err) {
-        console.error(`处理热点币种 ${trendingCoinData.symbol} 时出错:`, err);
+
+        if (!metricCreated) {
+          await metricInstance.update(metricPayload, { transaction });
+          // console.log(`[STORE_DATA] Updated existing metric for ${symbolUpper} on ${date}.`);
+        }
+        storageResult.coins.push({
+          symbol: coinInstance.symbol,
+          metricId: metricInstance.id,
+          action: metricCreated ? 'created' : 'updated'
+        });
+      } catch (coinError) {
+        console.error(`[STORE_DATA] Error processing coin ${symbolUpper}:`, coinError.message);
+        // 考虑是否要因为单个币种错误而回滚整个事务，或记录错误并继续
       }
     }
+
+    if (liquidity && typeof liquidity === 'object') {
+      // console.log('\n[STORE_DATA] Processing liquidity data...');
+      const liquidityPayload = {
+        date: date,
+        btc_fund_change: typeof liquidity.btcFundChange === 'number' ? liquidity.btcFundChange : null,
+        eth_fund_change: typeof liquidity.ethFundChange === 'number' ? liquidity.ethFundChange : null,
+        sol_fund_change: typeof liquidity.solFundChange === 'number' ? liquidity.solFundChange : null,
+        total_market_fund_change: typeof liquidity.totalMarketFundChange === 'number' ? liquidity.totalMarketFundChange : null,
+        comments: liquidity.comments || null
+      };
+      const [liqInstance, liqCreated] = await LiquidityOverview.findOrCreate({
+        where: { date: date },
+        defaults: liquidityPayload,
+        transaction
+      });
+      if (!liqCreated) {
+        await liqInstance.update(liquidityPayload, { transaction });
+      }
+      storageResult.liquidityUpdated = true;
+    }
+
+    if (Array.isArray(trendingCoins) && trendingCoins.length > 0) {
+      // console.log('\n[STORE_DATA] Processing trending coins data...');
+      for (const trendData of trendingCoins) {
+        if (!trendData || !trendData.symbol) {
+            console.warn('[STORE_DATA] Skipping trending coin due to missing symbol:', trendData);
+            continue;
+        }
+        const trendSymbolUpper = trendData.symbol.toUpperCase();
+        try {
+            const trendPayload = {
+                date: date,
+                symbol: trendSymbolUpper,
+                otc_index: typeof trendData.otcIndex === 'number' ? trendData.otcIndex : null,
+                explosion_index: typeof trendData.explosionIndex === 'number' ? trendData.explosionIndex : null,
+                schelling_point: typeof trendData.schellingPoint === 'number' ? trendData.schellingPoint : null,
+                entry_exit_type: trendData.entryExitType || 'neutral',
+                entry_exit_day: typeof trendData.entryExitDay === 'number' ? trendData.entryExitDay : 0,
+            };
+            const [trendInstance, trendCreated] = await TrendingCoin.findOrCreate({
+                where: { date: date, symbol: trendSymbolUpper },
+                defaults: trendPayload,
+                transaction
+            });
+            if (!trendCreated) {
+                await trendInstance.update(trendPayload, { transaction });
+            }
+            storageResult.trendingCoins.push({ symbol: trendSymbolUpper, action: trendCreated ? 'created' : 'updated' });
+        } catch (trendError) {
+            console.error(`[STORE_DATA] Error processing trending coin ${trendSymbolUpper}:`, trendError.message);
+        }
+      }
+    }
+
+    await transaction.commit();
+    console.log('[STORE_DATA] Transaction committed successfully.');
+    // console.log('[STORE_DATA] Result summary:', JSON.stringify(storageResult, null, 2));
+    console.log('======== [STORE_DATA] DATA STORAGE COMPLETE ========');
+    return storageResult;
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('[STORE_DATA] Transaction rolled back due to error:', error);
+    throw error; // 重新抛出错误，让上层处理
   }
-  
-  console.log('============ 数据存储完成 ============');
-  console.log('结果摘要:', JSON.stringify(result, null, 2));
-  
-  return result;
 }
 
-// Helper function to get the date string for the day before
-function getPreviousDate(dateString) {
+// --- 辅助函数：获取前一天日期字符串 ---
+function getPreviousDateString(dateString) {
   const date = new Date(dateString);
+  if (isNaN(date.getTime())) return null; // 无效日期处理
   date.setDate(date.getDate() - 1);
   return date.toISOString().split('T')[0];
 }
 
-// 获取最新数据 (增强版，包含前一天对比数据)
+// --- 路由：获取最新数据 (增强版，包含前一天对比和百分比变化) ---
 router.get('/latest', async (req, res) => {
   try {
-    console.log('请求获取最新数据 (增强版)');
-    
-    const latestMetricEntry = await DailyMetric.findOne({
-      order: [['date', 'DESC']]
+    console.log('[LATEST_DATA] Request received for latest data (enhanced).');
+
+    const latestMetricDateEntry = await DailyMetric.findOne({
+      attributes: ['date'],
+      order: [['date', 'DESC']],
+      raw: true, // 获取原始数据对象
     });
-    
-    if (!latestMetricEntry) {
-      console.log('未找到任何指标数据');
-      return res.status(404).json({ error: 'No metrics data found' });
+
+    if (!latestMetricDateEntry || !latestMetricDateEntry.date) {
+      console.log('[LATEST_DATA] No metrics data found in database.');
+      return res.status(404).json({ success: false, error: 'No metrics data found' });
     }
-    
-    const latestDate = latestMetricEntry.date;
-    const previousDate = getPreviousDate(latestDate); // 计算前一天的日期
-    console.log('最新日期:', latestDate, '; 前一天日期:', previousDate);
-    
-    // 1. 获取最新日期的所有币种指标
+
+    const latestDate = latestMetricDateEntry.date;
+    const previousDate = getPreviousDateString(latestDate);
+    console.log(`[LATEST_DATA] Latest date: ${latestDate}, Previous date: ${previousDate}`);
+
+    const commonIncludeCoin = {
+      model: Coin,
+      as: 'coin',
+      attributes: ['id', 'symbol', 'name', 'current_price', 'logo_url']
+    };
+
     const latestDayMetrics = await DailyMetric.findAll({
       where: { date: latestDate },
-      include: [{
-        model: Coin,
-        as: 'coin',
-        attributes: ['id', 'symbol', 'name', 'current_price', 'logo_url'] // Include id
-      }]
+      include: [commonIncludeCoin]
     });
-    console.log(`找到 ${latestDayMetrics.length} 条 ${latestDate} 的指标记录`);
+    // console.log(`[LATEST_DATA] Found ${latestDayMetrics.length} metrics for ${latestDate}.`);
 
-    // 2. 获取前一天的所有币种指标 (用于对比)
-    const previousDayMetricsRaw = await DailyMetric.findAll({
-      where: { date: previousDate },
-      // No need to include Coin again if we map by coin_id
-    });
-    console.log(`找到 ${previousDayMetricsRaw.length} 条 ${previousDate} 的指标记录`);
-
-    // 将前一天的数据转换为以 coin_id 为键的 Map，方便查找
-    const previousDayMetricsMap = new Map();
-    previousDayMetricsRaw.forEach(metric => {
-      previousDayMetricsMap.set(metric.coin_id, {
-        otc_index: metric.otc_index,
-        explosion_index: metric.explosion_index,
-        // Add other fields if needed for comparison later
+    let previousDayMetricsMap = new Map();
+    if (previousDate) {
+      const previousDayMetricsRaw = await DailyMetric.findAll({
+        where: { date: previousDate },
+        // attributes: ['coin_id', 'otc_index', 'explosion_index', 'schelling_point'] // 只取需要对比的字段
       });
-    });
+      // console.log(`[LATEST_DATA] Found ${previousDayMetricsRaw.length} metrics for ${previousDate}.`);
+      previousDayMetricsRaw.forEach(metric => {
+        previousDayMetricsMap.set(metric.coin_id, metric);
+      });
+    }
 
-    // 3. 组合数据，加入前一天对比值
     const metricsWithComparison = latestDayMetrics.map(currentMetric => {
-      const coinId = currentMetric.coin.id; // coin.id is available due to include
-      const previousMetrics = previousDayMetricsMap.get(coinId);
-      
+      const prevMetrics = previousDayMetricsMap.get(currentMetric.coin_id);
       return {
-        // ...currentMetric.toJSON(), // Spread all fields from currentMetric
-        // Manually list fields to ensure structure and include coin details directly
-        id: currentMetric.id, // metric id
-        coin_id: coinId,
+        id: currentMetric.id,
+        coin_id: currentMetric.coin_id,
         date: currentMetric.date,
         otc_index: currentMetric.otc_index,
         explosion_index: currentMetric.explosion_index,
@@ -301,534 +286,332 @@ router.get('/latest', async (req, res) => {
         entry_exit_type: currentMetric.entry_exit_type,
         entry_exit_day: currentMetric.entry_exit_day,
         near_threshold: currentMetric.near_threshold,
-        coin: currentMetric.coin.toJSON(), // Include the full coin object
-        previous_day_data: previousMetrics ? { // Add previous day data if found
-          otc_index: previousMetrics.otc_index,
-          explosion_index: previousMetrics.explosion_index,
-        } : null // Set to null if no previous day data
+        coin: currentMetric.coin, // 包含完整的 coin 对象
+        previous_day_data: prevMetrics ? {
+          date: prevMetrics.date,
+          otc_index: prevMetrics.otc_index,
+          explosion_index: prevMetrics.explosion_index,
+          schelling_point: prevMetrics.schelling_point,
+          // ...可以添加更多前一天字段
+        } : null,
+        otc_index_change_percent: prevMetrics ? calculateChangePercent(currentMetric.otc_index, prevMetrics.otc_index) : null,
+        explosion_index_change_percent: prevMetrics ? calculateChangePercent(currentMetric.explosion_index, prevMetrics.explosion_index) : null,
       };
     });
+
+    const liquidity = await LiquidityOverview.findOne({ where: { date: latestDate } });
+    const trendingCoinsRaw = await TrendingCoin.findAll({ where: { date: latestDate } });
+    // console.log(`[LATEST_DATA] Found ${trendingCoinsRaw.length} trending coins for ${latestDate}.`);
     
-    // 获取流动性概况
-    const liquidity = await LiquidityOverview.findOne({
-      where: { date: latestDate }
+    // 确保 trendingCoins 也包含 coin 详细信息（如果前端需要）和变化百分比
+    // 这需要 TrendingCoin 模型与 Coin 关联，或者在此处额外查询 Coin 信息
+    // 为了简化，这里假设前端可以直接使用 TrendingCoin 的原始数据或其symbol
+    // 如果需要像 metrics 那样详细，则需要对 trendingCoins 做类似的处理
+    const trendingCoins = trendingCoinsRaw.map(tc => {
+        // 查找对应的 Coin 信息 (如果 trendingCoin 没有直接关联)
+        // const coinInfo = metricsWithComparison.find(m => m.coin.symbol === tc.symbol)?.coin;
+        // const prevTrendData = ... // 如果热点币也有历史对比
+        return {
+            ...tc.toJSON(), // 包含id, date, symbol, otc_index等
+            // coin: coinInfo, // 可选
+            // otc_index_change_percent: ..., // 可选
+        };
     });
-    
-    // 获取热点币种 (也可以为它们添加前一天对比，如果 TrendingCoin 模型有历史数据)
-    // For simplicity, let's assume trendingCoins don't need previous day data for now,
-    // or their structure in the DB would need similar handling.
-    const trendingCoins = await TrendingCoin.findAll({
-      where: { date: latestDate }
-      // Potentially add comparison data here too if needed and feasible
-    });
-    
-    console.log(`找到 ${trendingCoins.length} 条热点币种记录`);
-    
+
+
     res.json({
+      success: true,
       date: latestDate,
-      metrics: metricsWithComparison, // 使用包含对比数据的新数组
-      liquidity,
-      trendingCoins
+      metrics: metricsWithComparison,
+      liquidity: liquidity || null, // 确保是 null 如果未找到
+      trendingCoins: trendingCoins,
     });
+
   } catch (error) {
-    console.error('获取最新数据时出错:', error);
-    res.status(500).json({ error: 'Failed to fetch latest data' });
+    console.error('[LATEST_DATA] Error fetching latest data:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch latest data', details: error.message });
   }
 });
 
-// 导出所有数据
+
+// --- 路由：导出所有数据 ---
 router.get('/export-all', async (req, res) => {
   try {
-    console.log('请求导出所有数据库数据');
-    
-    // 1. 获取所有币种
-    const coins = await Coin.findAll();
-    console.log(`找到 ${coins.length} 个币种数据`);
-    
-    // 2. 获取所有指标数据
-    const metrics = await DailyMetric.findAll({
-      include: [{
-        model: Coin,
-        as: 'coin',
-        attributes: ['symbol', 'name'] // 只包含必要字段
-      }],
-      order: [['date', 'DESC']]
-    });
-    console.log(`找到 ${metrics.length} 条指标数据记录`);
-    
-    // 3. 获取所有流动性数据
-    const liquidity = await LiquidityOverview.findAll({
-      order: [['date', 'DESC']]
-    });
-    console.log(`找到 ${liquidity.length} 条流动性数据记录`);
-    
-    // 4. 获取所有热点币种数据
-    const trendingCoins = await TrendingCoin.findAll({
-      order: [['date', 'DESC']]
-    });
-    console.log(`找到 ${trendingCoins.length} 条热点币种数据记录`);
-    
-    // 5. 获取所有不同的日期
-    const distinctDates = await DailyMetric.findAll({
-      attributes: ['date'],
-      group: ['date'],
-      order: [['date', 'DESC']]
-    });
-    
-    const dateList = distinctDates.map(d => d.date);
-    
-    // 6. 获取最新日期的详细数据
-    const latestDate = dateList.length > 0 ? dateList[0] : null;
-    
-    // 组装最新数据
-    let latestData = null;
-    if (latestDate) {
-      // 最新日期的币种数据
-      const latestCoins = await DailyMetric.findAll({
-        where: { date: latestDate },
-        include: [{
-          model: Coin,
-          as: 'coin',
-          attributes: ['id', 'symbol', 'name', 'current_price', 'logo_url']
-        }]
-      });
-      
-      // 转换为前端期望的格式
-      const formattedCoins = latestCoins.map(metric => ({
-        id: metric.coin.id,
-        symbol: metric.coin.symbol,
-        name: metric.coin.name,
-        current_price: metric.coin.current_price,
-        logo_url: metric.coin.logo_url,
-        otcIndex: metric.otc_index,
-        explosionIndex: metric.explosion_index,
-        schellingPoint: metric.schelling_point,
-        entryExitType: metric.entry_exit_type,
-        entryExitDay: metric.entry_exit_day,
-        nearThreshold: metric.near_threshold
-      }));
-      
-      // 最新日期的流动性数据
-      const latestLiquidity = await LiquidityOverview.findOne({
-        where: { date: latestDate }
-      });
-      
-      // 最新日期的热点币种
-      const latestTrending = await TrendingCoin.findAll({
-        where: { date: latestDate }
-      });
-      
-      latestData = {
-        date: latestDate,
-        coins: formattedCoins,
-        liquidity: latestLiquidity,
-        trendingCoins: latestTrending
-      };
+    console.log('[EXPORT_DB] Request received to export all database data.');
+    res.setTimeout(300000); // 5分钟超时，以防数据量过大
+
+    const [
+        allCoinsInfo,
+        allHistoricalMetricsRaw,
+        allLiquidityHistory,
+        allTrendingCoinsHistory,
+        dateRange
+    ] = await Promise.all([
+        Coin.findAll({ order: [['symbol', 'ASC']] }),
+        DailyMetric.findAll({ include: [{ model: Coin, as: 'coin', attributes: ['symbol'] }], order: [['date', 'DESC'], ['coin_id', 'ASC']] }),
+        LiquidityOverview.findAll({ order: [['date', 'DESC']] }),
+        TrendingCoin.findAll({ order: [['date', 'DESC'], ['symbol', 'ASC']] }),
+        DailyMetric.findOne({
+            attributes: [
+                [sequelize.fn('MIN', sequelize.col('date')), 'startDate'],
+                [sequelize.fn('MAX', sequelize.col('date')), 'endDate'],
+            ],
+            raw: true,
+        })
+    ]);
+    // console.log(`[EXPORT_DB] Fetched ${allCoinsInfo.length} coins, ${allHistoricalMetricsRaw.length} metrics, ${allLiquidityHistory.length} liquidity, ${allTrendingCoinsHistory.length} trending.`);
+
+    // 获取最新处理过的数据 (复用 /latest 的逻辑会更好，但这里为了导出独立性重新获取)
+    // 这里简化处理，实际应用中可以调用一个内部函数来获取 latestProcessedData
+    let latestProcessedData = null;
+    if (dateRange && dateRange.endDate) {
+        // 简单的模拟 /latest 的输出结构，实际中应更精确
+        const latestMetricsForExport = allHistoricalMetricsRaw.filter(m => m.date === dateRange.endDate);
+        const latestLiquidityForExport = allLiquidityHistory.find(l => l.date === dateRange.endDate);
+        const latestTrendingForExport = allTrendingCoinsHistory.filter(t => t.date === dateRange.endDate);
+        latestProcessedData = {
+            date: dateRange.endDate,
+            metrics: latestMetricsForExport.map(m => ({ ...m.toJSON(), coin: m.coin.toJSON() })), // 确保 coin 被正确序列化
+            liquidity: latestLiquidityForExport || null,
+            trendingCoins: latestTrendingForExport,
+        };
     }
     
-    // 7. 为主要币种准备历史数据 (BTC, ETH, BNB, SOL)
-    const historicalData = {};
-    const mainCoins = ['BTC', 'ETH', 'BNB', 'SOL'];
-    
-    for (const symbol of mainCoins) {
-      const coin = await Coin.findOne({ where: { symbol } });
-      if (coin) {
-        const coinMetrics = await DailyMetric.findAll({
-          where: { coin_id: coin.id },
-          order: [['date', 'ASC']],
-          limit: 30 // 最多返回30天数据
-        });
-        
-        if (coinMetrics.length > 0) {
-          historicalData[symbol] = coinMetrics.map(metric => ({
-            date: metric.date,
-            otc_index: metric.otc_index,
-            explosion_index: metric.explosion_index,
-            schelling_point: metric.schelling_point,
-            entry_exit_type: metric.entry_exit_type,
-            entry_exit_day: metric.entry_exit_day
-          }));
+    // 准备用于图表的历史数据 (示例：最近30天的主流币种)
+    // 实际应用中可以更灵活地配置哪些币种和多长时间的数据
+    const historicalChartData = {};
+    const chartSymbols = ['BTC', 'ETH', 'BNB', 'SOL']; // 示例
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
+
+    for (const symbol of chartSymbols) {
+        const coin = allCoinsInfo.find(c => c.symbol === symbol);
+        if (coin) {
+            const metricsForSymbol = allHistoricalMetricsRaw
+                .filter(m => m.coin_id === coin.id && m.date >= thirtyDaysAgoStr)
+                .sort((a,b) => new Date(a.date) - new Date(b.date)) // 确保按日期升序
+                .map(m => ({ // 转换为前端图表期望的格式
+                    date: m.date,
+                    otc_index: m.otc_index,
+                    explosion_index: m.explosion_index,
+                    schelling_point: m.schelling_point,
+                    entry_exit_type: m.entry_exit_type,
+                    entry_exit_day: m.entry_exit_day,
+                }));
+            if (metricsForSymbol.length > 0) {
+                historicalChartData[symbol] = metricsForSymbol;
+            }
         }
-      }
     }
-    
-    // 8. 组装最终导出数据
+
+
     const exportData = {
       metadata: {
         exportDate: new Date().toISOString(),
-        appVersion: '1.0.0',
-        dataLatest: latestDate,
-        availableDates: dateList
+        appVersion: process.env.APP_VERSION || '1.0.0', // 从环境变量获取版本
+        dataRangeStart: dateRange ? dateRange.startDate : null,
+        dataRangeEnd: dateRange ? dateRange.endDate : null,
       },
-      coins,
-      metrics,
-      liquidity,
-      trendingCoins,
-      latestData,
-      historicalData
+      allCoinsInfo,
+      allHistoricalMetricsRaw,
+      allLiquidityHistory,
+      allTrendingCoinsHistory,
+      latestProcessedData: latestProcessedData || {}, // 确保有默认值
+      historicalChartData,
     };
-    
-    // 设置更长的超时，因为数据量可能很大
-    res.setTimeout(120000); // 2分钟
+
     res.json(exportData);
-    
+    console.log('[EXPORT_DB] All data export completed.');
+
   } catch (error) {
-    console.error('导出数据库数据时出错:', error);
-    res.status(500).json({ error: 'Failed to export database data', details: error.message });
+    console.error('[EXPORT_DB] Error exporting database data:', error);
+    res.status(500).json({ success: false, error: 'Failed to export database data', details: error.message });
   }
 });
 
-// 新增：批量导入数据库备份数据
+
+// --- 路由：批量导入数据库备份数据 ---
 router.post('/import-database', async (req, res) => {
-  try {
-    const dumpData = req.body;
-    
-    // 数据格式验证
-    if (!dumpData || !dumpData.metadata || !dumpData.coins || !dumpData.metrics) {
-      console.error('数据库导入: 格式无效，缺少必要字段');
-      return res.status(400).json({ error: 'Invalid database dump format. Required fields missing.' });
-    }
-    
-    console.log(`[IMPORT_DB] Received database import request. Export Date: ${dumpData.metadata.exportDate}, App Version: ${dumpData.metadata.appVersion}`);
-    console.log(`[IMPORT_DB] 数据大小: 币种=${dumpData.coins.length}, 指标=${dumpData.metrics.length}, 流动性=${dumpData.liquidity?.length || 0}`);
-  
-    // 使用事务确保数据一致性
-    const transaction = await db.sequelize.transaction();
-  
-    try {
-      let coinsImported = 0;
-      let metricsImported = 0;
-      let liquidityImported = 0;
-      let trendingImported = 0;
-  
-      // 1. 导入/更新 Coins
-      if (Array.isArray(dumpData.coins) && dumpData.coins.length > 0) {
-        console.log(`[IMPORT_DB] 开始处理 ${dumpData.coins.length} 个币种数据...`);
-        
-        for (const cData of dumpData.coins) {
-          // 预处理币种数据，确保必要字段存在
-          const coinData = {
-            symbol: (cData.symbol || '').toUpperCase(),
-            name: cData.name || cData.symbol || 'Unknown Coin',
-            current_price: cData.current_price !== undefined ? cData.current_price : 0,
-            logo_url: cData.logo_url || null
-          };
-          
-          // 跳过无效数据
-          if (!coinData.symbol) {
-            console.warn('[IMPORT_DB] 跳过无效币种数据: 缺少symbol字段');
-            continue;
-          }
-          
-          try {
-            // 查找或创建币种
-            const [coin, created] = await Coin.findOrCreate({
-              where: { symbol: coinData.symbol },
-              defaults: coinData,
-              transaction
-            });
-            
-            // 如果找到现有币种，更新其属性
-            if (!created) {
-              await coin.update(coinData, { transaction });
-              console.log(`[IMPORT_DB] 更新币种: ${coinData.symbol}`);
-            } else {
-              console.log(`[IMPORT_DB] 创建币种: ${coinData.symbol}`);
-            }
-            
-            coinsImported++;
-            
-            // 每处理10个币种输出一次日志
-            if (coinsImported % 10 === 0) {
-              console.log(`[IMPORT_DB] 已处理 ${coinsImported}/${dumpData.coins.length} 个币种`);
-            }
-          } catch (err) {
-            console.error(`[IMPORT_DB] 处理币种 ${coinData.symbol} 时出错:`, err);
-            // 继续处理其他币种
-          }
-        }
-      }
-      
-      // 获取所有币种的映射关系，用于后续指标数据处理
-      const allCoinsFromDB = await Coin.findAll({ 
-        attributes: ['id', 'symbol'], 
-        transaction 
-      });
-      
-      const coinSymbolToIdMap = new Map();
-      allCoinsFromDB.forEach(c => {
-        coinSymbolToIdMap.set(c.symbol.toUpperCase(), c.id);
-      });
-      
-      console.log(`[IMPORT_DB] 币种映射表包含 ${coinSymbolToIdMap.size} 个币种`);
-  
-      // 2. 导入/更新 DailyMetrics
-      if (Array.isArray(dumpData.metrics) && dumpData.metrics.length > 0) {
-        console.log(`[IMPORT_DB] 开始处理 ${dumpData.metrics.length} 条指标数据...`);
-        
-        for (const m of dumpData.metrics) {
-          // 确定币种ID
-          let coinIdToUse = m.coin_id;
-          
-          // 如果没有coin_id但有coin对象，通过symbol查找币种ID
-          if (!coinIdToUse && m.coin && m.coin.symbol) {
-            coinIdToUse = coinSymbolToIdMap.get(m.coin.symbol.toUpperCase());
-          }
-          
-          // 如果找不到币种ID，跳过该指标
-          if (!coinIdToUse) {
-            console.warn(`[IMPORT_DB] 跳过指标: 找不到币种ID (date=${m.date}, symbol=${m.coin?.symbol || 'unknown'})`);
-            continue;
-          }
-          
-          try {
-            // 预处理指标数据
-            const metricData = {
-              coin_id: coinIdToUse,
-              date: m.date,
-              otc_index: m.otc_index !== undefined ? m.otc_index : 0,
-              explosion_index: m.explosion_index !== undefined ? m.explosion_index : 0,
-              schelling_point: m.schelling_point,
-              entry_exit_type: m.entry_exit_type || 'neutral',
-              entry_exit_day: m.entry_exit_day !== undefined ? m.entry_exit_day : 0,
-              near_threshold: !!m.near_threshold
-            };
-            
-            // 查找或创建指标记录
-            const [metric, created] = await DailyMetric.findOrCreate({
-              where: { 
-                coin_id: metricData.coin_id, 
-                date: metricData.date 
-              },
-              defaults: metricData,
-              transaction
-            });
-            
-            // 如果找到现有记录，更新其属性
-            if (!created) {
-              await metric.update(metricData, { transaction });
-            }
-            
-            metricsImported++;
-            
-            // 每处理100条指标输出一次日志
-            if (metricsImported % 100 === 0) {
-              console.log(`[IMPORT_DB] 已处理 ${metricsImported}/${dumpData.metrics.length} 条指标数据`);
-            }
-          } catch (err) {
-            console.error(`[IMPORT_DB] 处理指标数据出错 (coin_id=${coinIdToUse}, date=${m.date}):`, err);
-            // 继续处理其他指标
-          }
-        }
-      }
-  
-      // 3. 导入/更新 LiquidityOverview
-      if (Array.isArray(dumpData.liquidity) && dumpData.liquidity.length > 0) {
-        console.log(`[IMPORT_DB] 开始处理 ${dumpData.liquidity.length} 条流动性数据...`);
-        
-        for (const l of dumpData.liquidity) {
-          try {
-            // 预处理流动性数据
-            const liquidityData = {
-              date: l.date,
-              btc_fund_change: l.btc_fund_change,
-              eth_fund_change: l.eth_fund_change,
-              sol_fund_change: l.sol_fund_change,
-              total_market_fund_change: l.total_market_fund_change,
-              comments: l.comments
-            };
-            
-            // 查找或创建流动性记录
-            const [liq, created] = await LiquidityOverview.findOrCreate({
-              where: { date: liquidityData.date },
-              defaults: liquidityData,
-              transaction
-            });
-            
-            // 如果找到现有记录，更新其属性
-            if (!created) {
-              await liq.update(liquidityData, { transaction });
-            }
-            
-            liquidityImported++;
-          } catch (err) {
-            console.error(`[IMPORT_DB] 处理流动性数据出错 (date=${l.date}):`, err);
-            // 继续处理其他流动性数据
-          }
-        }
-      }
-      
-      // 4. 导入/更新 TrendingCoins
-      const trendingToImport = dumpData.trendingCoins || dumpData.latestData?.trendingCoins || [];
-      if (Array.isArray(trendingToImport) && trendingToImport.length > 0) {
-        console.log(`[IMPORT_DB] 开始处理 ${trendingToImport.length} 条热点币种数据...`);
-        
-        for (const t of trendingToImport) {
-          try {
-            // 预处理热点币种数据
-            const trendingData = {
-              date: t.date,
-              symbol: (t.symbol || '').toUpperCase(),
-              otc_index: t.otc_index !== undefined ? t.otc_index : 0,
-              explosion_index: t.explosion_index !== undefined ? t.explosion_index : 0,
-              entry_exit_type: t.entry_exit_type || 'neutral',
-              entry_exit_day: t.entry_exit_day !== undefined ? t.entry_exit_day : 0,
-              schelling_point: t.schelling_point
-            };
-            
-            // 跳过无效数据
-            if (!trendingData.symbol || !trendingData.date) {
-              console.warn('[IMPORT_DB] 跳过无效热点币种数据: 缺少symbol或date字段');
-              continue;
-            }
-            
-            // 查找或创建热点币种记录
-            const [trend, created] = await TrendingCoin.findOrCreate({
-              where: { 
-                date: trendingData.date, 
-                symbol: trendingData.symbol 
-              },
-              defaults: trendingData,
-              transaction
-            });
-            
-            // 如果找到现有记录，更新其属性
-            if (!created) {
-              await trend.update(trendingData, { transaction });
-            }
-            
-            trendingImported++;
-          } catch (err) {
-            console.error(`[IMPORT_DB] 处理热点币种数据出错 (symbol=${t.symbol}, date=${t.date}):`, err);
-            // 继续处理其他热点币种数据
-          }
-        }
-      }
-  
-      // 提交事务
-      await transaction.commit();
-      console.log('[IMPORT_DB] 数据库导入成功，事务已提交');
-      
-      // 返回成功结果
-      res.json({ 
-        success: true, 
-        message: 'Database imported successfully.',
-        summary: { coinsImported, metricsImported, liquidityImported, trendingImported }
-      });
-    } catch (error) {
-      // 如果事务未完成，回滚事务
-      if (transaction && !transaction.finished) {
-        try {
-          await transaction.rollback();
-          console.log("[IMPORT_DB] 事务回滚成功");
-        } catch (rollbackError) {
-          console.error("[IMPORT_DB] 事务回滚失败:", rollbackError);
-        }
-      }
-      
-      console.error('[IMPORT_DB] 数据库导入过程中出错:', error);
-      res.status(500).json({ 
-        error: 'Failed to import database.', 
-        details: error.message 
-      });
-    }
-  } catch (error) {
-    console.error('[IMPORT_DB] 解析请求数据时出错:', error);
-    res.status(400).json({ 
-      error: 'Error parsing request data', 
-      details: error.message 
-    });
+  const dumpData = req.body;
+  if (!dumpData || typeof dumpData !== 'object' || !dumpData.metadata || !Array.isArray(dumpData.allCoinsInfo) || !Array.isArray(dumpData.allHistoricalMetricsRaw)) {
+    console.error('[IMPORT_DB] Invalid database dump format. Missing required root fields or arrays.');
+    return res.status(400).json({ success: false, error: 'Invalid database dump format. Required fields (metadata, allCoinsInfo, allHistoricalMetricsRaw) missing or not arrays.' });
   }
-});
 
-// 调试路由 - 显示所有支持的字段
-router.get('/debug/fields', async (req, res) => {
+  console.log(`[IMPORT_DB] Received database import request. Export Date: ${dumpData.metadata.exportDate}, App Version: ${dumpData.metadata.appVersion}`);
+  const transaction = await sequelize.transaction();
+
   try {
-    // 获取DailyMetric表的所有字段
-    const metric = await DailyMetric.findOne();
-    const fields = metric ? Object.keys(metric.toJSON()) : [];
-    
-    // 获取一个示例记录
-    const sample = await DailyMetric.findOne({
-      include: [{
-        model: Coin,
-        as: 'coin',
-      }]
-    });
-    
+    let counts = { coins: 0, metrics: 0, liquidity: 0, trending: 0 };
+
+    // 1. 导入/更新 Coins
+    if (dumpData.allCoinsInfo.length > 0) {
+      console.log(`[IMPORT_DB] Processing ${dumpData.allCoinsInfo.length} coins...`);
+      for (const cData of dumpData.allCoinsInfo) {
+        if (!cData || !cData.symbol) { console.warn('[IMPORT_DB] Skipping coin with no symbol.'); continue; }
+        const symbolUpper = cData.symbol.toUpperCase();
+        const coinPayload = {
+          symbol: symbolUpper,
+          name: cData.name || symbolUpper,
+          current_price: typeof cData.current_price === 'number' ? cData.current_price : null,
+          logo_url: cData.logo_url || null,
+          // 保留其他 Coin 模型字段，如果 dumpData 中有的话
+          circulating_supply: typeof cData.circulating_supply === 'number' ? cData.circulating_supply : null,
+          market_cap: typeof cData.market_cap === 'number' ? cData.market_cap : null,
+          // ... etc.
+        };
+        const [instance, created] = await Coin.findOrCreate({ where: { symbol: symbolUpper }, defaults: coinPayload, transaction });
+        if (!created) await instance.update(coinPayload, { transaction });
+        counts.coins++;
+      }
+    }
+
+    // 获取最新的 Coin ID 映射
+    const coinSymbolToIdMap = new Map(
+        (await Coin.findAll({ attributes: ['id', 'symbol'], transaction })).map(c => [c.symbol.toUpperCase(), c.id])
+    );
+    console.log(`[IMPORT_DB] Coin map created with ${coinSymbolToIdMap.size} entries.`);
+
+    // 2. 导入/更新 DailyMetrics
+    if (dumpData.allHistoricalMetricsRaw.length > 0) {
+      console.log(`[IMPORT_DB] Processing ${dumpData.allHistoricalMetricsRaw.length} metrics...`);
+      for (const mData of dumpData.allHistoricalMetricsRaw) {
+        if (!mData || !mData.date) { console.warn('[IMPORT_DB] Skipping metric with no date.'); continue; }
+        const coinSymbol = mData.coin?.symbol?.toUpperCase() || mData.symbol?.toUpperCase(); // 兼容旧的dump可能没有嵌套coin
+        const coinId = coinSymbol ? coinSymbolToIdMap.get(coinSymbol) : mData.coin_id;
+
+        if (!coinId) { console.warn(`[IMPORT_DB] Skipping metric for unknown coin (symbol: ${coinSymbol}, date: ${mData.date}).`); continue; }
+        
+        const metricPayload = {
+          coin_id: coinId,
+          date: mData.date,
+          otc_index: typeof mData.otc_index === 'number' ? mData.otc_index : null,
+          explosion_index: typeof mData.explosion_index === 'number' ? mData.explosion_index : null,
+          schelling_point: typeof mData.schelling_point === 'number' ? mData.schelling_point : null,
+          entry_exit_type: mData.entry_exit_type || 'neutral',
+          entry_exit_day: typeof mData.entry_exit_day === 'number' ? mData.entry_exit_day : 0,
+          near_threshold: !!mData.near_threshold,
+        };
+        const [instance, created] = await DailyMetric.findOrCreate({ where: { coin_id: coinId, date: mData.date }, defaults: metricPayload, transaction });
+        if (!created) await instance.update(metricPayload, { transaction });
+        counts.metrics++;
+      }
+    }
+
+    // 3. 导入/更新 LiquidityOverview
+    if (Array.isArray(dumpData.allLiquidityHistory) && dumpData.allLiquidityHistory.length > 0) {
+        console.log(`[IMPORT_DB] Processing ${dumpData.allLiquidityHistory.length} liquidity entries...`);
+        for (const lData of dumpData.allLiquidityHistory) {
+            if (!lData || !lData.date) { console.warn('[IMPORT_DB] Skipping liquidity entry with no date.'); continue; }
+            const liquidityPayload = {
+                date: lData.date,
+                btc_fund_change: typeof lData.btc_fund_change === 'number' ? lData.btc_fund_change : null,
+                eth_fund_change: typeof lData.eth_fund_change === 'number' ? lData.eth_fund_change : null,
+                sol_fund_change: typeof lData.sol_fund_change === 'number' ? lData.sol_fund_change : null,
+                total_market_fund_change: typeof lData.total_market_fund_change === 'number' ? lData.total_market_fund_change : null,
+                comments: lData.comments || null,
+            };
+            const [instance, created] = await LiquidityOverview.findOrCreate({ where: { date: lData.date }, defaults: liquidityPayload, transaction });
+            if (!created) await instance.update(liquidityPayload, { transaction });
+            counts.liquidity++;
+        }
+    }
+
+    // 4. 导入/更新 TrendingCoins
+    if (Array.isArray(dumpData.allTrendingCoinsHistory) && dumpData.allTrendingCoinsHistory.length > 0) {
+        console.log(`[IMPORT_DB] Processing ${dumpData.allTrendingCoinsHistory.length} trending coin entries...`);
+        for (const tData of dumpData.allTrendingCoinsHistory) {
+            if (!tData || !tData.date || !tData.symbol) { console.warn('[IMPORT_DB] Skipping trending coin with no date or symbol.'); continue; }
+            const symbolUpper = tData.symbol.toUpperCase();
+            const trendPayload = {
+                date: tData.date,
+                symbol: symbolUpper,
+                otc_index: typeof tData.otc_index === 'number' ? tData.otc_index : null,
+                explosion_index: typeof tData.explosion_index === 'number' ? tData.explosion_index : null,
+                schelling_point: typeof tData.schelling_point === 'number' ? tData.schelling_point : null,
+                entry_exit_type: tData.entry_exit_type || 'neutral',
+                entry_exit_day: typeof tData.entry_exit_day === 'number' ? tData.entry_exit_day : 0,
+            };
+            const [instance, created] = await TrendingCoin.findOrCreate({ where: { date: tData.date, symbol: symbolUpper }, defaults: trendPayload, transaction });
+            if (!created) await instance.update(trendPayload, { transaction });
+            counts.trending++;
+        }
+    }
+
+    await transaction.commit();
+    console.log('[IMPORT_DB] Database import successful. Transaction committed.');
     res.json({
-      fields,
-      sample: sample ? sample.toJSON() : null,
-      rawSample: sample
+      success: true,
+      message: 'Database imported successfully.',
+      summary: counts
     });
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    if (transaction && !transaction.finished && transaction.connection) { // Check if connection exists before rollback
+        try {
+            await transaction.rollback();
+            console.log("[IMPORT_DB] Transaction rolled back due to error.");
+        } catch (rollbackError) {
+            console.error("[IMPORT_DB] Transaction rollback failed:", rollbackError);
+        }
+    }
+    console.error('[IMPORT_DB] Error during database import:', error);
+    res.status(500).json({ success: false, error: 'Failed to import database', details: error.message, stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined });
   }
 });
 
-// 调试路由 - 检查日期范围
+
+// --- 调试路由 ---
 router.get('/debug/date-range', async (req, res) => {
   try {
-    // 找到最早和最晚的日期
-    const oldestRecord = await DailyMetric.findOne({
-      order: [['date', 'ASC']]
+    const dateRange = await DailyMetric.findOne({
+      attributes: [
+        [sequelize.fn('MIN', sequelize.col('date')), 'oldestDate'],
+        [sequelize.fn('MAX', sequelize.col('date')), 'newestDate'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'totalMetricsCount'],
+        [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('date'))), 'distinctDatesCount'],
+      ],
+      raw: true,
     });
-    
-    const newestRecord = await DailyMetric.findOne({
-      order: [['date', 'DESC']]
-    });
-    
-    // 获取不同的日期
     const distinctDates = await DailyMetric.findAll({
-      attributes: ['date'],
-      group: ['date'],
-      order: [['date', 'DESC']]
+      attributes: [[sequelize.fn('DISTINCT', sequelize.col('date')), 'date']],
+      order: [['date', 'DESC']],
+      raw: true,
     });
-    
+
     res.json({
-      oldestDate: oldestRecord ? oldestRecord.date : null,
-      newestDate: newestRecord ? newestRecord.date : null,
-      totalMetricsCount: await DailyMetric.count(),
-      distinctDatesCount: distinctDates.length,
-      dates: distinctDates.map(d => d.date)
+      success: true,
+      ...dateRange,
+      dates: distinctDates.map(d => d.date),
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[DEBUG_DATERANGE] Error:', error);
+    res.status(500).json({ success: false, error: 'Error fetching date range', details: error.message });
   }
 });
 
-// 直接添加测试数据（开发环境使用）
 router.post('/debug/add-test-data', async (req, res) => {
   if (process.env.NODE_ENV === 'production') {
-    return res.status(403).json({ error: 'This endpoint is disabled in production' });
+    return res.status(403).json({ success: false, error: 'This endpoint is disabled in production' });
   }
-  
   try {
     const today = new Date();
     const date = today.toISOString().split('T')[0];
-    
-    // 测试数据
-    const testCoins = [
-      { symbol: 'BTC', otcIndex: 1627, explosionIndex: 195, schellingPoint: 98500, entryExitType: 'entry', entryExitDay: 26 },
-      { symbol: 'ETH', otcIndex: 1430, explosionIndex: 180, schellingPoint: 1850, entryExitType: 'exit', entryExitDay: 105 },
-      { symbol: 'BNB', otcIndex: 1038, explosionIndex: 126, schellingPoint: 601, entryExitType: 'exit', entryExitDay: 9 }
-    ];
-    
     const testData = {
       date,
-      coins: testCoins
+      coins: [
+        { symbol: 'BTC', name: 'Bitcoin', otcIndex: 1627, explosionIndex: 195, schellingPoint: 98500, entryExitType: 'entry', entryExitDay: 26 },
+        { symbol: 'ETH', name: 'Ethereum', otcIndex: 1430, explosionIndex: 180, schellingPoint: 1850, entryExitType: 'exit', entryExitDay: 105 },
+      ],
+      liquidity: { btcFundChange: 10, ethFundChange: 5, solFundChange: 2, totalMarketFundChange: 17, comments: "Test liquidity" },
+      trendingCoins: [ { symbol: 'DOGE', date: date, otcIndex: 100, explosionIndex: 50 } ]
     };
-    
-    // 存储测试数据
-    const result = await storeProcessedData(testData);
-    
-    res.json({
-      message: 'Test data added successfully',
-      result
-    });
+    const result = await storeProcessedData(testData); // storeProcessedData now uses transactions
+    res.json({ success: true, message: 'Test data added successfully', result });
   } catch (error) {
-    console.error('添加测试数据时出错:', error);
-    res.status(500).json({ error: error.message });
+    console.error('[DEBUG_ADDTEST] Error adding test data:', error);
+    res.status(500).json({ success: false, error: 'Failed to add test data', details: error.message });
   }
 });
 
