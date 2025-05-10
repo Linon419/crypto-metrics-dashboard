@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  crypto-dashboard:
+    image: ${DOCKER_REGISTRY}/crypto-dashboard:${TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - crypto-data:/app/data
+
+volumes:
+  crypto-data:
