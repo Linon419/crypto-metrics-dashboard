@@ -210,34 +210,53 @@ function DataInputForm({ onSuccess }) {
         }
         
         // 识别JSON类型
-        if (jsonData.metadata && jsonData.coins && jsonData.metrics && jsonData.liquidity && jsonData.latestData) {
-          setDebugInfo('识别为数据库备份JSON，打开预览模态框');
-          setJsonPreview({
-            type: 'database',
-            data: jsonData,
-            timestamp: jsonData.metadata.exportDate,
-            coinCount: Array.isArray(jsonData.coins) ? jsonData.coins.length : 0,
-            metricCount: Array.isArray(jsonData.metrics) ? jsonData.metrics.length : 0
-          });
-          setJsonDataForBatchImport(jsonData);
-          setPreviewVisible(true);
-        } else if (jsonData.rawInput) {
-          setDebugInfo('识别为表单数据JSON，打开预览模态框');
-          setJsonPreview({
-            type: 'form',
-            data: jsonData,
-            timestamp: jsonData.timestamp,
-            date: jsonData.date,
-            format: jsonData.format || 'text/plain'
-          });
-          setJsonDataForBatchImport(null);
-          setPreviewVisible(true);
-        } else {
-          setDebugInfo('未能识别JSON格式，尝试作为原始文本添加到表单');
-          form.setFieldsValue({ rawData: content });
-          message.warning('未识别的JSON格式，已作为原始文本导入');
-          setJsonDataForBatchImport(null);
-        }
+// 在现有 handleFileInputChange 函数中添加一个条件分支来处理简单JSON格式
+
+// 识别JSON类型
+if (jsonData.metadata && (jsonData.allCoinsInfo || jsonData.coins) && (jsonData.allHistoricalMetricsRaw || jsonData.metrics)) {
+    setDebugInfo('识别为数据库备份JSON，打开预览模态框');
+    setJsonPreview({
+      type: 'database',
+      data: jsonData,
+      timestamp: jsonData.metadata.exportDate,
+      coinCount: Array.isArray(jsonData.allCoinsInfo) ? jsonData.allCoinsInfo.length : 
+                (Array.isArray(jsonData.coins) ? jsonData.coins.length : 0),
+      metricCount: Array.isArray(jsonData.allHistoricalMetricsRaw) ? jsonData.allHistoricalMetricsRaw.length : 
+                  (Array.isArray(jsonData.metrics) ? jsonData.metrics.length : 0)
+    });
+    setJsonDataForBatchImport(jsonData);
+    setPreviewVisible(true);
+  } else if (jsonData.rawInput) {
+    setDebugInfo('识别为表单数据JSON，打开预览模态框');
+    setJsonPreview({
+      type: 'form',
+      data: jsonData,
+      timestamp: jsonData.timestamp,
+      date: jsonData.date,
+      format: jsonData.format || 'text/plain'
+    });
+    setJsonDataForBatchImport(null);
+    setPreviewVisible(true);
+  // 新增：识别简单格式JSON
+  } else if (jsonData.coins && Array.isArray(jsonData.coins)) {
+    setDebugInfo('识别为简化格式JSON，打开预览模态框');
+    setJsonPreview({
+      type: 'simple',
+      data: jsonData,
+      timestamp: new Date().toISOString(),
+      date: jsonData.date || new Date().toISOString().split('T')[0],
+      coinCount: jsonData.coins.length,
+      hasLiquidity: !!jsonData.liquidity,
+      hasTrending: Array.isArray(jsonData.trendingCoins) && jsonData.trendingCoins.length > 0
+    });
+    setJsonDataForBatchImport(jsonData);
+    setPreviewVisible(true);
+  } else {
+    setDebugInfo('未能识别JSON格式，尝试作为原始文本添加到表单');
+    form.setFieldsValue({ rawData: content });
+    message.warning('未识别的JSON格式，已作为原始文本导入');
+    setJsonDataForBatchImport(null);
+  }
       } catch (error) {
         setDebugInfo(`无法处理文件: ${error.message}`);
         message.error('无法解析JSON文件: ' + (error.message || '未知错误'));
@@ -612,6 +631,44 @@ Btc 场外指数1627场外进场期第26天
         {jsonPreview && jsonPreview.type !== 'form' && jsonPreview.type !== 'database' && (
              <Button onClick={() => { setPreviewVisible(false); }} block style={{marginTop: '16px'}}>关闭预览</Button>
         )}
+
+{jsonPreview && jsonPreview.type === 'simple' && (
+    <div>
+      <Title level={5}>简化格式JSON预览</Title>
+      <div className="bg-gray-100 p-3 rounded mt-1 mb-3">
+        <p><Text type="secondary">日期:</Text> {jsonPreview.date || '未指定（将使用今天）'}</p>
+        <p><Text type="secondary">币种数量:</Text> {jsonPreview.coinCount}</p>
+        {jsonPreview.hasLiquidity && <p><Text type="secondary">包含流动性数据:</Text> 是</p>}
+        {jsonPreview.hasTrending && <p><Text type="secondary">包含热门币种数据:</Text> 是</p>}
+      </div>
+      <Alert 
+        message="简化格式JSON" 
+        description="这是一个简化格式的JSON数据，可以直接导入到数据库。系统会自动将其转换为完整的数据库格式。" 
+        type="info" 
+        showIcon 
+        className="mb-4"
+      />
+      <Space direction="vertical" style={{width: '100%'}}>
+        <Button onClick={handleImportSampleToForm} block>提取数据到表单</Button>
+        <Button 
+          type="primary" 
+          block 
+          onClick={() => { 
+            setPreviewVisible(false); 
+            setIsBatchImportConfirmVisible(true); 
+          }}
+        >
+          直接导入到数据库
+        </Button>
+      </Space>
+    </div>
+  )}
+
+  {/* 还需要更新这个条件，排除'simple'类型 */}
+  {jsonPreview && jsonPreview.type !== 'form' && jsonPreview.type !== 'database' && jsonPreview.type !== 'simple' && (
+    <Button onClick={() => { setPreviewVisible(false); }} block style={{marginTop: '16px'}}>关闭预览</Button>
+  )}
+
       </Modal>
 
       <Modal

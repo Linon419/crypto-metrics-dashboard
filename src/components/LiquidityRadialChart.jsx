@@ -39,41 +39,52 @@ function LiquidityRadialChart({ liquidity, loading }) {
     );
   }
 
-  // Prepare data
+  // Prepare data - Store original value for formatter
   const chartData = [
     {
       name: 'BTC',
+      originalValue: liquidity.btc_fund_change || 0, // Store original value
       value: Math.abs(liquidity.btc_fund_change || 0),
       fill: '#F7931A',
-      direction: (liquidity.btc_fund_change || 0) >= 0 ? 'inflow' : 'outflow'
     },
     {
       name: 'ETH',
+      originalValue: liquidity.eth_fund_change || 0, // Store original value
       value: Math.abs(liquidity.eth_fund_change || 0),
       fill: '#627EEA',
-      direction: (liquidity.eth_fund_change || 0) >= 0 ? 'inflow' : 'outflow'
     },
     {
       name: 'SOL',
+      originalValue: liquidity.sol_fund_change || 0, // Store original value
       value: Math.abs(liquidity.sol_fund_change || 0),
       fill: '#14F195',
-      direction: (liquidity.sol_fund_change || 0) >= 0 ? 'inflow' : 'outflow'
     }
   ].sort((a, b) => b.value - a.value); // Sort by fund change magnitude
+
+  // Add direction after sorting based on originalValue
+  chartData.forEach(item => {
+    item.direction = item.originalValue >= 0 ? 'inflow' : 'outflow';
+  });
+
 
   // Calculate maximum value for chart scaling
   const maxValue = Math.max(...chartData.map(item => item.value), 2); // Min value of 2 for visibility
 
-  // Custom formatter with safety checks
+  // Custom formatter with safety checks and sign
   const customFormatter = (value, entry) => {
     // Safety check
     if (!entry || !entry.payload) {
       return <span>数据加载中...</span>;
     }
     
+    const { name, originalValue, fill } = entry.payload;
+    const sign = originalValue >= 0 ? '+' : '-';
+    // entry.payload.value is already the absolute value for the bar length
+    const displayValue = (entry.payload.value || 0).toFixed(2); 
+
     return (
-      <span style={{ color: entry.payload.fill || '#000' }}>
-        {`${entry.payload.name || 'Unknown'} (${(entry.payload.value || 0).toFixed(2)}亿)`}
+      <span style={{ color: fill || '#000' }}>
+        {`${name || 'Unknown'} (${sign}${displayValue}亿)`}
       </span>
     );
   };
@@ -189,6 +200,7 @@ function LiquidityRadialChart({ liquidity, loading }) {
                       fill: '#fff',
                       formatter: (value, entry) => {
                         if (!entry || !entry.payload) return '';
+                        // For inner label, we use the absolute value directly from the bar
                         return `${entry.payload.name}: ${value.toFixed(2)}`;
                       }
                     }}

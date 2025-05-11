@@ -34,7 +34,9 @@ const dataCache = {
   lastFetchTime: 0,
   coinDetails: new Map(),
   allDatabaseData: null,
-  lastDatabaseFetchTime: 0
+  lastDatabaseFetchTime: 0,
+  favorites: null,
+  lastFavoritesFetchTime: 0
 };
 
 // --- 2. 创建主 Axios 实例 ---
@@ -54,6 +56,13 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // 添加设备ID到请求头（用于收藏功能）
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      config.headers['X-Device-ID'] = deviceId;
+    }
+    
     return config;
   },
   (error) => {
@@ -121,6 +130,30 @@ api.interceptors.response.use(
   }
 );
 // --- 结束 Axios 拦截器 ---
+
+
+// --- 设备ID工具函数 ---
+// 获取或生成设备ID
+export const getDeviceId = () => {
+  const storageKey = 'crypto_dashboard_device_id';
+  let deviceId = localStorage.getItem(storageKey);
+  
+  // 如果没有找到设备ID，则生成一个新的
+  if (!deviceId) {
+    // 生成一个简单的唯一ID (UUID v4格式)
+    deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+    
+    // 保存到本地存储中
+    localStorage.setItem(storageKey, deviceId);
+  }
+  
+  return deviceId;
+};
+// --- 结束设备ID函数 ---
 
 
 // --- 4. 认证 API 调用 ---
@@ -241,12 +274,13 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
   }
 
   try {
-    // console.log('Fetching latest metrics from server...');
-    const response = await callApiWithRetry(() => api.get('/data/latest')); // 使用重试
+    const response = await callApiWithRetry(() => api.get('/data/latest'));
+    // console.log('[API SERVICE - RAW RESPONSE DATA] /data/latest:', JSON.stringify(response.data, null, 2));
+
 
     if (!response.data || typeof response.data !== 'object') {
       console.warn('fetchLatestMetrics: Invalid response data from /data/latest', response.data);
-      return getFallbackMetricsData(); // 返回备用数据
+      return getFallbackMetricsData();
     }
 
     const latestDate = response.data.date || new Date().toISOString().split('T')[0];
@@ -255,11 +289,9 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
     if (Array.isArray(response.data.metrics)) {
       coinsWithMetrics = response.data.metrics.map(metric => {
         const coinData = metric.coin || {};
-        let otcIndexChangePercent = metric.otc_index_change_percent; // 直接使用后端计算的值
-        let explosionIndexChangePercent = metric.explosion_index_change_percent; // 直接使用后端计算的值
-        
-        // 如果后端没有提供 change_percent, 可以尝试前端计算 (如果 previous_day_data 存在)
-        // 但理想情况是后端提供这些，以保证数据一致性
+        let otcIndexChangePercent = metric.otc_index_change_percent;
+        let explosionIndexChangePercent = metric.explosion_index_change_percent;
+
         if (otcIndexChangePercent === undefined && metric.previous_day_data) {
             const currentOtc = metric.otc_index;
             const prevOtc = metric.previous_day_data.otc_index;
@@ -278,10 +310,8 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
                 else explosionIndexChangePercent = 0;
             }
         }
-
-
         return {
-          id: metric.coin_id || coinData.id || Date.now() + Math.random(), // Fallback ID
+          id: metric.coin_id || coinData.id || Date.now() + Math.random(),
           symbol: coinData.symbol || 'UNKNOWN',
           name: coinData.name || coinData.symbol || 'Unknown Coin',
           current_price: coinData.current_price === null ? undefined : (typeof coinData.current_price === 'number' ? coinData.current_price : 0),
@@ -294,23 +324,25 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
           nearThreshold: !!metric.near_threshold,
           otcIndexChangePercent: otcIndexChangePercent,
           explosionIndexChangePercent: explosionIndexChangePercent,
-          date: metric.date || latestDate, // 添加日期到每个币的指标中
+          date: metric.date || latestDate,
+          previousDayData: metric.previous_day_data, // Ensure this is passed through
         };
       });
+      // if (coinsWithMetrics.length > 0) {
+      //   console.log('[API SERVICE - MAPPED coinsWithMetrics[0]]', JSON.stringify(coinsWithMetrics[0], null, 2));
+      // } else {
+      //   console.log('[API SERVICE - MAPPED coinsWithMetrics] is empty');
+      // }
     }
-    
-    // 合并 trendingCoins (如果它们不由 metrics 提供)
-    // 假设 trendingCoins 结构与 metrics 结构类似或可以映射
+
     if (Array.isArray(response.data.trendingCoins)) {
       response.data.trendingCoins.forEach(trendingCoinRaw => {
-        const trendingCoin = trendingCoinRaw.coin || trendingCoinRaw; // 适应后端可能嵌套coin对象
+        const trendingCoin = trendingCoinRaw.coin || trendingCoinRaw;
         if (trendingCoin.symbol) {
           const existingCoin = coinsWithMetrics.find(c => c.symbol === trendingCoin.symbol);
           if (!existingCoin) {
-            // 假设 trendingCoin 也有 change_percent 或 previous_day_data
             let trendOtcChangePercent = trendingCoin.otc_index_change_percent;
             let trendExplosionChangePercent = trendingCoin.explosion_index_change_percent;
-
             coinsWithMetrics.push({
               id: trendingCoin.id || Date.now() + Math.random(),
               symbol: trendingCoin.symbol,
@@ -326,13 +358,14 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
               otcIndexChangePercent: trendOtcChangePercent,
               explosionIndexChangePercent: trendExplosionChangePercent,
               date: trendingCoin.date || latestDate,
+              previousDayData: trendingCoin.previous_day_data, // Also pass for trending coins if available
             });
           }
         }
       });
     }
 
-    if (coinsWithMetrics.length === 0 && process.env.NODE_ENV !== 'test') { // 测试时可能期望空数组
+    if (coinsWithMetrics.length === 0 && process.env.NODE_ENV !== 'test') {
       console.warn('No coins with metrics found, returning fallback.');
       coinsWithMetrics = getFallbackCoins();
     }
@@ -341,16 +374,15 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
       date: latestDate,
       coins: coinsWithMetrics,
       liquidity: response.data.liquidity || getDefaultLiquidity(),
-      trendingCoins: Array.isArray(response.data.trendingCoins) ? response.data.trendingCoins.map(tc => tc.coin || tc) : [] // 确保是扁平结构
+      trendingCoins: Array.isArray(response.data.trendingCoins) ? response.data.trendingCoins.map(tc => tc.coin || tc) : []
     };
 
     dataCache.latestMetrics = result;
     dataCache.lastFetchTime = now;
 
-    // 更新单个币种的缓存 (coinDetails)
     coinsWithMetrics.forEach(coin => {
       dataCache.coinDetails.set(coin.symbol, {
-        ...coin, // 包含所有处理过的字段，如 change% 和 date
+        ...coin,
         lastFetchTime: now
       });
     });
@@ -358,7 +390,7 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
     return result;
   } catch (error) {
     console.error('获取最新指标数据最终失败:', error.displayMessage || error.message);
-    return getFallbackMetricsData(); // 发生错误时返回备用数据
+    return getFallbackMetricsData();
   }
 };
 
@@ -509,37 +541,246 @@ export const exportAllData = async (forceRefresh = false) => {
   }
 };
 
+// 在api.js中的importDatabaseDump函数中添加以下代码
+
 export const importDatabaseDump = async (dumpData) => {
-  if (!dumpData || typeof dumpData !== 'object') {
-    throw new Error('导入数据不能为空且必须是对象');
+    if (!dumpData || typeof dumpData !== 'object') {
+      throw new Error('导入数据不能为空且必须是对象');
+    }
+    
+    // 检测简单JSON格式并转换为数据库导入格式
+    if (dumpData.coins && Array.isArray(dumpData.coins) && !dumpData.allCoinsInfo && !dumpData.allHistoricalMetricsRaw) {
+      console.log('检测到简单JSON格式，转换为数据库导入格式');
+      dumpData = transformSimpleFormatToImportFormat(dumpData);
+    }
+    
+    try {
+      console.log('Starting database import. Data size (keys):', Object.keys(dumpData).length);
+      const response = await api.post('/data/import-database', dumpData, {
+        timeout: 300000, // 5分钟超时
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Database-Import': 'true' // 自定义头，供后端识别
+        }
+      });
+      console.log('Database import successful:', response.data);
+      // 导入成功后，清除所有缓存以强制重新获取
+      dataCache.latestMetrics = null;
+      dataCache.lastFetchTime = 0;
+      dataCache.coinDetails.clear();
+      dataCache.allDatabaseData = null;
+      dataCache.lastDatabaseFetchTime = 0;
+      dataCache.favorites = null;
+      dataCache.lastFavoritesFetchTime = 0;
+      return response.data;
+    } catch (error) {
+      console.error('数据库批量导入失败:', error);
+      const details = error.response?.data?.error || error.response?.data?.details || error.displayMessage || error.message;
+      throw new Error(`导入失败: ${details}`);
+    }
+  };
+  
+  // 添加一个新函数，用于转换简单JSON格式为完整导入格式
+  function transformSimpleFormatToImportFormat(inputData) {
+    const now = new Date().toISOString();
+    
+    // 处理日期
+    let dateValue = inputData.date;
+    if (!dateValue) {
+      // 如果没有提供日期，使用今天的日期
+      dateValue = new Date().toISOString().split('T')[0];
+    }
+    
+    // 处理币种
+    const allCoinsInfo = [];
+    const allHistoricalMetricsRaw = [];
+    
+    // 处理输入的币种数据
+    if (Array.isArray(inputData.coins)) {
+      inputData.coins.forEach(coin => {
+        // 添加到币种列表
+        allCoinsInfo.push({
+          symbol: coin.symbol.toUpperCase(),
+          name: coin.name || coin.symbol.toUpperCase(),
+          current_price: coin.current_price || 0,
+          logo_url: coin.logo_url || null
+        });
+        
+        // 添加到指标列表
+        allHistoricalMetricsRaw.push({
+          date: dateValue,
+          symbol: coin.symbol.toUpperCase(), // 添加symbol字段，便于后端处理
+          otc_index: coin.otcIndex,
+          explosion_index: coin.explosionIndex,
+          schelling_point: coin.schellingPoint,
+          entry_exit_type: coin.entryExitType || 'neutral',
+          entry_exit_day: coin.entryExitDay || 0,
+          near_threshold: !!coin.nearThreshold
+        });
+      });
+    }
+    
+    // 处理流动性数据
+    let allLiquidityHistory = [];
+    if (inputData.liquidity) {
+      allLiquidityHistory.push({
+        date: dateValue,
+        btc_fund_change: inputData.liquidity.btcFundChange || 0,
+        eth_fund_change: inputData.liquidity.ethFundChange || 0,
+        sol_fund_change: inputData.liquidity.solFundChange || 0,
+        total_market_fund_change: inputData.liquidity.totalMarketFundChange || 0,
+        comments: inputData.liquidity.comments || ''
+      });
+    }
+    
+    // 处理热门币种
+    let allTrendingCoinsHistory = [];
+    if (Array.isArray(inputData.trendingCoins)) {
+      inputData.trendingCoins.forEach(coin => {
+        allTrendingCoinsHistory.push({
+          date: dateValue,
+          symbol: coin.symbol.toUpperCase(),
+          otc_index: coin.otcIndex,
+          explosion_index: coin.explosionIndex,
+          schelling_point: coin.schellingPoint,
+          entry_exit_type: coin.entryExitType || 'neutral',
+          entry_exit_day: coin.entryExitDay || 0
+        });
+      });
+    }
+    
+    // 构建完整的导入格式
+    return {
+      metadata: {
+        exportDate: now,
+        appVersion: process.env.REACT_APP_VERSION || '1.0.0',
+        importType: 'simple_json',
+        overwriteExisting: true // 默认覆盖重复数据
+      },
+      allCoinsInfo: allCoinsInfo,
+      allHistoricalMetricsRaw: allHistoricalMetricsRaw,
+      allLiquidityHistory: allLiquidityHistory,
+      allTrendingCoinsHistory: allTrendingCoinsHistory
+    };
   }
-  try {
-    console.log('Starting database import. Data size (keys):', Object.keys(dumpData).length);
-    const response = await api.post('/data/import-database', dumpData, {
-      timeout: 300000, // 5分钟超时
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Database-Import': 'true' // 自定义头，供后端识别
-      }
-    });
-    console.log('Database import successful:', response.data);
-    // 导入成功后，清除所有缓存以强制重新获取
-    dataCache.latestMetrics = null;
-    dataCache.lastFetchTime = 0;
-    dataCache.coinDetails.clear();
-    dataCache.allDatabaseData = null;
-    dataCache.lastDatabaseFetchTime = 0;
-    return response.data;
-  } catch (error) {
-    console.error('数据库批量导入失败:', error);
-    const details = error.response?.data?.error || error.response?.data?.details || error.displayMessage || error.message;
-    throw new Error(`导入失败: ${details}`);
-  }
-};
 // --- 结束数据提交和获取 API 调用 ---
 
 
-// --- 7. 其他辅助 API 调用 ---
+// --- 7. 收藏功能 API 调用 ---
+// 获取用户收藏的币种
+export const fetchFavorites = async (forceRefresh = false) => {
+  const deviceId = getDeviceId();
+  const now = Date.now();
+  
+  // 使用缓存，除非强制刷新或缓存过期（5分钟）
+  if (!forceRefresh && dataCache.favorites && (now - dataCache.lastFavoritesFetchTime < 5 * 60 * 1000)) {
+    return dataCache.favorites;
+  }
+  
+  try {
+    // 首先尝试从localStorage获取缓存数据以快速显示
+    const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
+    
+    // 同时从服务器获取最新数据
+    const response = await callApiWithRetry(() => api.get(`/favorites/${deviceId}`));
+    const serverFavorites = response.data;
+    
+    // 更新本地缓存和内存缓存
+    localStorage.setItem('favoriteCrypto', JSON.stringify(serverFavorites));
+    dataCache.favorites = serverFavorites;
+    dataCache.lastFavoritesFetchTime = now;
+    
+    return serverFavorites;
+  } catch (error) {
+    console.error('获取收藏数据失败:', error.displayMessage || error.message);
+    
+    // 如果API请求失败，使用本地缓存
+    const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
+    dataCache.favorites = cachedFavorites;
+    dataCache.lastFavoritesFetchTime = now;
+    
+    // 返回本地缓存的收藏列表
+    return cachedFavorites;
+  }
+};
+
+// 添加收藏
+export const addFavorite = async (symbol) => {
+  if (!symbol) {
+    throw new Error('Symbol is required');
+  }
+  
+  const deviceId = getDeviceId();
+  
+  try {
+    // 同步更新本地缓存（乐观更新）
+    const currentFavorites = dataCache.favorites || JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
+    if (!currentFavorites.includes(symbol)) {
+      const newFavorites = [...currentFavorites, symbol];
+      localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
+      dataCache.favorites = newFavorites;
+    }
+    
+    // 发送请求到服务器
+    const response = await callApiWithRetry(() => api.post('/favorites', { deviceId, symbol }));
+    return response.data;
+  } catch (error) {
+    console.error('添加收藏失败:', error.displayMessage || error.message);
+    
+    // 服务器请求失败时，回滚本地缓存更新
+    await fetchFavorites(true); // 强制刷新收藏列表
+    throw error;
+  }
+};
+
+// 删除收藏
+export const removeFavorite = async (symbol) => {
+  if (!symbol) {
+    throw new Error('Symbol is required');
+  }
+  
+  const deviceId = getDeviceId();
+  
+  try {
+    // 同步更新本地缓存（乐观更新）
+    const currentFavorites = dataCache.favorites || JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
+    const newFavorites = currentFavorites.filter(s => s !== symbol);
+    localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
+    dataCache.favorites = newFavorites;
+    
+    // 发送请求到服务器
+    const response = await callApiWithRetry(() => api.delete(`/favorites/${deviceId}/${symbol}`));
+    return response.data;
+  } catch (error) {
+    console.error('删除收藏失败:', error.displayMessage || error.message);
+    
+    // 服务器请求失败时，回滚本地缓存更新
+    await fetchFavorites(true); // 强制刷新收藏列表
+    throw error;
+  }
+};
+
+// 切换收藏状态
+export const toggleFavorite = async (symbol) => {
+  if (!symbol) {
+    throw new Error('Symbol is required');
+  }
+  
+  // 确保收藏列表已加载
+  const favorites = await fetchFavorites();
+  const isFavorite = favorites.includes(symbol);
+  
+  // 根据当前状态添加或删除收藏
+  if (isFavorite) {
+    return removeFavorite(symbol);
+  } else {
+    return addFavorite(symbol);
+  }
+};
+// --- 结束收藏功能 API 调用 ---
+
+
+// --- 8. 其他辅助 API 调用 ---
 export const fetchCoins = async () => { // 获取所有币种列表（基础信息）
   try {
     const response = await callApiWithRetry(() => api.get('/coins'));
@@ -556,7 +797,7 @@ export const fetchLiquidityOverview = async (date) => { console.warn("fetchLiqui
 // --- 结束其他辅助 API 调用 ---
 
 
-// --- 8. 备用数据函数 ---
+// --- 9. 备用数据函数 ---
 function getFallbackCoins() { return []; }
 function getDefaultLiquidity() { return { btc_fund_change: 0, eth_fund_change: 0, sol_fund_change: 0, total_market_fund_change: 0, comments: "暂无流动性数据" }; }
 

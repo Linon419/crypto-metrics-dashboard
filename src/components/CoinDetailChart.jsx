@@ -26,7 +26,7 @@ function CoinDetailChart({ coin, onRefresh }) {
   const [timeRange, setTimeRange] = useState('1M'); // 默认显示1个月
   const [zoomState, setZoomState] = useState(null);
   const [displayData, setDisplayData] = useState([]);
-  const [chartMode, setChartMode] = useState('blast'); // 'blast', 'otc', 'both'
+  const [chartMode, setChartMode] = useState('both'); // 'blast', 'otc', 'both'
   const chartRef = useRef(null);
   
   // 重置图表缩放
@@ -176,7 +176,7 @@ function CoinDetailChart({ coin, onRefresh }) {
           setMetrics(mockData);
           setDisplayData(mockData);
         } else {
-          console.log(`获取到 ${data.length} 条历史指标数据`);
+        //  console.log(`获取到 ${data.length} 条历史指标数据`);
           
           // 处理数据 - 将API返回的格式转换为图表需要的格式
           const processedData = data.map((metric, index) => {
@@ -468,9 +468,9 @@ function CoinDetailChart({ coin, onRefresh }) {
                 optionType="button"
                 buttonStyle="solid"
               >
+                <Radio.Button value="both">双指标对比</Radio.Button>
                 <Radio.Button value="blast">爆破指数</Radio.Button>
                 <Radio.Button value="otc">场外指数</Radio.Button>
-                <Radio.Button value="both">双指标对比</Radio.Button>
               </Radio.Group>
             </div>
             

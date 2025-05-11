@@ -5,6 +5,8 @@ const bodyParser = require('body-parser');
 const morgan = require('morgan');
 const path = require('path');
 require('dotenv').config();
+const checkFirstRun = require('./middleware/checkFirstRun');
+
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -14,8 +16,11 @@ const db = require('./models');
 
 // 中间件
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 app.use(morgan('dev'));
+app.use(checkFirstRun);
+
 
 // 认证中间件 (延迟加载，避免路径错误)
 let authMiddleware;
@@ -98,6 +103,7 @@ safelyLoadRoutes('./routes/metrics', '/api/metrics');
 safelyLoadRoutes('./routes/data', '/api/data');
 safelyLoadRoutes('./routes/dashboard', '/api/dashboard');
 safelyLoadRoutes('./routes/liquidity', '/api/liquidity');
+safelyLoadRoutes('./routes/favorites', '/api/favorites'); // 添加收藏路由
 safelyLoadRoutes('./routes/debug', '/api/debug');
 
  // 3. 静态文件服务和 SPA 回退 (生产环境)
@@ -139,8 +145,19 @@ app.use((err, req, res, next) => {
 
 // 数据库同步并启动服务器
 db.sequelize.sync()
-  .then(() => {
+  .then(async () => {
     console.log('Database synchronized');
+    
+    // 在这里也可以手动触发一次管理员检查
+    const checkAdmin = require('./middleware/checkFirstRun');
+    try {
+      await new Promise(resolve => {
+        checkAdmin({}, {}, resolve);
+      });
+    } catch (err) {
+      console.error('Admin check failed:', err);
+    }
+    
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
