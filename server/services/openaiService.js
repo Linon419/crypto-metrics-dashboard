@@ -30,13 +30,11 @@ async function processRawData(rawText) {
 ${processedText}
 \`\`\`
 
-关于日期格式的特别说明：
-1. 如果原始数据的第一行包含形如"5.9"的日期，表示5月9日（不是10月5日）
-2. 输出的date字段必须格式为"2025-05-09"（年份使用当前年份）
+关于日期格式的特别说明（举例）：
+1. 如果原始数据的第一行包含形如"5.9"的日期，应解析为"2025-05-09"（不是10月5日）
+2. 输出的date字段必须格式应为YYYY-MM-DD（年份默认当前年份）
 3. 月份和日期必须是两位数格式，如05而非5
-4. 一定要理解"5.9"这种格式中，点号前是月份，点号后是日期
-5. 切勿将"5.9"解析为10月30日或其他错误格式
-6. 始终使用美式日期顺序解析：月.日
+5. 始终使用美式日期顺序解析：月.日
 
 仅返回有效的JSON格式，不要包含其他文本或解释。
 
@@ -62,20 +60,9 @@ ${processedText}
     "totalMarketFundChange": 0.5,
     "comments": "..." // 提取流动性概况中的文字描述，，不要吞字
   },
-  "trendingCoins": [
-    {
-      "symbol": "TRUMP", // 热点币种
-      "otcIndex": 1339,
-      "explosionIndex": 81,
-      "entryExitType": "entry",
-      "entryExitDay": 14,
-      "schellingPoint": 11.2
-    }
-  ],
   "dailyReminder": "..." // 每日提醒部分的文字
 }
 
-日期格式应为YYYY-MM-DD，例如如果原始数据第一行有"5.9"，应解析为"2025-05-09"，表示5月9日，而不是10月5日或其他日期。
 
 对于币种识别：
 1. 标准币种符号应大写(BTC, ETH等)
@@ -83,6 +70,7 @@ ${processedText}
 3. 美股纳指 OTC == NASDAQ
 4. 币市流动性 == LIQUIDITY
 5. 期权波动率（比特币Vega交易）== VEGA
+6. Trump == TRUMP
 
 对于进退场期识别：
 1. "进场期"对应entryExitType="entry"

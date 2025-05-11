@@ -1,7 +1,7 @@
-// src/components/CoinList.jsx - 更新以匹配新的布局和按钮颜色
+// src/components/CoinList.jsx - Mobile-friendly version
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Carousel, Pagination, Spin, Empty, Button, Alert, Card, Badge } from 'antd';
-import { ReloadOutlined, WarningOutlined, StarFilled, StarOutlined } from '@ant-design/icons'; // Import Star icons
+import { ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import CoinCard from './CoinCard';
 
 function CoinList({ 
@@ -9,18 +9,29 @@ function CoinList({
   onCoinSelect, 
   selectedCoin, 
   favorites = [], 
-  onToggleFavorite, // Make sure this is passed from Dashboard
+  onToggleFavorite,
   loading = false, 
   error = null, 
   onRefresh,
-  viewMode = 'all' // 来自父组件的viewMode
+  viewMode = 'all'
 }) {
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 8; // 每页显示8个币种
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const pageSize = isMobile ? 4 : 8; // Smaller page size on mobile
   
   const safeCoins = Array.isArray(coins) ? coins : [];
 
-  // 用viewMode筛选币种
+  // Listen for window resize to adjust for mobile
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Filter coins based on view mode
   const filterCoins = () => {
     switch (viewMode) {
       case 'favorites':
@@ -38,45 +49,43 @@ function CoinList({
 
   const [displayedCoins, setDisplayedCoins] = useState(filterCoins());
 
-  // 当coins, viewMode, or favorites改变时，更新displayedCoins并重置页码
+  // Update displayed coins when filters change
   useEffect(() => {
     setDisplayedCoins(filterCoins());
-    setCurrentPage(1); // 重置到第一页
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coins, viewMode, favorites, safeCoins]); // Added safeCoins to dependency array if it's derived outside and changes
+    setCurrentPage(1); // Reset to first page
+  }, [coins, viewMode, favorites, safeCoins]);
 
-  // 当没有选定币种且有可用数据时自动选择第一个
+  // Auto-select first coin when none selected
   useEffect(() => {
     if (!selectedCoin && displayedCoins.length > 0 && onCoinSelect) {
       const firstCoinToSelect = displayedCoins[0];
-      // 优先选择BTC如果存在于当前显示的币种中
+      // Prefer BTC if available
       const btcCoin = displayedCoins.find(c => c.symbol === 'BTC');
       onCoinSelect(btcCoin ? btcCoin.symbol : firstCoinToSelect.symbol);
     }
   }, [displayedCoins, selectedCoin, onCoinSelect]);
 
-
-  // 获取当前页的币种
+  // Get current page coins
   const getCurrentPageCoins = () => {
     const startIndex = (currentPage - 1) * pageSize;
     return displayedCoins.slice(startIndex, startIndex + pageSize);
   };
 
-  // 处理币种点击 (不包括星星)
+  // Handle coin click
   const handleCoinClick = (coinSymbol) => {
     if (onCoinSelect) {
       onCoinSelect(coinSymbol);
     }
   };
   
-  // 处理刷新请求
+  // Handle refresh
   const handleRefresh = () => {
     if (onRefresh) {
       onRefresh();
     }
   };
   
-  // 备用卡片 - 当数据加载失败时显示
+  // Render fallback card when data loading fails
   const renderFallbackCard = (index) => {
     const symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'DOGE', 'LTC', 'USDT', 'XRP'];
     const symbol = symbols[index % symbols.length];
@@ -104,7 +113,7 @@ function CoinList({
 
   return (
     <div className="mb-6">
-      {/* 错误提示 */}
+      {/* Error alert */}
       {error && (
         <Alert
           message="数据加载错误"
@@ -120,12 +129,12 @@ function CoinList({
         />
       )}
 
-      {/* 列表内容 */}
+      {/* List content */}
       {loading && currentCoinsToDisplay.length === 0 ? (
-        // 加载状态 - 使用骨架屏
+        // Loading state - skeleton screen
         <div className="hidden md:block">
           <Row gutter={[16, 16]} className="mb-4">
-            {[...Array(8)].map((_, index) => (
+            {[...Array(isMobile ? 4 : 8)].map((_, index) => (
               <Col key={index} xs={24} sm={12} md={6}>
                 {renderFallbackCard(index)}
               </Col>
@@ -134,7 +143,7 @@ function CoinList({
         </div>
       ) : (
         <>
-          {/* 桌面端显示 */}
+          {/* Desktop and tablet display */}
           <div className="hidden md:block">
             {currentCoinsToDisplay.length > 0 ? (
               <Row gutter={[16, 16]} className="mb-4">
@@ -146,17 +155,17 @@ function CoinList({
                       style={{ display: coin.entryExitType === 'neutral' || !coin.entryExitType ? 'none' : 'block', fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '10px' }}
                     >
                       <div 
-                        className={`cursor-pointer transition-all duration-200 relative ${ // Added relative for star positioning
+                        className={`cursor-pointer transition-all duration-200 relative ${
                           selectedCoin === coin.symbol 
                             ? 'ring-2 ring-blue-500 shadow-lg rounded-lg transform scale-[1.02]' 
-                            : 'hover:shadow-lg hover:scale-[1.01] rounded-lg' // ensure rounded-lg for non-selected too
+                            : 'hover:shadow-lg hover:scale-[1.01] rounded-lg'
                         }`}
                       >
                         <CoinCard 
-                            coin={coin} 
-                            onCardClick={() => handleCoinClick(coin.symbol)} // Pass specific click handler for card body
-                            isFavorite={favorites.includes(coin.symbol)}
-                            onToggleFavorite={() => onToggleFavorite(coin.symbol)} // Pass toggle favorite handler
+                          coin={coin} 
+                          onCardClick={() => handleCoinClick(coin.symbol)}
+                          isFavorite={favorites.includes(coin.symbol)}
+                          onToggleFavorite={() => onToggleFavorite(coin.symbol)}
                         />
                       </div>
                     </Badge.Ribbon>
@@ -177,33 +186,37 @@ function CoinList({
             ) : null}
           </div>
           
-          {/* 移动端轮播 */}
+          {/* Mobile display */}
           <div className="block md:hidden">
             {currentCoinsToDisplay.length > 0 ? (
-              <Carousel autoplay dotPosition="bottom">
-                {currentCoinsToDisplay.map((coin, index) => (
-                  <div key={`${coin.symbol}-${index}`} className="px-2 pb-8">
-                    <Badge.Ribbon 
-                      text={coin.entryExitType === 'entry' ? `进${coin.entryExitDay || 0}` : coin.entryExitType === 'exit' ? `退${coin.entryExitDay || 0}` : ''}
-                      color={coin.entryExitType === 'entry' ? 'green' : coin.entryExitType === 'exit' ? 'red' : 'blue'}
-                      style={{ display: coin.entryExitType === 'neutral' || !coin.entryExitType ? 'none' : 'block', fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '10px' }}
-                    >
-                      <div 
-                        className={`cursor-pointer relative ${ // Added relative for star positioning
-                          selectedCoin === coin.symbol ? 'ring-2 ring-blue-500 rounded-lg' : 'rounded-lg'
-                        }`}
+              <>
+                {/* Grid layout instead of Carousel for better mobile UX */}
+                <Row gutter={[12, 12]} className="mb-4">
+                  {currentCoinsToDisplay.map((coin, index) => (
+                    <Col key={`${coin.symbol}-${index}`} xs={12}>
+                      <Badge.Ribbon 
+                        text={coin.entryExitType === 'entry' ? `进${coin.entryExitDay || 0}` : coin.entryExitType === 'exit' ? `退${coin.entryExitDay || 0}` : ''}
+                        color={coin.entryExitType === 'entry' ? 'green' : coin.entryExitType === 'exit' ? 'red' : 'blue'}
+                        style={{ display: coin.entryExitType === 'neutral' || !coin.entryExitType ? 'none' : 'block', fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '5px' }}
                       >
-                         <CoinCard 
+                        <div 
+                          className={`cursor-pointer relative ${
+                            selectedCoin === coin.symbol ? 'ring-2 ring-blue-500 rounded-lg' : 'rounded-lg'
+                          }`}
+                        >
+                          <CoinCard 
                             coin={coin} 
                             onCardClick={() => handleCoinClick(coin.symbol)}
                             isFavorite={favorites.includes(coin.symbol)}
                             onToggleFavorite={() => onToggleFavorite(coin.symbol)}
-                        />
-                      </div>
-                    </Badge.Ribbon>
-                  </div>
-                ))}
-              </Carousel>
+                            isMobile={true}
+                          />
+                        </div>
+                      </Badge.Ribbon>
+                    </Col>
+                  ))}
+                </Row>
+              </>
             ) : !loading ? (
               <Empty 
                 description={
@@ -216,13 +229,13 @@ function CoinList({
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               />
             ) : (
-              <div className="flex justify-center items-center h-40">
+              <div className="flex justify-center items-center h-24">
                 <Spin size="large" />
               </div>
             )}
           </div>
 
-          {/* 分页控件 */}
+          {/* Pagination - simplified on mobile */}
           {displayedCoins.length > pageSize && (
             <div className="flex justify-center mt-4">
               <Pagination
@@ -231,7 +244,8 @@ function CoinList({
                 total={displayedCoins.length}
                 pageSize={pageSize}
                 showSizeChanger={false}
-                simple={displayedCoins.length > 50} 
+                simple={isMobile || displayedCoins.length > 50}
+                size={isMobile ? "small" : "default"}
               />
             </div>
           )}

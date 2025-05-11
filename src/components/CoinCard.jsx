@@ -1,19 +1,17 @@
-// src/components/CoinCard.jsx - 调整布局，突出爆破指数，去掉价格, 添加收藏按钮, 显示涨跌幅
+// src/components/CoinCard.jsx - Mobile-friendly version
 import React from 'react';
 import { Card, Typography, Tag, Tooltip, Button } from 'antd';
 import { 
-    ArrowUpOutlined,  // Not directly used here, but often associated
-    ArrowDownOutlined, // Not directly used here, but often associated
     WarningOutlined, 
     StarFilled, 
     StarOutlined,
-    CaretUpOutlined,   // For percentage change
-    CaretDownOutlined  // For percentage change
+    CaretUpOutlined,
+    CaretDownOutlined
 } from '@ant-design/icons';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
-// Helper function to format change percentage (copied from previous suggestion)
+// Helper function to format change percentage
 const formatChangePercent = (percent) => {
   if (percent === null || percent === undefined || isNaN(percent)) return null;
   
@@ -45,8 +43,8 @@ const formatChangePercent = (percent) => {
 };
 
 
-function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick }) {
-  // 防御性数据处理 - 确保所有属性都有默认值
+function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = false }) {
+  // Defensive data handling
   const { 
     symbol = 'UNKNOWN',
     name,
@@ -55,12 +53,11 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick }) {
     explosionIndex = 0,
     otcIndex = 0,
     schellingPoint = 0,
-    // 新增：从 coin 对象中解构涨跌幅百分比
     otcIndexChangePercent,
     explosionIndexChangePercent
   } = coin || {};
 
-  // 安全数值转换函数，防止NaN
+  // Safe number conversion
   const safeNumber = (value, defaultValue = 0) => {
     if (value === undefined || value === null || isNaN(value)) {
       return defaultValue;
@@ -68,10 +65,10 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick }) {
     return Number(value);
   };
 
-  // 爆破指数是否安全（高于200为安全）
+  // Check if explosion index is safe (above 200)
   const isExplosionSafe = safeNumber(explosionIndex) >= 200;
   
-  // 渲染币种图标 - 使用首字母和颜色映射
+  // Render coin icon with color mapping
   const renderIcon = () => {
     const colorMap = {
       'BTC': 'bg-amber-500', 'ETH': 'bg-blue-500', 'USDT': 'bg-green-500',
@@ -83,14 +80,18 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick }) {
     };
     const bgColor = colorMap[symbol.toUpperCase()] || 'bg-gray-500';
     const displayChar = symbol ? symbol.charAt(0).toUpperCase() : '?';
+    
+    // Smaller icon size on mobile
+    const iconSize = isMobile ? 'w-8 h-8' : 'w-10 h-10';
+    
     return (
-      <div className={`flex items-center justify-center w-10 h-10 rounded-full ${bgColor} text-white font-bold text-lg`}>
+      <div className={`flex items-center justify-center ${iconSize} rounded-full ${bgColor} text-white font-bold text-lg`}>
         {displayChar}
       </div>
     );
   };
 
-  // 根据进退场期添加标签
+  // Render entry/exit tag
   const renderEntryExitTag = () => {
     if (!entryExitType || entryExitType === 'neutral' || !entryExitDay) return null;
     const isEntry = entryExitType === 'entry';
@@ -112,11 +113,15 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick }) {
     if (onCardClick) onCardClick();
   }
 
+  // Adjust card padding for mobile
+  const cardPadding = isMobile ? { padding: '10px' } : { padding: '16px' };
+
   return (
     <Card 
         className="coin-card w-full shadow-sm hover:shadow-lg transition-shadow relative"
-        bodyStyle={{ padding: '16px' }}
+        bodyStyle={cardPadding}
         onClick={handleCardBodyClick}
+        size={isMobile ? "small" : "default"}
     >
         {onToggleFavorite && (
             <Tooltip title={isFavorite ? "取消收藏" : "添加收藏"}>
@@ -124,34 +129,34 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick }) {
                     shape="circle"
                     icon={isFavorite ? <StarFilled style={{ color: '#FFD700' }} /> : <StarOutlined />}
                     onClick={handleFavoriteClick}
-                    className="absolute top-2 left-2 z-10 bg-opacity-50 hover:bg-opacity-100"
+                    className="absolute top-1 left-1 z-10 bg-opacity-50 hover:bg-opacity-100"
                     size="small"
                     style={{ border: 'none', background: 'rgba(255,255,255,0.1)'}}
                 />
             </Tooltip>
         )}
 
-      <div className="flex items-start space-x-3">
-        <div className="pt-1 pl-6"> {/* Space for the star icon */}
+      <div className="flex items-start space-x-2">
+        <div className="pt-1 pl-5"> {/* Space for star icon */}
             {renderIcon()}
         </div>
         <div className="flex-1 min-w-0"> {/* min-w-0 for better truncation */}
           <div className="flex items-center">
-            <Title level={5} className="m-0 truncate pr-1" style={{ maxWidth: 'calc(100% - 70px)' }}> {/* Adjusted maxWidth for potential tag */}
-                {symbol}
-            </Title>
-            {name && name !== symbol && (
-              <Text type="secondary" className="ml-1 truncate">({name})</Text>
-            )}
+            <Text 
+              strong 
+              className={`truncate ${isMobile ? 'text-sm' : ''}`} 
+              style={{ maxWidth: 'calc(100% - 40px)' }}
+            >
+              {symbol}
+            </Text>
             {renderEntryExitTag()}
           </div>
           
-          {/* 突出显示爆破指数 */}
-          <div className="mt-2 mb-1">
-            <div className={`flex items-center ${isExplosionSafe ? 'text-green-600' : 'text-red-600'} font-medium text-sm`}>
+          {/* Highlight explosion index */}
+          <div className="mt-1">
+            <div className={`flex items-center ${isExplosionSafe ? 'text-green-600' : 'text-red-600'} font-medium ${isMobile ? 'text-xs' : 'text-sm'}`}>
               <span className="mr-1">爆破:</span>
               <span className="font-bold text-base mr-1">{safeNumber(explosionIndex)}</span>
-              {/* 显示爆破指数涨跌幅 */}
               {formatChangePercent(explosionIndexChangePercent)}
               {!isExplosionSafe && (
                 <Tooltip title="低于安全阈值200">
@@ -161,19 +166,22 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick }) {
             </div>
           </div>
           
-          {/* 其他指标 */}
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-            <div className="flex items-center"> {/* Flex for alignment */}
+          {/* Other metrics */}
+          <div className={`grid grid-cols-2 gap-x-1 gap-y-0 ${isMobile ? 'text-xs' : 'text-xs'} mt-1`}>
+            <div className="flex items-center"> 
               <span className="text-blue-600 font-medium">场外: </span>
               <span>{safeNumber(otcIndex)}</span>
-              {/* 显示场外指数涨跌幅 */}
               {formatChangePercent(otcIndexChangePercent)}
             </div>
             <div>
               <span className="text-purple-600 font-medium">谢林: </span>
-              <span>
+              <span className="truncate">
                 {typeof schellingPoint === 'number' ? 
-                  (schellingPoint > 1000 ? schellingPoint.toLocaleString() : schellingPoint.toFixed(schellingPoint < 1 ? 3 : schellingPoint < 10 ? 2 : 0)) 
+                  (schellingPoint > 1000 ? 
+                    isMobile ? 
+                      Intl.NumberFormat('en', {notation: 'compact'}).format(schellingPoint) : 
+                      schellingPoint.toLocaleString() 
+                    : schellingPoint.toFixed(schellingPoint < 1 ? 3 : schellingPoint < 10 ? 2 : 0)) 
                   : '-'
                 }
               </span>
