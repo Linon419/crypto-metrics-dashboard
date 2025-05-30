@@ -2,11 +2,23 @@
 const { OpenAI } = require('openai');
 require('dotenv').config();
 
-// 初始化OpenAI客户端
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY, 
-  baseURL: 'https://burn.hair/v1' // 第三方转发URL
-});
+// 延迟初始化OpenAI客户端
+let openai = null;
+
+function getOpenAIClient() {
+  if (!openai) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY environment variable is not set. Please check your .env file.');
+    }
+    console.log('初始化OpenAI客户端，API Key前10位:', apiKey.substring(0, 10) + '...');
+    openai = new OpenAI({
+      apiKey: apiKey,
+      baseURL: 'https://burn.hair/v1' // 第三方转发URL
+    });
+  }
+  return openai;
+}
 
 /**
  * 处理原始加密货币指标数据
@@ -82,7 +94,8 @@ ${processedText}
 
     console.log('============ API请求开始 ============');
     // 调用OpenAI API
-    const response = await openai.chat.completions.create({
+    const openaiClient = getOpenAIClient();
+    const response = await openaiClient.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {

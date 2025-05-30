@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, 
   Tooltip, Area, AreaChart, ResponsiveContainer, 
-  ReferenceArea, ReferenceLine, Legend
+  ReferenceArea, ReferenceLine, Legend, ComposedChart
 } from 'recharts';
 import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty, Radio } from 'antd';
 import { 
@@ -291,6 +291,14 @@ function CoinDetailChart({ coin, onRefresh }) {
       Math.ceil(max + padding)
     ];
   };
+
+  // 检查是否有有效的谢林点数据
+  const hasSchellingData = () => {
+    if (!displayData || displayData.length === 0) return false;
+    const hasData = displayData.some(d => d.schellingPoint && d.schellingPoint > 0);
+    console.log('谢林点数据检查:', hasData, displayData.map(d => d.schellingPoint));
+    return hasData;
+  };
   
   // 自定义提示框
   const CustomTooltip = ({ active, payload }) => {
@@ -521,7 +529,7 @@ function CoinDetailChart({ coin, onRefresh }) {
           {/* 爆破指数图表 */}
           <div style={{ height: '400px', userSelect: 'none' }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart 
+              <ComposedChart 
                 data={displayData} 
                 margin={{ top: 10, right: 30, left: 20, bottom: 30 }}
                 onMouseDown={handleMouseDown}
@@ -608,6 +616,19 @@ function CoinDetailChart({ coin, onRefresh }) {
                       style: { fill: '#3b82f6' }
                     }}
                     tick={{ fill: '#3b82f6' }}
+                  />
+                )}
+                
+                {/* 谢林点独立Y轴 - 只在双指标模式下且有数据时显示 */}
+                {chartMode === 'both' && hasSchellingData() && (
+                  <YAxis 
+                    yAxisId="schelling"
+                    orientation="right"
+                    domain={getYAxisDomain('schellingPoint')}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={false}
+                    width={0}
                   />
                 )}
                 
@@ -702,6 +723,21 @@ function CoinDetailChart({ coin, onRefresh }) {
                   />
                 )}
                 
+                {/* 谢林点虚线 - 只在双指标模式下显示且有数据时显示 */}
+                {chartMode === 'both' && hasSchellingData() && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="schellingPoint" 
+                    stroke="#722ed1" 
+                    strokeWidth={2}
+                    strokeDasharray="8 4"
+                    dot={false}
+                    activeDot={{ r: 6, stroke: "#722ed1", strokeWidth: 2, fill: "white" }}
+                    name="谢林点"
+                    yAxisId="schelling"
+                  />
+                )}
+                
                 {/* 缩放选择区域 */}
                 {zoomState && (
                   <ReferenceArea 
@@ -713,7 +749,7 @@ function CoinDetailChart({ coin, onRefresh }) {
                     yAxisId={chartMode === 'otc' ? 'left' : 'left'}
                   />
                 )}
-              </AreaChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
           
