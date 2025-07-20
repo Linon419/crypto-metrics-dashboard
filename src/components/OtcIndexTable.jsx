@@ -13,6 +13,7 @@ const { Title, Text } = Typography;
 const { Panel } = Collapse;
 
 function OtcIndexTable({ coins, loading = false }) {
+  //console.log("OtcIndexTable received coins data:", coins); // <--- 添加这行来进行调试
   const [sortedInfo, setSortedInfo] = useState({
     columnKey: 'otcIndex',
     order: 'descend',
@@ -45,7 +46,8 @@ function OtcIndexTable({ coins, loading = false }) {
     entryExitDay: coin.entryExitDay,
     previousDayData: coin.previousDayData,
     explosionIndexChangePercent: coin.explosionIndexChangePercent,
-    otcIndexChangePercent: coin.otcIndexChangePercent
+    otcIndexChangePercent: coin.otcIndexChangePercent,
+    period_quality: coin.period_quality
   }));
 
   // Sort data based on current sort settings
@@ -222,6 +224,15 @@ function OtcIndexTable({ coins, loading = false }) {
       }
     },
     {
+      title: '周期质量',
+      dataIndex: 'period_quality',
+      key: 'period_quality',
+      width: 150,
+      sorter: (a, b) => (a.period_quality || '').localeCompare(b.period_quality || ''),
+      sortOrder: sortedInfo.columnKey === 'period_quality' ? sortedInfo.order : null,
+      render: (quality) => renderQualityTag(quality)
+    },
+    {
       title: '交易建议',
       key: 'suggestion',
       width: 200,
@@ -312,6 +323,38 @@ function OtcIndexTable({ coins, loading = false }) {
 
     return `${fieldLabels[field] || field} ${order}`;
   };
+  
+  // Helper function to render the quality tag
+  const renderQualityTag = (quality, isMobile = false) => {
+    if (!quality) return <Tag>未知</Tag>;
+
+    let color = 'default';
+    if (quality.includes('高质量')) color = 'success';
+    else if (quality.includes('低质量')) color = 'error';
+    else if (quality.includes('中等质量')) color = 'processing';
+    else if (quality.includes('待观察')) color = 'warning';
+    
+    // Mapping for explanations
+    const qualityExplanations = {
+      '高质量进场': '场外指数在爆破指数首次跌回200时显著高于进场期第一天，主力加仓，波动有望充分展开。',
+      '中等质量进场': '场外指数略高于进场期第一天，进场期质量一般，需关注后续动能变化。',
+      '低质量进场': '场外指数不升反降，主力动力不足，进场期波动展开可能受限。',
+      '进场期 (待观察)': '当前进场期尚未出现爆破指数跌破200的关键节点，暂无法评估质量。',
+      '高质量退场': '爆破指数由负转正后的场外指数明显低于退场期第一天，主力撤离明显，做空性价比高。',
+      '中等质量退场': '场外指数略低于退场期第一天，质量一般，需关注后续资金流向。',
+      '低质量退场': '场外指数不降反升，主力仍有拉升，退场期做空需谨慎。',
+      '退场期 (待观察)': '当前退场期仍未出现爆破指数由负转正的关键节点，暂无法评估质量。',
+      '观望': '当前既不在进场期也不在退场期，建议观望。',
+      '数据不足': '历史数据不足，无法评估进退场期质量。'
+    };
+    const explanation = qualityExplanations[quality] || '暂无解释';
+    const tag = <Tag color={color} className={isMobile ? "text-xs" : ""}>{quality}</Tag>;
+    return isMobile ? (
+      <Tooltip title={explanation}>{tag}</Tooltip>
+    ) : (
+      <Tooltip title={explanation}>{tag}</Tooltip>
+    );
+  }
 
   // Mobile coin list item renderer
   const renderCoinListItem = (coin) => {
@@ -325,6 +368,8 @@ function OtcIndexTable({ coins, loading = false }) {
     // Trading suggestion
     let suggestion = '';
     let suggestionColor = '';
+    const periodQuality = coin.period_quality;
+
     if (prevData && !isNaN(numericExplosionIndex) && (prevExplosionIndex === undefined || !isNaN(prevExplosionIndex))) {
       const currExplosionIndex = numericExplosionIndex;
 
@@ -372,8 +417,13 @@ function OtcIndexTable({ coins, loading = false }) {
               <Text type="secondary">{suggestion || '数据不足'}</Text>
             )}
           </div>
+          
+          <div className="flex justify-between items-center mt-2">
+            <Text type="secondary" className="text-xs">周期质量:</Text>
+            {renderQualityTag(periodQuality, true)}
+          </div>
 
-          <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="grid grid-cols-2 gap-2 mt-1">
             <div>
               <Text type="secondary" className="text-xs">场外指数:</Text>
               <div className="flex items-center">

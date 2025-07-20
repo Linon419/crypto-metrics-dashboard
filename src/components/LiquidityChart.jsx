@@ -1,16 +1,15 @@
-// src/components/LiquidityRadialChart.jsx - Mobile-friendly version
+// src/components/LiquidityChart.jsx - Mobile-friendly version
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Spin, Empty, Row, Col, Statistic, Tooltip, Collapse } from 'antd';
+import { Card, Typography, Spin, Empty, Row, Col, Statistic, Tooltip as AntTooltip, Collapse } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { RadialBarChart, RadialBar, ResponsiveContainer, Legend, PolarAngleAxis, PolarGrid } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell, Label } from 'recharts';
 
 const { Title, Text, Paragraph } = Typography;
 const { Panel } = Collapse;
 
-function LiquidityRadialChart({ liquidity, loading }) {
+function LiquidityChart({ liquidity, loading }) {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
-  // Listen for window resize to adjust for mobile
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
@@ -39,63 +38,59 @@ function LiquidityRadialChart({ liquidity, loading }) {
     );
   }
 
-  // Prepare data - Store original value for formatter
   const chartData = [
     {
       name: 'BTC',
-      originalValue: liquidity.btc_fund_change || 0, // Store original value
-      value: Math.abs(liquidity.btc_fund_change || 0),
-      fill: '#F7931A',
+      value: liquidity.btc_fund_change || 0,
     },
     {
       name: 'ETH',
-      originalValue: liquidity.eth_fund_change || 0, // Store original value
-      value: Math.abs(liquidity.eth_fund_change || 0),
-      fill: '#627EEA',
+      value: liquidity.eth_fund_change || 0,
     },
     {
       name: 'SOL',
-      originalValue: liquidity.sol_fund_change || 0, // Store original value
-      value: Math.abs(liquidity.sol_fund_change || 0),
-      fill: '#14F195',
+      value: liquidity.sol_fund_change || 0,
     }
-  ].sort((a, b) => b.value - a.value); // Sort by fund change magnitude
+  ].sort((a, b) => Math.abs(b.value) - Math.abs(a.value)); // Sort by fund change magnitude
 
-  // Add direction after sorting based on originalValue
+  // Add direction for other UI elements like tags
   chartData.forEach(item => {
-    item.direction = item.originalValue >= 0 ? 'inflow' : 'outflow';
+    item.direction = item.value >= 0 ? 'inflow' : 'outflow';
   });
 
-
-  // Calculate maximum value for chart scaling
-  const maxValue = Math.max(...chartData.map(item => item.value), 2); // Min value of 2 for visibility
-
-  // Custom formatter with safety checks and sign
-  const customFormatter = (value, entry) => {
-    // Safety check
-    if (!entry || !entry.payload) {
-      return <span>数据加载中...</span>;
-    }
-    
-    const { name, originalValue, fill } = entry.payload;
-    const sign = originalValue >= 0 ? '+' : '-';
-    // entry.payload.value is already the absolute value for the bar length
-    const displayValue = (entry.payload.value || 0).toFixed(2); 
-
-    return (
-      <span style={{ color: fill || '#000' }}>
-        {`${name || 'Unknown'} (${sign}${displayValue}亿)`}
-      </span>
-    );
-  };
+  const BarChartGraph = (
+    <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 20, right: 20, left: -10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" />
+            <YAxis 
+                tickFormatter={(value) => `${value}`} 
+                allowDataOverflow={true}
+                domain={['auto', 'auto']}
+            >
+                <Label value="资金变化 (亿美元)" angle={-90} position="insideLeft" style={{ textAnchor: 'middle' }} />
+            </YAxis>
+            <Tooltip
+                formatter={(value) => [`${Number(value).toFixed(2)}亿`, "资金变化"]}
+                cursor={{ fill: 'rgba(206, 206, 206, 0.2)' }}
+            />
+            <ReferenceLine y={0} stroke="#000" />
+            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.value >= 0 ? '#3f8600' : '#cf1322'} />
+                ))}
+            </Bar>
+        </BarChart>
+    </ResponsiveContainer>
+  );
 
   return (
     <Card className="mt-4 bg-white rounded-lg shadow p-4 mb-4">
       <div className="flex justify-between items-center mb-4">
         <Title level={4} className="mb-0">流动性概况</Title>
-        <Tooltip title="资金流入流出情况，单位：亿美元">
+        <AntTooltip title="各主流币资金流入流出情况，单位：亿美元">
           <InfoCircleOutlined className="text-gray-400" />
-        </Tooltip>
+        </AntTooltip>
       </div>
 
       {isMobile ? (
@@ -126,7 +121,7 @@ function LiquidityRadialChart({ liquidity, loading }) {
               >
                 {item.name}
                 {item.direction === 'inflow' ? <ArrowUpOutlined className="ml-1" /> : <ArrowDownOutlined className="ml-1" />}
-                <span className="ml-1">{item.value.toFixed(2)}亿</span>
+                <span className="ml-1">{Math.abs(item.value).toFixed(2)}亿</span>
               </div>
             ))}
           </div>
@@ -135,33 +130,7 @@ function LiquidityRadialChart({ liquidity, loading }) {
           <Collapse ghost className="mb-3">
             <Panel header="查看详细图表" key="1">
               <div style={{ height: '250px' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadialBarChart 
-                    cx="50%" 
-                    cy="50%" 
-                    innerRadius="20%" 
-                    outerRadius="90%" 
-                    data={chartData} 
-                    startAngle={90} 
-                    endAngle={-270}
-                  >
-                    <PolarAngleAxis type="number" domain={[0, maxValue]} angleAxisId={0} tick={false} />
-                    <PolarGrid gridType="circle" />
-                    <RadialBar
-                      background
-                      dataKey="value"
-                      cornerRadius={10}
-                      label={false} // Disable inner labels on mobile
-                    />
-                    <Legend 
-                      iconSize={10} 
-                      layout="vertical" 
-                      verticalAlign="middle" 
-                      align="right"
-                      formatter={customFormatter}
-                    />
-                  </RadialBarChart>
-                </ResponsiveContainer>
+                {BarChartGraph}
               </div>
             </Panel>
           </Collapse>
@@ -179,41 +148,7 @@ function LiquidityRadialChart({ liquidity, loading }) {
         <Row gutter={[16, 16]}>
           <Col xs={24} md={12}>
             <div style={{ height: '300px' }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <RadialBarChart 
-                  cx="50%" 
-                  cy="50%" 
-                  innerRadius="20%" 
-                  outerRadius="90%" 
-                  data={chartData} 
-                  startAngle={90} 
-                  endAngle={-270}
-                >
-                  <PolarAngleAxis type="number" domain={[0, maxValue]} angleAxisId={0} tick={false} />
-                  <PolarGrid gridType="circle" />
-                  <RadialBar
-                    background
-                    dataKey="value"
-                    cornerRadius={10}
-                    label={{
-                      position: 'insideStart',
-                      fill: '#fff',
-                      formatter: (value, entry) => {
-                        if (!entry || !entry.payload) return '';
-                        // For inner label, we use the absolute value directly from the bar
-                        return `${entry.payload.name}: ${value.toFixed(2)}`;
-                      }
-                    }}
-                  />
-                  <Legend 
-                    iconSize={10} 
-                    layout="vertical" 
-                    verticalAlign="middle" 
-                    align="right"
-                    formatter={customFormatter}
-                  />
-                </RadialBarChart>
-              </ResponsiveContainer>
+              {BarChartGraph}
             </div>
           </Col>
           <Col xs={24} md={12}>
@@ -262,4 +197,4 @@ function LiquidityRadialChart({ liquidity, loading }) {
   );
 }
 
-export default LiquidityRadialChart;
+export default LiquidityChart;

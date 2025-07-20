@@ -296,8 +296,15 @@ router.get('/latest', async (req, res) => {
         } : null,
         otc_index_change_percent: prevMetrics ? calculateChangePercent(currentMetric.otc_index, prevMetrics.otc_index) : null,
         explosion_index_change_percent: prevMetrics ? calculateChangePercent(currentMetric.explosion_index, prevMetrics.explosion_index) : null,
+        period_quality: '数据不足', // 默认为数据不足
       };
     });
+
+    // 为每个指标异步计算周期质量
+    await Promise.all(metricsWithComparison.map(async (metric) => {
+        metric.period_quality = await calculatePeriodQuality(metric.coin_id);
+    }));
+
 
     const liquidity = await LiquidityOverview.findOne({ where: { date: latestDate } });
     const trendingCoinsRaw = await TrendingCoin.findAll({ where: { date: latestDate } });
@@ -332,6 +339,154 @@ router.get('/latest', async (req, res) => {
     res.status(500).json({ success: false, error: 'Failed to fetch latest data', details: error.message });
   }
 });
+
+
+/**
+ * 计算给定币种当前周期的质量
+ * @param {number} coinId - 币种的ID
+ * @returns {Promise<string>} - 描述周期质量的字符串
+ */
+async function calculatePeriodQuality(coinId) {
+  try {
+    // 获取该币种最近90天的所有历史指标，按日期降序
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    const ninetyDaysAgoStr = ninetyDaysAgo.toISOString().split('T')[0];
+
+    const historicalMetrics = await DailyMetric.findAll({
+      where: {
+        coin_id: coinId,
+        date: { [Op.gte]: ninetyDaysAgoStr }
+      },
+      order: [['date', 'DESC']],
+      raw: true
+    });
+
+    if (historicalMetrics.length < 2) {
+      console.log(`[QualityCheck] CoinID ${coinId}: Insufficient historical data (${historicalMetrics.length} records). Returning '数据不足'.`);
+      return '数据不足';
+    }
+
+    const latestMetric = historicalMetrics[0];
+    console.log(`[QualityCheck] CoinID ${coinId}: Latest metric on ${latestMetric.date} is type '${latestMetric.entry_exit_type}'.`);
+
+
+    // 进场期质量评估 (bodong 文档 - 第二章 & 第三章)
+    if (latestMetric.entry_exit_type === 'entry') {
+      // 1. 找到当前进场期的开始
+      let entryPeriodStartIndex = -1;
+      for (let i = 0; i < historicalMetrics.length; i++) {
+        const metric = historicalMetrics[i];
+        if (metric.entry_exit_type === 'entry' && (historicalMetrics[i+1]?.entry_exit_type !== 'entry' || i === historicalMetrics.length - 1)) {
+          entryPeriodStartIndex = i;
+          break;
+        }
+      }
+
+      if (entryPeriodStartIndex === -1) {
+        console.log(`[QualityCheck] CoinID ${coinId}: Could not find start of 'entry' period. Returning '数据不足'.`);
+        return '数据不足';
+      }
+
+      const entryStartDateMetric = historicalMetrics[entryPeriodStartIndex];
+      const entryStartOtcIndex = entryStartDateMetric.otc_index;
+      
+      console.log(`[QualityCheck] CoinID ${coinId}: Entry period started on ${entryStartDateMetric.date} with OTC Index ${entryStartOtcIndex}.`);
+
+
+      if (!entryStartOtcIndex) return '数据不足';
+
+      // 2. 在进场期内，找到第一个“爆破指数跌回200”的节点
+      // 从进场第一天开始，往更近的日期找
+      let firstDipNode = null;
+      for (let i = entryPeriodStartIndex - 1; i >= 0; i--) {
+        const current = historicalMetrics[i];
+        const previous = historicalMetrics[i+1];
+        if (previous.explosion_index >= 200 && current.explosion_index < 200) {
+          firstDipNode = current;
+          break;
+        }
+      }
+
+      // 如果还没跌破过200，质量暂时无法评估
+      if (!firstDipNode || !firstDipNode.otc_index) {
+        console.log(`[QualityCheck] CoinID ${coinId}: No explosion index dip below 200 found yet. Returning '进场期 (待观察)'.`);
+        return '进场期 (待观察)';
+      }
+      
+      const firstDipOtcIndex = firstDipNode.otc_index;
+      console.log(`[QualityCheck] CoinID ${coinId}: First dip node found on ${firstDipNode.date} with OTC Index ${firstDipOtcIndex}.`);
+
+      // 3. 比较场外指数 (bodong 文档 - 第二章)
+      if (firstDipOtcIndex > entryStartOtcIndex * 1.05) { // 增加5%的缓冲区
+        return '高质量进场';
+      } else if (firstDipOtcIndex < entryStartOtcIndex * 0.95) { // 减少5%的缓冲区
+        return '低质量进场';
+      } else {
+        return '中等质量进场';
+      }
+    }
+    
+    // 退场期质量评估 (bodong 文档 - 第六章)
+    if (latestMetric.entry_exit_type === 'exit') {
+        // 1. 找到当前退场期的开始
+        let exitPeriodStartIndex = -1;
+        for (let i = 0; i < historicalMetrics.length; i++) {
+            const metric = historicalMetrics[i];
+            if (metric.entry_exit_type === 'exit' && (historicalMetrics[i+1]?.entry_exit_type !== 'exit' || i === historicalMetrics.length - 1)) {
+                exitPeriodStartIndex = i;
+                break;
+            }
+        }
+
+        if (exitPeriodStartIndex === -1) {
+          console.log(`[QualityCheck] CoinID ${coinId}: Could not find start of 'exit' period. Returning '数据不足'.`);
+          return '数据不足';
+        }
+
+        const exitStartDateMetric = historicalMetrics[exitPeriodStartIndex];
+        const exitStartOtcIndex = exitStartDateMetric.otc_index;
+        console.log(`[QualityCheck] CoinID ${coinId}: Exit period started on ${exitStartDateMetric.date} with OTC Index ${exitStartOtcIndex}.`);
+        
+        if (!exitStartOtcIndex) return '数据不足';
+
+        // 2. 在退场期内，找到第一个“爆破指数由负转正”的节点
+        let firstTurnNode = null;
+        for (let i = exitPeriodStartIndex - 1; i >= 0; i--) {
+            const current = historicalMetrics[i];
+            const previous = historicalMetrics[i+1];
+            if (previous.explosion_index < 0 && current.explosion_index >= 0) {
+                firstTurnNode = current;
+                break;
+            }
+        }
+        
+        if (!firstTurnNode || !firstTurnNode.otc_index) {
+            console.log(`[QualityCheck] CoinID ${coinId}: No explosion index turn positive found yet. Returning '退场期 (待观察)'.`);
+            return '退场期 (待观察)';
+        }
+        
+        const firstTurnOtcIndex = firstTurnNode.otc_index;
+        console.log(`[QualityCheck] CoinID ${coinId}: First turn node found on ${firstTurnNode.date} with OTC Index ${firstTurnOtcIndex}.`);
+
+        
+        // 3. 比较场外指数，退场期是看是否稳步下降
+        if (firstTurnOtcIndex < exitStartOtcIndex * 0.95) { // 下降超过5%
+            return '高质量退场';
+        } else if (firstTurnOtcIndex > exitStartOtcIndex * 1.05) { // 反而上升超过5%
+            return '低质量退场';
+        } else {
+            return '中等质量退场';
+        }
+    }
+
+    console.log(`[QualityCheck] CoinID ${coinId}: Not in entry/exit period. Returning '观望'.`);
+    return '观望'; // 既不进场也不退场
+  } catch (error) {
+    console.error(`Error calculating period quality for coinId ${coinId}:`, error);
+    return '计算出错';
+  }
+}
 
 
 // --- 路由：导出所有数据 ---

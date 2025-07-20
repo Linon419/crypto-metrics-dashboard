@@ -296,7 +296,7 @@ function CoinDetailChart({ coin, onRefresh }) {
   const hasSchellingData = () => {
     if (!displayData || displayData.length === 0) return false;
     const hasData = displayData.some(d => d.schellingPoint && d.schellingPoint > 0);
-    console.log('谢林点数据检查:', hasData, displayData.map(d => d.schellingPoint));
+    //console.log('谢林点数据检查:', hasData, displayData.map(d => d.schellingPoint));
     return hasData;
   };
   

@@ -326,6 +326,7 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
           explosionIndexChangePercent: explosionIndexChangePercent,
           date: metric.date || latestDate,
           previousDayData: metric.previous_day_data, // Ensure this is passed through
+          period_quality: metric.period_quality
         };
       });
       // if (coinsWithMetrics.length > 0) {

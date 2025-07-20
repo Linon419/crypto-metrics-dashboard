@@ -26,7 +26,7 @@ import SearchBar from './SearchBar';
 import CoinList from './CoinList';
 import CoinDetailChart from './CoinDetailChart';
 import OtcIndexTable from './OtcIndexTable';
-import LiquidityRadialChart from './LiquidityRadialChart';
+import LiquidityChart from './LiquidityChart';
 import LoadingPlaceholder from './LoadingPlaceholder';
 import { fetchLatestMetrics } from '../services/api'; // Keep this
 import { logout } from '../redux/slices/authSlice';
@@ -698,7 +698,7 @@ function Dashboard() {
             )}
 
             {/* Liquidity chart */}
-            <LiquidityRadialChart
+            <LiquidityChart
               liquidity={liquidityData}
               loading={loading && !liquidityData} // Show loading if liquidity data is not yet available
             />

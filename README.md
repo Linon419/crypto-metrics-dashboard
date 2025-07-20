@@ -133,8 +133,8 @@ crypto-metrics-dashboard
 │  │  ├─ CoinList.jsx
 │  │  ├─ Dashboard.jsx
 │  │  ├─ DataInputForm.jsx
-│  │  ├─ LiquidityRadialChart.jsx
 │  │  ├─ LoadingPlaceholder.jsx
+│  │  ├─ LiquidityChart.jsx
 │  │  ├─ Login.jsx
 │  │  ├─ OtcIndexTable.jsx
 │  │  ├─ ProtectedRoute.jsx
@@ -160,5 +160,3 @@ crypto-metrics-dashboard
 │  │  └─ api.js
 │  └─ setupTests.js
 └─ tailwind.config.js
-
-```
