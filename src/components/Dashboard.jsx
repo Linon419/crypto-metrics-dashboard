@@ -161,9 +161,10 @@ function Dashboard() {
 
       case 'long': // Long strategy
         return currentAllCoins.filter(coin => {
-          if (!coin.previousDayData || coin.explosionIndex === undefined || coin.previousDayData.explosion_index === undefined) return false;
+          const prevData = coin.previousDayData || coin.previous_day_data;
+          if (!prevData || coin.explosionIndex === undefined || prevData.explosion_index === undefined) return false;
 
-          const prevExplosionIndex = parseFloat(coin.previousDayData.explosion_index);
+          const prevExplosionIndex = parseFloat(prevData.explosion_index);
           const currExplosionIndex = parseFloat(coin.explosionIndex);
           const explosionChangePercent = parseFloat(coin.explosionIndexChangePercent);
 
@@ -179,9 +180,10 @@ function Dashboard() {
 
       case 'short': // Short strategy
         return currentAllCoins.filter(coin => {
-            if (!coin.previousDayData || coin.explosionIndex === undefined || coin.previousDayData.explosion_index === undefined) return false;
+            const prevData = coin.previousDayData || coin.previous_day_data;
+            if (!prevData || coin.explosionIndex === undefined || prevData.explosion_index === undefined) return false;
 
-            const prevExplosionIndex = parseFloat(coin.previousDayData.explosion_index);
+            const prevExplosionIndex = parseFloat(prevData.explosion_index);
             const currExplosionIndex = parseFloat(coin.explosionIndex);
             const explosionChangePercent = parseFloat(coin.explosionIndexChangePercent);
 

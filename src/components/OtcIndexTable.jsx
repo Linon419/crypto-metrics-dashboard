@@ -44,7 +44,7 @@ function OtcIndexTable({ coins, loading = false }) {
     schellingPoint: coin.schellingPoint,
     entryExitType: coin.entryExitType,
     entryExitDay: coin.entryExitDay,
-    previousDayData: coin.previousDayData,
+    previousDayData: coin.previousDayData || coin.previous_day_data,
     explosionIndexChangePercent: coin.explosionIndexChangePercent,
     otcIndexChangePercent: coin.otcIndexChangePercent,
     period_quality: coin.period_quality
@@ -107,7 +107,7 @@ function OtcIndexTable({ coins, loading = false }) {
       render: (value, record) => {
         const numericValue = parseFloat(value); // Ensure value is a number for comparisons
         const isNear1000 = numericValue > 950 && numericValue < 1050;
-        const prevData = record.previousDayData;
+        const prevData = record.previousDayData || record.previous_day_data;
         const prevOtcIndex = prevData ? parseFloat(prevData.otc_index) : undefined;
 
 
@@ -154,7 +154,7 @@ function OtcIndexTable({ coins, loading = false }) {
       render: (value, record) => {
         const numericValue = parseFloat(value); // Ensure value is a number
         const isWarning = numericValue < 200;
-        const prevData = record.previousDayData;
+        const prevData = record.previousDayData || record.previous_day_data;
         const prevExplosionIndex = prevData ? parseFloat(prevData.explosion_index) : undefined;
 
         // Debug log, can be removed after testing
@@ -237,7 +237,7 @@ function OtcIndexTable({ coins, loading = false }) {
       key: 'suggestion',
       width: 200,
       render: (_, record) => {
-        const prevData = record.previousDayData;
+        const prevData = record.previousDayData || record.previous_day_data;
         if (!prevData) return <Text type="secondary">数据不足</Text>;
 
         const currExplosionIndex = parseFloat(record.explosionIndex);
@@ -360,7 +360,7 @@ function OtcIndexTable({ coins, loading = false }) {
   const renderCoinListItem = (coin) => {
     const numericExplosionIndex = parseFloat(coin.explosionIndex);
     const isExplosionSafe = numericExplosionIndex >= 200;
-    const prevData = coin.previousDayData;
+    const prevData = coin.previousDayData || coin.previous_day_data;
     const prevOtcIndex = prevData ? parseFloat(prevData.otc_index) : undefined;
     const prevExplosionIndex = prevData ? parseFloat(prevData.explosion_index) : undefined;
 

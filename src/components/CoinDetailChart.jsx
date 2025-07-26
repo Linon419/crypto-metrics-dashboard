@@ -1,11 +1,11 @@
 // src/components/CoinDetailChart.jsx - 确保与卡片数据一致
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, 
-  Tooltip, Area, AreaChart, ResponsiveContainer, 
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Area, AreaChart, ResponsiveContainer,
   ReferenceArea, ReferenceLine, Legend, ComposedChart
 } from 'recharts';
-import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty, Radio } from 'antd';
+import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty, Radio, Tag, Tooltip as AntTooltip } from 'antd';
 import { 
   ZoomInOutlined, 
   ZoomOutOutlined, 
@@ -83,6 +83,41 @@ function CoinDetailChart({ coin, onRefresh }) {
   // 处理指标切换
   const handleChartModeChange = (mode) => {
     setChartMode(mode);
+  };
+
+  // Render period quality tag (similar to CoinCard and OtcIndexTable implementation)
+  const renderQualityTag = () => {
+    if (!coin?.period_quality) return null;
+
+    let color = 'default';
+    if (coin.period_quality.includes('高质量')) color = 'success';
+    else if (coin.period_quality.includes('低质量')) color = 'error';
+    else if (coin.period_quality.includes('中等质量')) color = 'processing';
+    else if (coin.period_quality.includes('待观察')) color = 'warning';
+
+    // Mapping for explanations
+    const qualityExplanations = {
+      '高质量进场': '场外指数在爆破指数首次跌回200时显著高于进场期第一天，主力加仓，波动有望充分展开。',
+      '中等质量进场': '场外指数略高于进场期第一天，进场期质量一般，需关注后续动能变化。',
+      '低质量进场': '场外指数不升反降，主力动力不足，进场期波动展开可能受限。',
+      '进场期 (待观察)': '当前进场期尚未出现爆破指数跌破200的关键节点，暂无法评估质量。',
+      '高质量退场': '爆破指数由负转正后的场外指数明显低于退场期第一天，主力撤离明显，做空性价比高。',
+      '中等质量退场': '场外指数略低于退场期第一天，质量一般，需关注后续资金流向。',
+      '低质量退场': '场外指数不降反升，主力仍有拉升，退场期做空需谨慎。',
+      '退场期 (待观察)': '当前退场期仍未出现爆破指数由负转正的关键节点，暂无法评估质量。',
+      '观望': '当前既不在进场期也不在退场期，建议观望。',
+      '数据不足': '历史数据不足，无法评估进退场期质量。'
+    };
+
+    const explanation = qualityExplanations[coin.period_quality] || '暂无解释';
+
+    return (
+      <AntTooltip title={explanation}>
+        <Tag color={color} className="text-sm">
+          周期质量: {coin.period_quality}
+        </Tag>
+      </AntTooltip>
+    );
   };
   
   // 数据一致性：确保最新数据与传入的coin对象一致
@@ -432,6 +467,13 @@ function CoinDetailChart({ coin, onRefresh }) {
                   </Text>
                 )}
               </div>
+
+              {/* Period quality display */}
+              {coin?.period_quality && (
+                <div className="flex items-center mt-2">
+                  {renderQualityTag()}
+                </div>
+              )}
               
               {renderDebugInfo()}
             </div>

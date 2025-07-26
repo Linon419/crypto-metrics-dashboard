@@ -360,6 +360,7 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
               explosionIndexChangePercent: trendExplosionChangePercent,
               date: trendingCoin.date || latestDate,
               previousDayData: trendingCoin.previous_day_data, // Also pass for trending coins if available
+              period_quality: trendingCoin.period_quality
             });
           }
         }
@@ -668,51 +669,48 @@ export const importDatabaseDump = async (dumpData) => {
 
 
 // --- 7. 收藏功能 API 调用 ---
-// 获取用户收藏的币种
+// 获取用户收藏的币种 - 支持用户ID和设备ID
 export const fetchFavorites = async (forceRefresh = false) => {
-  const deviceId = getDeviceId();
   const now = Date.now();
-  
+
   // 使用缓存，除非强制刷新或缓存过期（5分钟）
   if (!forceRefresh && dataCache.favorites && (now - dataCache.lastFavoritesFetchTime < 5 * 60 * 1000)) {
     return dataCache.favorites;
   }
-  
+
   try {
     // 首先尝试从localStorage获取缓存数据以快速显示
     const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
-    
-    // 同时从服务器获取最新数据
-    const response = await callApiWithRetry(() => api.get(`/favorites/${deviceId}`));
+
+    // 使用新的API端点，它会自动根据用户登录状态选择合适的策略
+    const response = await callApiWithRetry(() => api.get('/favorites'));
     const serverFavorites = response.data;
-    
+
     // 更新本地缓存和内存缓存
     localStorage.setItem('favoriteCrypto', JSON.stringify(serverFavorites));
     dataCache.favorites = serverFavorites;
     dataCache.lastFavoritesFetchTime = now;
-    
+
     return serverFavorites;
   } catch (error) {
     console.error('获取收藏数据失败:', error.displayMessage || error.message);
-    
+
     // 如果API请求失败，使用本地缓存
     const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
     dataCache.favorites = cachedFavorites;
     dataCache.lastFavoritesFetchTime = now;
-    
+
     // 返回本地缓存的收藏列表
     return cachedFavorites;
   }
 };
 
-// 添加收藏
+// 添加收藏 - 支持用户ID和设备ID
 export const addFavorite = async (symbol) => {
   if (!symbol) {
     throw new Error('Symbol is required');
   }
-  
-  const deviceId = getDeviceId();
-  
+
   try {
     // 同步更新本地缓存（乐观更新）
     const currentFavorites = dataCache.favorites || JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
@@ -721,40 +719,38 @@ export const addFavorite = async (symbol) => {
       localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
       dataCache.favorites = newFavorites;
     }
-    
-    // 发送请求到服务器
-    const response = await callApiWithRetry(() => api.post('/favorites', { deviceId, symbol }));
+
+    // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
+    const response = await callApiWithRetry(() => api.post('/favorites', { symbol }));
     return response.data;
   } catch (error) {
     console.error('添加收藏失败:', error.displayMessage || error.message);
-    
+
     // 服务器请求失败时，回滚本地缓存更新
     await fetchFavorites(true); // 强制刷新收藏列表
     throw error;
   }
 };
 
-// 删除收藏
+// 删除收藏 - 支持用户ID和设备ID
 export const removeFavorite = async (symbol) => {
   if (!symbol) {
     throw new Error('Symbol is required');
   }
-  
-  const deviceId = getDeviceId();
-  
+
   try {
     // 同步更新本地缓存（乐观更新）
     const currentFavorites = dataCache.favorites || JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
     const newFavorites = currentFavorites.filter(s => s !== symbol);
     localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
     dataCache.favorites = newFavorites;
-    
-    // 发送请求到服务器
-    const response = await callApiWithRetry(() => api.delete(`/favorites/${deviceId}/${symbol}`));
+
+    // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
+    const response = await callApiWithRetry(() => api.delete(`/favorites/${symbol}`));
     return response.data;
   } catch (error) {
     console.error('删除收藏失败:', error.displayMessage || error.message);
-    
+
     // 服务器请求失败时，回滚本地缓存更新
     await fetchFavorites(true); // 强制刷新收藏列表
     throw error;

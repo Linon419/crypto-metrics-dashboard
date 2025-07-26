@@ -1,0 +1,32 @@
+version: '3.3'
+
+services:
+  crypto-dashboard:
+    image: ghcr.io/linon419/crypto-metrics-dashboard:main  # 使用您已构建的镜像
+    container_name: crypto-dashboard
+    restart: unless-stopped
+    ports:
+      - "3080:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      # OpenAI Configuration
+      - OPENAI_API_KEY=sk-VGtdO986dsbTyQ4115B5B5C514C94c1e855770F6D74e22Fe
+      - OPENAI_BASE_URL=https://burn.hair/v1
+      - OPENAI_MODEL=gpt-4o
+      - OPENAI_SYSTEM_PROMPT=你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。
+      # Custom prompt (optional) - 如果需要自定义prompt，可以取消注释并修改
+      # - OPENAI_PROMPT=你是一个加密货币数据处理专家。请将以下非结构化数据转换为规范的JSON格式。数据示例：{{processedText}}...
+      # Database Configuration
+      - DB_STORAGE=/data/db/database.sqlite
+      # JWT Configuration
+      - JWT_SECRET=your-secret-key-change-this-in-production
+      # API Configuration
+      - API_PUBLIC_HOST=http://168.138.207.11:3080
+    volumes:
+      - /root/crypto-dashboard/data:/data/db
+      # 如果需要持久化其他数据
+
+volumes:
+  sqlite-data:
+  data-volume:

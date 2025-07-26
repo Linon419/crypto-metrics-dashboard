@@ -165,6 +165,11 @@ async function storeProcessedData(data) {
         total_market_fund_change: typeof liquidity.totalMarketFundChange === 'number' ? liquidity.totalMarketFundChange : null,
         comments: liquidity.comments || null
       };
+
+      // 处理 dailyReminder 字段
+      if (data.dailyReminder) {
+        liquidityPayload.daily_reminder = data.dailyReminder;
+      }
       const [liqInstance, liqCreated] = await LiquidityOverview.findOrCreate({
         where: { date: date },
         defaults: liquidityPayload,

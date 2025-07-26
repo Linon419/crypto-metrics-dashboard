@@ -13,9 +13,17 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
+      # OpenAI Configuration
       - OPENAI_API_KEY=your_openai_api_key_here
-      # 确保配置文件使用正确的数据库路径
+      - OPENAI_BASE_URL=https://burn.hair/v1
+      - OPENAI_MODEL=gpt-4o
+      - OPENAI_SYSTEM_PROMPT=你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。
+      # Database Configuration
       - DB_STORAGE=/data/db/database.sqlite
+      # JWT Configuration
+      - JWT_SECRET=your-secret-key-change-this-in-production
+      # API Configuration
+      - API_PUBLIC_HOST=http://localhost:3001
     volumes:
       - sqlite-data:/data/db
       # 如果需要查看或调试，可以挂载源代码目录

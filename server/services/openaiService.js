@@ -8,33 +8,30 @@ let openai = null;
 function getOpenAIClient() {
   if (!openai) {
     const apiKey = process.env.OPENAI_API_KEY;
+    const baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'; // 默认使用官方API
+
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY environment variable is not set. Please check your .env file.');
     }
+
     console.log('初始化OpenAI客户端，API Key前10位:', apiKey.substring(0, 10) + '...');
+    console.log('使用的BaseURL:', baseURL);
+
     openai = new OpenAI({
       apiKey: apiKey,
-      baseURL: 'https://burn.hair/v1' // 第三方转发URL
+      baseURL: baseURL
     });
   }
   return openai;
 }
 
 /**
- * 处理原始加密货币指标数据
- * @param {string} rawText - 原始文本数据
- * @returns {Promise<Object>} - 处理后的结构化JSON数据
+ * 获取默认的AI提示模板
+ * @param {string} processedText - 预处理后的文本
+ * @returns {string} - 完整的提示文本
  */
-async function processRawData(rawText) {
-  try {
-    console.log('============ 原始输入数据 ============');
-    console.log(rawText);
-    
-    // 预处理日期 - 在发送到AI前先修复常见格式问题
-    const processedText = preprocessDateFormat(rawText);
-    
-    // 构建提示
-    const prompt = `
+function getDefaultPrompt(processedText) {
+  return `
 你是一个加密货币数据处理专家。请将以下非结构化数据转换为规范的JSON格式。
 
 数据示例:
@@ -83,6 +80,9 @@ ${processedText}
 4. 币市流动性 == LIQUIDITY
 5. 期权波动率（比特币Vega交易）== VEGA
 6. Trump == TRUMP
+7. 黄金OTC == GOLD
+8. 地产 水泥  == ESTATE
+9. 布伦特原油 == OIL
 
 对于进退场期识别：
 1. "进场期"对应entryExitType="entry"
@@ -91,16 +91,39 @@ ${processedText}
 
 仅返回有效的JSON格式，不要包含其他文本或解释。
 `;
+}
+
+/**
+ * 处理原始加密货币指标数据
+ * @param {string} rawText - 原始文本数据
+ * @returns {Promise<Object>} - 处理后的结构化JSON数据
+ */
+async function processRawData(rawText) {
+  try {
+    console.log('============ 原始输入数据 ============');
+    console.log(rawText);
+    
+    // 预处理日期 - 在发送到AI前先修复常见格式问题
+    const processedText = preprocessDateFormat(rawText);
+    
+    // 构建提示 - 从环境变量获取或使用默认值
+    const customPrompt = process.env.OPENAI_PROMPT;
+    const prompt = customPrompt ? customPrompt.replace('{{processedText}}', processedText) : getDefaultPrompt(processedText);
 
     console.log('============ API请求开始 ============');
     // 调用OpenAI API
     const openaiClient = getOpenAIClient();
+    const model = process.env.OPENAI_MODEL || "gpt-4o"; // 默认使用gpt-4o
+    const systemPrompt = process.env.OPENAI_SYSTEM_PROMPT || "你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。";
+
+    console.log('使用的模型:', model);
+
     const response = await openaiClient.chat.completions.create({
-      model: "gpt-4o",
+      model: model,
       messages: [
         {
           role: "system",
-          content: "你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。"
+          content: systemPrompt
         },
         {
           role: "user",

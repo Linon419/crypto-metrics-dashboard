@@ -52,8 +52,14 @@ function CoinList({
   // Update displayed coins when filters change
   useEffect(() => {
     setDisplayedCoins(filterCoins());
-    setCurrentPage(1); // Reset to first page
+    // Only reset to first page when viewMode changes, not when favorites change
+    // This prevents jumping to first page when toggling favorites
   }, [coins, viewMode, favorites, safeCoins]);
+
+  // Reset to first page only when viewMode or coins change, not when favorites change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [coins, viewMode]);
 
   // Auto-select first coin when none selected
   useEffect(() => {
@@ -147,12 +153,45 @@ function CoinList({
           <div className="hidden md:block">
             {currentCoinsToDisplay.length > 0 ? (
               <Row gutter={[16, 16]} className="mb-4">
-                {currentCoinsToDisplay.map((coin, index) => (
+                {currentCoinsToDisplay.map((coin, index) => {
+                  // Helper function to get quality ribbon props
+                  const getQualityRibbonProps = (period_quality) => {
+                    if (!period_quality) return { display: 'none', text: '', color: 'blue' };
+
+                    let color = 'blue';
+                    let text = period_quality;
+
+                    if (period_quality.includes('高质量')) {
+                      color = 'green';
+                      text = period_quality.replace('高质量', '高');
+                    } else if (period_quality.includes('低质量')) {
+                      color = 'red';
+                      text = period_quality.replace('低质量', '低');
+                    } else if (period_quality.includes('中等质量')) {
+                      color = 'blue';
+                      text = period_quality.replace('中等质量', '中');
+                    } else if (period_quality.includes('待观察')) {
+                      color = 'orange';
+                      text = '待观察';
+                    } else if (period_quality === '观望') {
+                      color = 'default';
+                      text = '观望';
+                    } else if (period_quality === '数据不足') {
+                      color = 'default';
+                      text = '无数据';
+                    }
+
+                    return { display: 'block', text, color };
+                  };
+
+                  const ribbonProps = getQualityRibbonProps(coin.period_quality);
+
+                  return (
                   <Col key={`${coin.symbol}-${index}`} xs={24} sm={12} md={6}>
-                    <Badge.Ribbon 
-                      text={coin.entryExitType === 'entry' ? `进${coin.entryExitDay || 0}` : coin.entryExitType === 'exit' ? `退${coin.entryExitDay || 0}` : ''}
-                      color={coin.entryExitType === 'entry' ? 'green' : coin.entryExitType === 'exit' ? 'red' : 'blue'}
-                      style={{ display: coin.entryExitType === 'neutral' || !coin.entryExitType ? 'none' : 'block', fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '10px' }}
+                    <Badge.Ribbon
+                      text={ribbonProps.text}
+                      color={ribbonProps.color}
+                      style={{ display: ribbonProps.display, fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '10px' }}
                     >
                       <div 
                         className={`cursor-pointer transition-all duration-200 relative ${
@@ -170,7 +209,8 @@ function CoinList({
                       </div>
                     </Badge.Ribbon>
                   </Col>
-                ))}
+                  );
+                })}
               </Row>
             ) : !loading ? (
               <Empty 
@@ -192,12 +232,45 @@ function CoinList({
               <>
                 {/* Grid layout instead of Carousel for better mobile UX */}
                 <Row gutter={[12, 12]} className="mb-4">
-                  {currentCoinsToDisplay.map((coin, index) => (
+                  {currentCoinsToDisplay.map((coin, index) => {
+                    // Helper function to get quality ribbon props (same as desktop)
+                    const getQualityRibbonProps = (period_quality) => {
+                      if (!period_quality) return { display: 'none', text: '', color: 'blue' };
+
+                      let color = 'blue';
+                      let text = period_quality;
+
+                      if (period_quality.includes('高质量')) {
+                        color = 'green';
+                        text = period_quality.replace('高质量', '高');
+                      } else if (period_quality.includes('低质量')) {
+                        color = 'red';
+                        text = period_quality.replace('低质量', '低');
+                      } else if (period_quality.includes('中等质量')) {
+                        color = 'blue';
+                        text = period_quality.replace('中等质量', '中');
+                      } else if (period_quality.includes('待观察')) {
+                        color = 'orange';
+                        text = '待观察';
+                      } else if (period_quality === '观望') {
+                        color = 'default';
+                        text = '观望';
+                      } else if (period_quality === '数据不足') {
+                        color = 'default';
+                        text = '无数据';
+                      }
+
+                      return { display: 'block', text, color };
+                    };
+
+                    const ribbonProps = getQualityRibbonProps(coin.period_quality);
+
+                    return (
                     <Col key={`${coin.symbol}-${index}`} xs={12}>
-                      <Badge.Ribbon 
-                        text={coin.entryExitType === 'entry' ? `进${coin.entryExitDay || 0}` : coin.entryExitType === 'exit' ? `退${coin.entryExitDay || 0}` : ''}
-                        color={coin.entryExitType === 'entry' ? 'green' : coin.entryExitType === 'exit' ? 'red' : 'blue'}
-                        style={{ display: coin.entryExitType === 'neutral' || !coin.entryExitType ? 'none' : 'block', fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '5px' }}
+                      <Badge.Ribbon
+                        text={ribbonProps.text}
+                        color={ribbonProps.color}
+                        style={{ display: ribbonProps.display, fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '5px' }}
                       >
                         <div 
                           className={`cursor-pointer relative ${
@@ -214,7 +287,8 @@ function CoinList({
                         </div>
                       </Badge.Ribbon>
                     </Col>
-                  ))}
+                    );
+                  })}
                 </Row>
               </>
             ) : !loading ? (

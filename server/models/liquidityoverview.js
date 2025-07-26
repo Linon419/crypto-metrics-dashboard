@@ -19,6 +19,9 @@ module.exports = (sequelize, DataTypes) => {
     },
     comments: {
       type: DataTypes.TEXT
+    },
+    daily_reminder: {
+      type: DataTypes.TEXT
     }
   }, {
     timestamps: true

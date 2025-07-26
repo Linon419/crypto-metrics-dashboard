@@ -142,6 +142,14 @@ function LiquidityChart({ liquidity, loading }) {
               {liquidity.comments}
             </Paragraph>
           )}
+
+          {/* Daily Reminder section */}
+          {liquidity.daily_reminder && (
+            <Paragraph className="text-blue-700 bg-blue-50 p-3 rounded-md">
+              <Text strong>每日提醒: </Text>
+              {liquidity.daily_reminder}
+            </Paragraph>
+          )}
         </div>
       ) : (
         // Desktop layout with side-by-side chart and stats
@@ -186,6 +194,13 @@ function LiquidityChart({ liquidity, loading }) {
                   <Paragraph className="text-gray-700">
                     <Text strong>分析: </Text>
                     {liquidity.comments}
+                  </Paragraph>
+                )}
+
+                {liquidity.daily_reminder && (
+                  <Paragraph className="text-blue-700 bg-blue-50 p-3 rounded-md">
+                    <Text strong>每日提醒: </Text>
+                    {liquidity.daily_reminder}
                   </Paragraph>
                 )}
               </div>

@@ -47,13 +47,14 @@ router.get('/:date', async (req, res) => {
 // 添加或更新流动性概况
 router.post('/', async (req, res) => {
   try {
-    const { 
-      date, 
-      btc_fund_change, 
-      eth_fund_change, 
-      sol_fund_change, 
+    const {
+      date,
+      btc_fund_change,
+      eth_fund_change,
+      sol_fund_change,
       total_market_fund_change,
-      comments 
+      comments,
+      daily_reminder
     } = req.body;
     
     // 验证必要字段
@@ -69,7 +70,8 @@ router.post('/', async (req, res) => {
         eth_fund_change,
         sol_fund_change,
         total_market_fund_change,
-        comments
+        comments,
+        daily_reminder
       }
     });
     
@@ -80,7 +82,8 @@ router.post('/', async (req, res) => {
         eth_fund_change: eth_fund_change !== undefined ? eth_fund_change : liquidityData.eth_fund_change,
         sol_fund_change: sol_fund_change !== undefined ? sol_fund_change : liquidityData.sol_fund_change,
         total_market_fund_change: total_market_fund_change !== undefined ? total_market_fund_change : liquidityData.total_market_fund_change,
-        comments: comments || liquidityData.comments
+        comments: comments || liquidityData.comments,
+        daily_reminder: daily_reminder || liquidityData.daily_reminder
       });
     }
     

@@ -45,16 +45,16 @@ const formatChangePercent = (percent) => {
 
 function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = false }) {
   // Defensive data handling
-  const { 
+  const {
     symbol = 'UNKNOWN',
-    name,
     entryExitType,
     entryExitDay,
     explosionIndex = 0,
     otcIndex = 0,
     schellingPoint = 0,
     otcIndexChangePercent,
-    explosionIndexChangePercent
+    explosionIndexChangePercent,
+    period_quality
   } = coin || {};
 
   // Safe number conversion
@@ -103,6 +103,8 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
       </Tag>
     );
   };
+
+
 
   const handleFavoriteClick = (e) => {
     e.stopPropagation();
@@ -168,7 +170,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
           
           {/* Other metrics */}
           <div className={`grid grid-cols-2 gap-x-1 gap-y-0 ${isMobile ? 'text-xs' : 'text-xs'} mt-1`}>
-            <div className="flex items-center"> 
+            <div className="flex items-center">
               <span className="text-blue-600 font-medium">场外: </span>
               <span>{safeNumber(otcIndex)}</span>
               {formatChangePercent(otcIndexChangePercent)}
@@ -176,17 +178,19 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
             <div>
               <span className="text-purple-600 font-medium">谢林: </span>
               <span className="truncate">
-                {typeof schellingPoint === 'number' ? 
-                  (schellingPoint > 1000 ? 
-                    isMobile ? 
-                      Intl.NumberFormat('en', {notation: 'compact'}).format(schellingPoint) : 
-                      schellingPoint.toLocaleString() 
-                    : schellingPoint.toFixed(schellingPoint < 1 ? 3 : schellingPoint < 10 ? 2 : 0)) 
+                {typeof schellingPoint === 'number' ?
+                  (schellingPoint > 1000 ?
+                    isMobile ?
+                      Intl.NumberFormat('en', {notation: 'compact'}).format(schellingPoint) :
+                      schellingPoint.toLocaleString()
+                    : schellingPoint.toFixed(schellingPoint < 1 ? 3 : schellingPoint < 10 ? 2 : 0))
                   : '-'
                 }
               </span>
             </div>
           </div>
+
+
         </div>
       </div>
     </Card>
