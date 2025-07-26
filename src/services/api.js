@@ -712,7 +712,10 @@ export const addFavorite = async (symbol) => {
   }
 
   try {
-    // 同步更新本地缓存（乐观更新）
+    // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
+    const response = await callApiWithRetry(() => api.post('/favorites', { symbol }));
+
+    // 服务器请求成功后，更新本地缓存
     const currentFavorites = dataCache.favorites || JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
     if (!currentFavorites.includes(symbol)) {
       const newFavorites = [...currentFavorites, symbol];
@@ -720,14 +723,9 @@ export const addFavorite = async (symbol) => {
       dataCache.favorites = newFavorites;
     }
 
-    // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
-    const response = await callApiWithRetry(() => api.post('/favorites', { symbol }));
     return response.data;
   } catch (error) {
     console.error('添加收藏失败:', error.displayMessage || error.message);
-
-    // 服务器请求失败时，回滚本地缓存更新
-    await fetchFavorites(true); // 强制刷新收藏列表
     throw error;
   }
 };
@@ -739,20 +737,18 @@ export const removeFavorite = async (symbol) => {
   }
 
   try {
-    // 同步更新本地缓存（乐观更新）
+    // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
+    const response = await callApiWithRetry(() => api.delete(`/favorites/${symbol}`));
+
+    // 服务器请求成功后，更新本地缓存
     const currentFavorites = dataCache.favorites || JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
     const newFavorites = currentFavorites.filter(s => s !== symbol);
     localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
     dataCache.favorites = newFavorites;
 
-    // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
-    const response = await callApiWithRetry(() => api.delete(`/favorites/${symbol}`));
     return response.data;
   } catch (error) {
     console.error('删除收藏失败:', error.displayMessage || error.message);
-
-    // 服务器请求失败时，回滚本地缓存更新
-    await fetchFavorites(true); // 强制刷新收藏列表
     throw error;
   }
 };
@@ -762,11 +758,11 @@ export const toggleFavorite = async (symbol) => {
   if (!symbol) {
     throw new Error('Symbol is required');
   }
-  
-  // 确保收藏列表已加载
-  const favorites = await fetchFavorites();
+
+  // 使用缓存的收藏列表状态，避免重新获取导致的竞态条件
+  const favorites = dataCache.favorites || JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
   const isFavorite = favorites.includes(symbol);
-  
+
   // 根据当前状态添加或删除收藏
   if (isFavorite) {
     return removeFavorite(symbol);

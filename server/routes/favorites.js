@@ -66,6 +66,8 @@ router.post('/', authMiddleware, async (req, res) => {
     const deviceId = req.headers['x-device-id'] || req.body.deviceId;
     const { symbol } = req.body;
 
+    console.log(`[收藏API] 添加收藏请求: symbol=${symbol}, userId=${userId}, deviceId=${deviceId}`);
+
     if (!symbol) {
       return res.status(400).json({ error: 'Symbol is required' });
     }
@@ -104,6 +106,8 @@ router.post('/', authMiddleware, async (req, res) => {
       defaults: defaults
     });
 
+    console.log(`[收藏API] 添加收藏结果: symbol=${symbol}, created=${created}`);
+
     res.status(created ? 201 : 200).json({
       message: created ? 'Favorite added' : 'Favorite already exists',
       symbol: favorite.symbol
@@ -120,6 +124,8 @@ router.delete('/:symbol', authMiddleware, async (req, res) => {
     const userId = req.user?.id;
     const deviceId = req.headers['x-device-id'];
     const { symbol } = req.params;
+
+    console.log(`[收藏API] 删除收藏请求: symbol=${symbol}, userId=${userId}, deviceId=${deviceId}`);
 
     let whereClause;
 
@@ -143,6 +149,8 @@ router.delete('/:symbol', authMiddleware, async (req, res) => {
     const deleted = await UserFavorite.destroy({
       where: whereClause
     });
+
+    console.log(`[收藏API] 删除收藏结果: symbol=${symbol}, deleted=${deleted}`);
 
     if (deleted) {
       res.json({ message: 'Favorite removed', symbol });

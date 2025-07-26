@@ -40,26 +40,32 @@ export const useFavorites = () => {
   // 切换收藏状态
   const handleToggleFavorite = useCallback(async (symbol) => {
     if (!symbol) return;
-    
-    try {
-      // 乐观更新UI
-      const isCurrentlyFavorited = favorites.includes(symbol);
-      const newFavorites = isCurrentlyFavorited
-        ? favorites.filter(s => s !== symbol)
-        : [...favorites, symbol];
-      
-      setFavorites(newFavorites);
-      localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
-      
-      // 更新服务器
-      await toggleFavorite(symbol);
-    } catch (err) {
-      console.error('Error toggling favorite:', err);
-      // 发生错误时回滚UI并重新加载数据
-      loadFavorites(true);
-      throw err;
-    }
-  }, [favorites, loadFavorites]);
+
+    const isCurrentlyFavorited = favorites.includes(symbol);
+
+    console.log(`[收藏操作] 开始切换 ${symbol}, 当前状态: ${isCurrentlyFavorited ? '已收藏' : '未收藏'}`);
+
+    // 乐观更新UI
+    const newFavorites = isCurrentlyFavorited
+      ? favorites.filter(s => s !== symbol)
+      : [...favorites, symbol];
+
+    console.log(`[收藏操作] 乐观更新UI: ${symbol} -> ${!isCurrentlyFavorited ? '已收藏' : '未收藏'}`);
+
+    setFavorites(newFavorites);
+    localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
+
+    // 异步更新服务器，但不等待结果
+    toggleFavorite(symbol)
+      .then(() => {
+        console.log(`[收藏操作] 服务器API调用成功: ${symbol}`);
+      })
+      .catch((err) => {
+        console.error(`[收藏操作] 服务器API调用失败，但UI已更新: ${symbol}`, err);
+        // 不回滚UI，因为用户已经看到了变化
+      });
+
+  }, [favorites]);
   
   // 检查币种是否已收藏
   const isFavorite = useCallback((symbol) => {
