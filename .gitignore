@@ -5,8 +5,14 @@
 /.pnp
 .pnp.js
 .env
-.database.sqlite
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
 database.sqlite
+server/database.sqlite
+.database.sqlite
 
 # testing
 /coverage
