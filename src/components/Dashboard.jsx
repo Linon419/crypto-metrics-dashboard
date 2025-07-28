@@ -17,7 +17,8 @@ import {
   RiseOutlined,
   FallOutlined,
   MenuOutlined,
-  AppstoreOutlined
+  AppstoreOutlined,
+  BugOutlined
 } from '@ant-design/icons';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
@@ -28,6 +29,7 @@ import CoinDetailChart from './CoinDetailChart';
 import OtcIndexTable from './OtcIndexTable';
 import LiquidityChart from './LiquidityChart';
 import LoadingPlaceholder from './LoadingPlaceholder';
+import FavoriteDebug from './FavoriteDebug';
 import { fetchLatestMetrics } from '../services/api'; // Keep this
 import { logout } from '../redux/slices/authSlice';
 import ChangePassword from './ChangePassword';
@@ -61,6 +63,7 @@ function Dashboard() {
   const [liquidityData, setLiquidityData] = useState(null);
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [debugModalVisible, setDebugModalVisible] = useState(false);
 
   // Mobile-specific state
   const [menuDrawerVisible, setMenuDrawerVisible] = useState(false);
@@ -307,6 +310,13 @@ function Dashboard() {
       label: '修改密码',
       onClick: () => setPasswordModalVisible(true)
     },
+    // 仅在开发环境显示调试选项
+    ...(process.env.NODE_ENV === 'development' ? [{
+      key: 'debug',
+      icon: <BugOutlined />,
+      label: '收藏调试',
+      onClick: () => setDebugModalVisible(true)
+    }] : []),
     {
       key: 'info',
       icon: <InfoCircleOutlined />,
@@ -911,6 +921,19 @@ function Dashboard() {
         visible={passwordModalVisible}
         onClose={() => setPasswordModalVisible(false)}
       />
+
+      {/* Debug modal - only in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <Modal
+          title="收藏功能调试"
+          open={debugModalVisible}
+          onCancel={() => setDebugModalVisible(false)}
+          footer={null}
+          width={900}
+        >
+          <FavoriteDebug />
+        </Modal>
+      )}
     </Layout>
   );
 }

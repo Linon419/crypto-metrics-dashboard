@@ -16,22 +16,34 @@ export const useFavorites = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // 从localStorage获取缓存数据以快速显示，同时异步获取最新数据
+
+      // 从localStorage获取缓存数据以快速显示
       const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
+      console.log('[收藏加载] 本地缓存数据:', cachedFavorites);
       setFavorites(cachedFavorites);
-      
+
       // 从服务器获取最新数据
+      console.log('[收藏加载] 开始从服务器获取数据...');
       const serverFavorites = await fetchFavorites(forceRefresh);
-      setFavorites(serverFavorites);
+      console.log('[收藏加载] 服务器返回数据:', serverFavorites);
+
+      // 只有当服务器数据有效时才更新
+      if (Array.isArray(serverFavorites)) {
+        setFavorites(serverFavorites);
+        // 同步更新本地缓存
+        localStorage.setItem('favoriteCrypto', JSON.stringify(serverFavorites));
+      } else {
+        console.warn('[收藏加载] 服务器返回无效数据，保持本地缓存');
+      }
     } catch (err) {
+      console.error('[收藏加载] 服务器请求失败:', err);
+
       // 如果API请求失败，使用本地缓存
       const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
       setFavorites(cachedFavorites);
-      
+
       // 设置错误信息
       setError(err.displayMessage || err.message || '获取收藏失败');
-      console.error('Error loading favorites:', err);
     } finally {
       setLoading(false);
     }
@@ -42,6 +54,7 @@ export const useFavorites = () => {
     if (!symbol) return;
 
     const isCurrentlyFavorited = favorites.includes(symbol);
+    const originalFavorites = [...favorites];
 
     console.log(`[收藏操作] 开始切换 ${symbol}, 当前状态: ${isCurrentlyFavorited ? '已收藏' : '未收藏'}`);
 
@@ -55,15 +68,30 @@ export const useFavorites = () => {
     setFavorites(newFavorites);
     localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
 
-    // 异步更新服务器，但不等待结果
-    toggleFavorite(symbol)
-      .then(() => {
-        console.log(`[收藏操作] 服务器API调用成功: ${symbol}`);
-      })
-      .catch((err) => {
-        console.error(`[收藏操作] 服务器API调用失败，但UI已更新: ${symbol}`, err);
-        // 不回滚UI，因为用户已经看到了变化
-      });
+    // 尝试更新服务器
+    try {
+      console.log(`[收藏操作] 开始调用服务器API: ${symbol}`);
+      await toggleFavorite(symbol);
+      console.log(`[收藏操作] 服务器API调用成功: ${symbol}`);
+
+      // 成功后，确保本地缓存和UI状态一致
+      localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
+
+    } catch (err) {
+      console.error(`[收藏操作] 服务器API调用失败: ${symbol}`, err);
+
+      // 如果是网络错误或服务器错误，保持UI状态但显示警告
+      if (err.message.includes('500') || err.message.includes('Network')) {
+        console.warn(`[收藏操作] 服务器暂时不可用，收藏状态已保存到本地: ${symbol}`);
+        // 保持UI状态，不回滚
+      } else {
+        // 其他错误，回滚UI状态
+        console.log(`[收藏操作] 回滚UI状态: ${symbol}`);
+        setFavorites(originalFavorites);
+        localStorage.setItem('favoriteCrypto', JSON.stringify(originalFavorites));
+        throw err;
+      }
+    }
 
   }, [favorites]);
   

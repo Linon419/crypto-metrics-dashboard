@@ -66,7 +66,7 @@ router.post('/', authMiddleware, async (req, res) => {
     const deviceId = req.headers['x-device-id'] || req.body.deviceId;
     const { symbol } = req.body;
 
-    console.log(`[收藏API] 添加收藏请求: symbol=${symbol}, userId=${userId}, deviceId=${deviceId}`);
+    // console.log(`[收藏API] 添加收藏请求: symbol=${symbol}, userId=${userId}, deviceId=${deviceId}`);
 
     if (!symbol) {
       return res.status(400).json({ error: 'Symbol is required' });
