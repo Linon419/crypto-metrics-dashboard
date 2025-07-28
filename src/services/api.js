@@ -681,25 +681,36 @@ export const fetchFavorites = async (forceRefresh = false) => {
   try {
     // 首先尝试从localStorage获取缓存数据以快速显示
     const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
+    console.log('[fetchFavorites] 本地缓存数据:', cachedFavorites);
 
     // 使用新的API端点，它会自动根据用户登录状态选择合适的策略
     const response = await callApiWithRetry(() => api.get('/favorites'));
     const serverFavorites = response.data;
+    console.log('[fetchFavorites] 服务器返回数据:', serverFavorites);
 
-    // 更新本地缓存和内存缓存
-    localStorage.setItem('favoriteCrypto', JSON.stringify(serverFavorites));
-    dataCache.favorites = serverFavorites;
-    dataCache.lastFavoritesFetchTime = now;
-
-    return serverFavorites;
+    // 智能更新缓存：只有当服务器数据有效时才更新
+    if (Array.isArray(serverFavorites)) {
+      // 更新本地缓存和内存缓存
+      localStorage.setItem('favoriteCrypto', JSON.stringify(serverFavorites));
+      dataCache.favorites = serverFavorites;
+      dataCache.lastFavoritesFetchTime = now;
+      console.log('[fetchFavorites] 缓存已更新为服务器数据');
+      return serverFavorites;
+    } else {
+      console.warn('[fetchFavorites] 服务器返回无效数据，保持本地缓存');
+      dataCache.favorites = cachedFavorites;
+      dataCache.lastFavoritesFetchTime = now;
+      return cachedFavorites;
+    }
   } catch (error) {
-    console.error('获取收藏数据失败:', error.displayMessage || error.message);
+    console.error('[fetchFavorites] 获取收藏数据失败:', error.displayMessage || error.message);
 
     // 如果API请求失败，使用本地缓存
     const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
     dataCache.favorites = cachedFavorites;
     dataCache.lastFavoritesFetchTime = now;
 
+    console.log('[fetchFavorites] 使用本地缓存数据:', cachedFavorites);
     // 返回本地缓存的收藏列表
     return cachedFavorites;
   }
@@ -712,20 +723,28 @@ export const addFavorite = async (symbol) => {
   }
 
   try {
+    console.log(`[addFavorite] 开始添加收藏: ${symbol}`);
+
     // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
     const response = await callApiWithRetry(() => api.post('/favorites', { symbol }));
+    console.log(`[addFavorite] 服务器响应成功: ${symbol}`, response.data);
 
     // 服务器请求成功后，更新本地缓存
     const currentFavorites = dataCache.favorites || JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
+    console.log(`[addFavorite] 当前缓存: ${currentFavorites}`);
+
     if (!currentFavorites.includes(symbol)) {
       const newFavorites = [...currentFavorites, symbol];
       localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
       dataCache.favorites = newFavorites;
+      console.log(`[addFavorite] 缓存已更新: ${newFavorites}`);
+    } else {
+      console.log(`[addFavorite] ${symbol} 已在缓存中，无需更新`);
     }
 
     return response.data;
   } catch (error) {
-    console.error('添加收藏失败:', error.displayMessage || error.message);
+    console.error(`[addFavorite] 添加收藏失败: ${symbol}`, error.displayMessage || error.message);
     throw error;
   }
 };
@@ -737,18 +756,24 @@ export const removeFavorite = async (symbol) => {
   }
 
   try {
+    console.log(`[removeFavorite] 开始删除收藏: ${symbol}`);
+
     // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
     const response = await callApiWithRetry(() => api.delete(`/favorites/${symbol}`));
+    console.log(`[removeFavorite] 服务器响应成功: ${symbol}`, response.data);
 
     // 服务器请求成功后，更新本地缓存
     const currentFavorites = dataCache.favorites || JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
+    console.log(`[removeFavorite] 当前缓存: ${currentFavorites}`);
+
     const newFavorites = currentFavorites.filter(s => s !== symbol);
     localStorage.setItem('favoriteCrypto', JSON.stringify(newFavorites));
     dataCache.favorites = newFavorites;
+    console.log(`[removeFavorite] 缓存已更新: ${newFavorites}`);
 
     return response.data;
   } catch (error) {
-    console.error('删除收藏失败:', error.displayMessage || error.message);
+    console.error(`[removeFavorite] 删除收藏失败: ${symbol}`, error.displayMessage || error.message);
     throw error;
   }
 };
