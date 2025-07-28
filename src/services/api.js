@@ -57,11 +57,7 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // 添加设备ID到请求头（用于收藏功能）
-    const deviceId = getDeviceId();
-    if (deviceId) {
-      config.headers['X-Device-ID'] = deviceId;
-    }
+    // 收藏功能现在只使用用户ID，不需要设备ID
     
     return config;
   },
@@ -132,28 +128,7 @@ api.interceptors.response.use(
 // --- 结束 Axios 拦截器 ---
 
 
-// --- 设备ID工具函数 ---
-// 获取或生成设备ID
-export const getDeviceId = () => {
-  const storageKey = 'crypto_dashboard_device_id';
-  let deviceId = localStorage.getItem(storageKey);
-  
-  // 如果没有找到设备ID，则生成一个新的
-  if (!deviceId) {
-    // 生成一个简单的唯一ID (UUID v4格式)
-    deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-    
-    // 保存到本地存储中
-    localStorage.setItem(storageKey, deviceId);
-  }
-  
-  return deviceId;
-};
-// --- 结束设备ID函数 ---
+// --- 设备ID函数已移除，收藏功能现在只使用用户ID ---
 
 
 // --- 4. 认证 API 调用 ---
@@ -669,7 +644,7 @@ export const importDatabaseDump = async (dumpData) => {
 
 
 // --- 7. 收藏功能 API 调用 ---
-// 获取用户收藏的币种 - 支持用户ID和设备ID
+// 获取用户收藏的币种 - 只使用用户ID
 export const fetchFavorites = async (forceRefresh = false) => {
   const now = Date.now();
 
@@ -679,44 +654,41 @@ export const fetchFavorites = async (forceRefresh = false) => {
   }
 
   try {
-    // 首先尝试从localStorage获取缓存数据以快速显示
-    const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
-    console.log('[fetchFavorites] 本地缓存数据:', cachedFavorites);
+    console.log('[fetchFavorites] 开始获取用户收藏列表');
 
-    // 使用新的API端点，它会自动根据用户登录状态选择合适的策略
+    // 调用收藏API（需要用户登录）
     const response = await callApiWithRetry(() => api.get('/favorites'));
     const serverFavorites = response.data;
     console.log('[fetchFavorites] 服务器返回数据:', serverFavorites);
 
-    // 智能更新缓存：只有当服务器数据有效时才更新
+    // 更新缓存
     if (Array.isArray(serverFavorites)) {
-      // 更新本地缓存和内存缓存
       localStorage.setItem('favoriteCrypto', JSON.stringify(serverFavorites));
       dataCache.favorites = serverFavorites;
       dataCache.lastFavoritesFetchTime = now;
-      console.log('[fetchFavorites] 缓存已更新为服务器数据');
+      console.log('[fetchFavorites] 缓存已更新');
       return serverFavorites;
     } else {
-      console.warn('[fetchFavorites] 服务器返回无效数据，保持本地缓存');
-      dataCache.favorites = cachedFavorites;
-      dataCache.lastFavoritesFetchTime = now;
-      return cachedFavorites;
+      console.warn('[fetchFavorites] 服务器返回无效数据');
+      return [];
     }
   } catch (error) {
     console.error('[fetchFavorites] 获取收藏数据失败:', error.displayMessage || error.message);
 
-    // 如果API请求失败，使用本地缓存
-    const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
-    dataCache.favorites = cachedFavorites;
-    dataCache.lastFavoritesFetchTime = now;
+    // 如果是401错误（未登录），返回空数组
+    if (error.response?.status === 401) {
+      console.log('[fetchFavorites] 用户未登录，返回空收藏列表');
+      return [];
+    }
 
+    // 其他错误，尝试使用本地缓存
+    const cachedFavorites = JSON.parse(localStorage.getItem('favoriteCrypto') || '[]');
     console.log('[fetchFavorites] 使用本地缓存数据:', cachedFavorites);
-    // 返回本地缓存的收藏列表
     return cachedFavorites;
   }
 };
 
-// 添加收藏 - 支持用户ID和设备ID
+// 添加收藏 - 只使用用户ID
 export const addFavorite = async (symbol) => {
   if (!symbol) {
     throw new Error('Symbol is required');
@@ -725,7 +697,7 @@ export const addFavorite = async (symbol) => {
   try {
     console.log(`[addFavorite] 开始添加收藏: ${symbol}`);
 
-    // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
+    // 发送请求到服务器（需要用户登录）
     const response = await callApiWithRetry(() => api.post('/favorites', { symbol }));
     console.log(`[addFavorite] 服务器响应成功: ${symbol}`, response.data);
 
@@ -749,7 +721,7 @@ export const addFavorite = async (symbol) => {
   }
 };
 
-// 删除收藏 - 支持用户ID和设备ID
+// 删除收藏 - 只使用用户ID
 export const removeFavorite = async (symbol) => {
   if (!symbol) {
     throw new Error('Symbol is required');
@@ -758,7 +730,7 @@ export const removeFavorite = async (symbol) => {
   try {
     console.log(`[removeFavorite] 开始删除收藏: ${symbol}`);
 
-    // 发送请求到服务器 - 新的API会自动根据用户登录状态选择策略
+    // 发送请求到服务器（需要用户登录）
     const response = await callApiWithRetry(() => api.delete(`/favorites/${symbol}`));
     console.log(`[removeFavorite] 服务器响应成功: ${symbol}`, response.data);
 
