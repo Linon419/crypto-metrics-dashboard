@@ -92,7 +92,6 @@ function CoinDetailChart({ coin, onRefresh }) {
     let color = 'default';
     if (coin.period_quality.includes('高质量')) color = 'success';
     else if (coin.period_quality.includes('低质量')) color = 'error';
-    else if (coin.period_quality.includes('中等质量')) color = 'processing';
     else if (coin.period_quality.includes('待观察')) color = 'warning';
 
     // Mapping for explanations
@@ -101,8 +100,7 @@ function CoinDetailChart({ coin, onRefresh }) {
       '中等质量进场': '场外指数略高于进场期第一天，进场期质量一般，需关注后续动能变化。',
       '低质量进场': '场外指数不升反降，主力动力不足，进场期波动展开可能受限。',
       '进场期 (待观察)': '当前进场期尚未出现爆破指数跌破200的关键节点，暂无法评估质量。',
-      '高质量退场': '退场期第一天场外指数明显低于爆破指数由负转正时的场外指数，主力撤离明显，做空性价比高。',
-      '中等质量退场': '退场期第一天场外指数略低于爆破指数由负转正时的场外指数，质量一般，需关注后续资金流向。',
+      '高质量退场': '退场期第一天场外指数低于或等于爆破指数由负转正时的场外指数，主力撤离明显，做空性价比高。',
       '低质量退场': '退场期第一天场外指数高于爆破指数由负转正时的场外指数，主力仍有拉升，退场期做空需谨慎。',
       '退场期 (待观察)': '当前退场期仍未出现爆破指数由负转正的关键节点，暂无法评估质量。',
       '观望': '当前既不在进场期也不在退场期，建议观望。',

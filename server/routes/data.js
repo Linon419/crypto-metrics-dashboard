@@ -480,14 +480,11 @@ async function calculatePeriodQuality(coinId) {
         console.log(`[QualityCheck] CoinID ${coinId}: Comparing exit start OTC (${exitStartOtcIndex}) vs last turn positive OTC (${lastTurnPositiveOtcIndex})`);
 
         if (exitStartOtcIndex > lastTurnPositiveOtcIndex) {
-            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC > last turn positive OTC -> 低质量退场`);
+            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC (${exitStartOtcIndex}) > last turn positive OTC (${lastTurnPositiveOtcIndex}) -> 低质量退场`);
             return '低质量退场';
-        } else if (exitStartOtcIndex < lastTurnPositiveOtcIndex * 0.9) { // 退场期第一天明显低于转正时
-            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC significantly lower than last turn positive OTC -> 高质量退场`);
-            return '高质量退场';
         } else {
-            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC moderately lower than last turn positive OTC -> 中等质量退场`);
-            return '中等质量退场';
+            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC (${exitStartOtcIndex}) <= last turn positive OTC (${lastTurnPositiveOtcIndex}) -> 高质量退场`);
+            return '高质量退场';
         }
     }
 

@@ -167,9 +167,6 @@ function CoinList({
                     } else if (period_quality.includes('低质量')) {
                       color = 'red';
                       text = period_quality.replace('低质量', '低');
-                    } else if (period_quality.includes('中等质量')) {
-                      color = 'blue';
-                      text = period_quality.replace('中等质量', '中');
                     } else if (period_quality.includes('待观察')) {
                       color = 'orange';
                       text = '待观察';
@@ -246,9 +243,6 @@ function CoinList({
                       } else if (period_quality.includes('低质量')) {
                         color = 'red';
                         text = period_quality.replace('低质量', '低');
-                      } else if (period_quality.includes('中等质量')) {
-                        color = 'blue';
-                        text = period_quality.replace('中等质量', '中');
                       } else if (period_quality.includes('待观察')) {
                         color = 'orange';
                         text = '待观察';
