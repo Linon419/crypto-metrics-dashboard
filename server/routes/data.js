@@ -474,13 +474,18 @@ async function calculatePeriodQuality(coinId) {
         const firstTurnOtcIndex = firstTurnNode.otc_index;
         console.log(`[QualityCheck] CoinID ${coinId}: First turn node found on ${firstTurnNode.date} with OTC Index ${firstTurnOtcIndex}.`);
 
-        
-        // 3. 比较场外指数，退场期是看是否稳步下降
-        if (firstTurnOtcIndex < exitStartOtcIndex * 0.95) { // 下降超过5%
-            return '高质量退场';
-        } else if (firstTurnOtcIndex > exitStartOtcIndex * 1.05) { // 反而上升超过5%
+        // 3. 比较场外指数 - 新的退场期质量判断逻辑
+        // 如果退场期第一天场外指数 > 上次爆破指数由负转正的场外指数，则为低质量退场期
+        console.log(`[QualityCheck] CoinID ${coinId}: Comparing exit start OTC (${exitStartOtcIndex}) vs turn positive OTC (${firstTurnOtcIndex})`);
+
+        if (exitStartOtcIndex > firstTurnOtcIndex) {
+            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC > turn positive OTC -> 低质量退场`);
             return '低质量退场';
+        } else if (exitStartOtcIndex < firstTurnOtcIndex * 0.9) { // 退场期第一天明显低于转正时
+            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC significantly lower than turn positive OTC -> 高质量退场`);
+            return '高质量退场';
         } else {
+            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC moderately lower than turn positive OTC -> 中等质量退场`);
             return '中等质量退场';
         }
     }
