@@ -305,9 +305,26 @@ router.get('/latest', async (req, res) => {
       };
     });
 
-    // 为每个指标异步计算周期质量
+    // 为每个指标异步计算周期质量并保存到数据库
     await Promise.all(metricsWithComparison.map(async (metric) => {
-        metric.period_quality = await calculatePeriodQuality(metric.coin_id);
+        const calculatedQuality = await calculatePeriodQuality(metric.coin_id);
+        metric.period_quality = calculatedQuality;
+
+        // 将计算出的质量评估保存到数据库
+        try {
+            await DailyMetric.update(
+                { period_quality: calculatedQuality },
+                {
+                    where: {
+                        coin_id: metric.coin_id,
+                        date: latestDate
+                    }
+                }
+            );
+            console.log(`[QUALITY_UPDATE] Updated period_quality for coin ${metric.coin_id} to: ${calculatedQuality}`);
+        } catch (error) {
+            console.error(`[QUALITY_UPDATE] Failed to update period_quality for coin ${metric.coin_id}:`, error);
+        }
     }));
 
 
