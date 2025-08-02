@@ -347,6 +347,149 @@ router.get('/latest', async (req, res) => {
 
 
 /**
+ * 根据bodong文档第五章评估进场期质量
+ * @param {Array} historicalMetrics - 历史数据
+ * @param {Object} entryStartDateMetric - 进场期第一天数据
+ * @param {number} entryStartOtcIndex - 进场期第一天场外指数
+ * @param {number} coinId - 币种ID
+ * @returns {string} - 进场期质量评估结果
+ */
+function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId) {
+  // 找到所有"爆破指数跌破200"的节点
+  let dipBelow200Nodes = [];
+  for (let i = historicalMetrics.length - 1; i >= 1; i--) {
+    const current = historicalMetrics[i];
+    const previous = historicalMetrics[i-1];
+    if (previous.explosion_index >= 200 && current.explosion_index < 200) {
+      dipBelow200Nodes.push({
+        date: current.date,
+        otc_index: current.otc_index,
+        index: i
+      });
+    }
+  }
+
+  // 按时间排序（最早的在前）
+  dipBelow200Nodes.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  console.log(`[QualityCheck] CoinID ${coinId}: Found ${dipBelow200Nodes.length} dip below 200 nodes total.`);
+
+  if (dipBelow200Nodes.length === 0) {
+    console.log(`[QualityCheck] CoinID ${coinId}: No explosion index dip below 200 found. Checking one week trend...`);
+
+    // 检查进场期一周内的爆破指数趋势（保留原有的一周风险控制机制）
+    const entryStartDate = new Date(entryStartDateMetric.date);
+    const oneWeekLater = new Date(entryStartDate);
+    oneWeekLater.setDate(oneWeekLater.getDate() + 7);
+
+    const oneWeekData = historicalMetrics.filter(metric => {
+      const metricDate = new Date(metric.date);
+      return metricDate >= entryStartDate && metricDate <= oneWeekLater;
+    });
+
+    if (oneWeekData.length >= 3) {
+      const hasBreak200 = oneWeekData.some(metric => metric.explosion_index < 200);
+
+      if (!hasBreak200) {
+        const firstHalf = oneWeekData.slice(Math.floor(oneWeekData.length / 2));
+        const secondHalf = oneWeekData.slice(0, Math.floor(oneWeekData.length / 2));
+
+        const firstHalfAvg = firstHalf.reduce((sum, m) => sum + (m.explosion_index || 0), 0) / firstHalf.length;
+        const secondHalfAvg = secondHalf.reduce((sum, m) => sum + (m.explosion_index || 0), 0) / secondHalf.length;
+
+        if (secondHalfAvg < firstHalfAvg) {
+          console.log(`[QualityCheck] CoinID ${coinId}: 进场期一周内未破200且爆破指数均值下降 -> 低质量进场期（需调仓）`);
+          return '低质量进场期（需调仓）';
+        }
+      }
+    }
+
+    return '进场期 (待观察)';
+  }
+
+  // 构建关键节点序列 (bodong 文档 - 第五章)
+  const entryStartDate = new Date(entryStartDateMetric.date);
+
+  // 找到进场期第一天之前的跌破200节点（节点1、2等）
+  const beforeEntryNodes = dipBelow200Nodes.filter(node =>
+    new Date(node.date) < entryStartDate
+  );
+
+  // 找到进场期第一天之后的跌破200节点（节点4、5等）
+  const afterEntryNodes = dipBelow200Nodes.filter(node =>
+    new Date(node.date) > entryStartDate
+  );
+
+  console.log(`[QualityCheck] CoinID ${coinId}: Before entry nodes: ${beforeEntryNodes.length}, After entry nodes: ${afterEntryNodes.length}`);
+
+  // 根据bodong文档第五章规则判断质量
+  if (afterEntryNodes.length === 0) {
+    // 刚进入进场期，比较最近的跌破200节点（节点2）与进场期第一天（节点3）
+    if (beforeEntryNodes.length === 0) {
+      console.log(`[QualityCheck] CoinID ${coinId}: No reference nodes found. Returning '进场期 (待观察)'.`);
+      return '进场期 (待观察)';
+    }
+
+    const lastBeforeEntryNode = beforeEntryNodes[beforeEntryNodes.length - 1]; // 最近的跌破200节点
+    const node2OtcIndex = lastBeforeEntryNode.otc_index;
+    const node3OtcIndex = entryStartOtcIndex; // 进场期第一天
+
+    console.log(`[QualityCheck] CoinID ${coinId}: 刚进入进场期，比较节点2(${node2OtcIndex}) vs 节点3(${node3OtcIndex})`);
+
+    if (node3OtcIndex > node2OtcIndex) {
+      console.log(`[QualityCheck] CoinID ${coinId}: 节点3 > 节点2，场外指数上升 -> 高质量进场`);
+      return '高质量进场';
+    } else {
+      console.log(`[QualityCheck] CoinID ${coinId}: 节点3 <= 节点2，场外指数未上升 -> 低质量进场`);
+      return '低质量进场';
+    }
+  } else {
+    // 已进入进场期且有后续跌破200数据，比较3与4等相邻节点
+    console.log(`[QualityCheck] CoinID ${coinId}: 已进入进场期，分析相邻节点趋势`);
+
+    // 构建完整的关键节点序列：进场期第一天 + 后续跌破200节点
+    const keyNodes = [
+      { date: entryStartDateMetric.date, otc_index: entryStartOtcIndex, type: 'entry_start', nodeNum: 3 },
+      ...afterEntryNodes.map((node, index) => ({
+        ...node,
+        type: 'dip_200',
+        nodeNum: 4 + index
+      }))
+    ];
+
+    // 分析相邻节点间的场外指数变化
+    let increasingCount = 0;
+    let decreasingCount = 0;
+
+    for (let i = 0; i < keyNodes.length - 1; i++) {
+      const currentNode = keyNodes[i];
+      const nextNode = keyNodes[i + 1];
+
+      console.log(`[QualityCheck] CoinID ${coinId}: 节点${currentNode.nodeNum}(${currentNode.otc_index}) -> 节点${nextNode.nodeNum}(${nextNode.otc_index})`);
+
+      if (nextNode.otc_index > currentNode.otc_index) {
+        increasingCount++; // 场外指数上升（好现象）
+        console.log(`[QualityCheck] CoinID ${coinId}: 上升趋势 ✓`);
+      } else {
+        decreasingCount++; // 场外指数下降或持平（坏现象）
+        console.log(`[QualityCheck] CoinID ${coinId}: 下降/持平趋势 ✗`);
+      }
+    }
+
+    console.log(`[QualityCheck] CoinID ${coinId}: 上升次数: ${increasingCount}, 下降次数: ${decreasingCount}`);
+
+    // 根据趋势判断质量
+    if (increasingCount > decreasingCount) {
+      console.log(`[QualityCheck] CoinID ${coinId}: 稳步上升趋势 -> 高质量进场`);
+      return '高质量进场';
+    } else {
+      console.log(`[QualityCheck] CoinID ${coinId}: 蜿蜒反复，非稳步上升 -> 低质量进场`);
+      return '低质量进场';
+    }
+  }
+}
+
+/**
  * 根据bodong文档第六章评估退场期质量
  * @param {Array} historicalMetrics - 历史数据
  * @param {Object} exitStartDateMetric - 退场期第一天数据
@@ -518,72 +661,8 @@ async function calculatePeriodQuality(coinId) {
 
       // 2. 在进场期内，找到第一个“爆破指数跌回200”的节点
       // 从进场第一天开始，往更近的日期找
-      let firstDipNode = null;
-      for (let i = entryPeriodStartIndex - 1; i >= 0; i--) {
-        const current = historicalMetrics[i];
-        const previous = historicalMetrics[i+1];
-        if (previous.explosion_index >= 200 && current.explosion_index < 200) {
-          firstDipNode = current;
-          break;
-        }
-      }
-
-      // 如果还没跌破过200，检查是否满足提前判定条件
-      if (!firstDipNode || !firstDipNode.otc_index) {
-        console.log(`[QualityCheck] CoinID ${coinId}: No explosion index dip below 200 found yet.`);
-
-        // 新增规则：检查进场期一周内的爆破指数趋势
-        // 如果一周内没破200且爆破指数均值不增反降，则判定为低质量进场期
-        const entryStartDate = new Date(entryStartDateMetric.date);
-        const oneWeekLater = new Date(entryStartDate);
-        oneWeekLater.setDate(oneWeekLater.getDate() + 7);
-        const oneWeekLaterStr = oneWeekLater.toISOString().split('T')[0];
-
-        // 获取进场期开始后一周内的数据
-        const oneWeekData = historicalMetrics.filter(metric => {
-          const metricDate = new Date(metric.date);
-          return metricDate >= entryStartDate && metricDate <= oneWeekLater;
-        });
-
-        console.log(`[QualityCheck] CoinID ${coinId}: Checking one week trend from ${entryStartDateMetric.date} to ${oneWeekLaterStr}, found ${oneWeekData.length} data points.`);
-
-        if (oneWeekData.length >= 3) { // 至少需要3个数据点来判断趋势
-          // 检查是否有爆破指数跌破200
-          const hasBreak200 = oneWeekData.some(metric => metric.explosion_index < 200);
-
-          if (!hasBreak200) {
-            // 一周内没破200，计算爆破指数均值趋势
-            const firstHalf = oneWeekData.slice(Math.floor(oneWeekData.length / 2));
-            const secondHalf = oneWeekData.slice(0, Math.floor(oneWeekData.length / 2));
-
-            const firstHalfAvg = firstHalf.reduce((sum, m) => sum + (m.explosion_index || 0), 0) / firstHalf.length;
-            const secondHalfAvg = secondHalf.reduce((sum, m) => sum + (m.explosion_index || 0), 0) / secondHalf.length;
-
-            console.log(`[QualityCheck] CoinID ${coinId}: First half avg explosion index: ${firstHalfAvg.toFixed(2)}, Second half avg: ${secondHalfAvg.toFixed(2)}`);
-
-            // 如果后半周的均值低于前半周，说明爆破指数不增反降
-            if (secondHalfAvg < firstHalfAvg) {
-              console.log(`[QualityCheck] CoinID ${coinId}: 进场期一周内未破200且爆破指数均值下降 -> 低质量进场期（需调仓）`);
-              return '低质量进场期（需调仓）';
-            }
-          }
-        }
-
-        console.log(`[QualityCheck] CoinID ${coinId}: Returning '进场期 (待观察)'.`);
-        return '进场期 (待观察)';
-      }
-      
-      const firstDipOtcIndex = firstDipNode.otc_index;
-      console.log(`[QualityCheck] CoinID ${coinId}: First dip node found on ${firstDipNode.date} with OTC Index ${firstDipOtcIndex}.`);
-
-      // 3. 比较场外指数 (bodong 文档 - 第二章)
-      if (firstDipOtcIndex > entryStartOtcIndex * 1.05) { // 增加5%的缓冲区
-        return '高质量进场';
-      } else if (firstDipOtcIndex < entryStartOtcIndex * 0.95) { // 减少5%的缓冲区
-        return '低质量进场';
-      } else {
-        return '中等质量进场';
-      }
+      // 按照bodong文档第五章实现进场期质量评估
+      return evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId);
     }
     
     // 退场期质量评估 (bodong 文档 - 第六章)
