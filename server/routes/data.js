@@ -456,36 +456,37 @@ async function calculatePeriodQuality(coinId) {
         if (!exitStartOtcIndex) return '数据不足';
 
         // 2. 在退场期内，找到第一个“爆破指数由负转正”的节点
-        let firstTurnNode = null;
+        // 从退场期开始往前查找，找到的第一个转正节点就是上一次转正的节点
+        let lastTurnPositiveNode = null;
         for (let i = exitPeriodStartIndex - 1; i >= 0; i--) {
             const current = historicalMetrics[i];
             const previous = historicalMetrics[i+1];
             if (previous.explosion_index < 0 && current.explosion_index >= 0) {
-                firstTurnNode = current;
+                lastTurnPositiveNode = current;
                 break;
             }
         }
         
-        if (!firstTurnNode || !firstTurnNode.otc_index) {
-            console.log(`[QualityCheck] CoinID ${coinId}: No explosion index turn positive found yet. Returning '退场期 (待观察)'.`);
+        if (!lastTurnPositiveNode || !lastTurnPositiveNode.otc_index) {
+            console.log(`[QualityCheck] CoinID ${coinId}: No previous explosion index turn positive found yet. Returning '退场期 (待观察)'.`);
             return '退场期 (待观察)';
         }
         
-        const firstTurnOtcIndex = firstTurnNode.otc_index;
-        console.log(`[QualityCheck] CoinID ${coinId}: First turn node found on ${firstTurnNode.date} with OTC Index ${firstTurnOtcIndex}.`);
+        const lastTurnPositiveOtcIndex = lastTurnPositiveNode.otc_index;
+        console.log(`[QualityCheck] CoinID ${coinId}: Last turn positive node found on ${lastTurnPositiveNode.date} with OTC Index ${lastTurnPositiveOtcIndex}.`);
 
         // 3. 比较场外指数 - 新的退场期质量判断逻辑
         // 如果退场期第一天场外指数 > 上次爆破指数由负转正的场外指数，则为低质量退场期
-        console.log(`[QualityCheck] CoinID ${coinId}: Comparing exit start OTC (${exitStartOtcIndex}) vs turn positive OTC (${firstTurnOtcIndex})`);
+        console.log(`[QualityCheck] CoinID ${coinId}: Comparing exit start OTC (${exitStartOtcIndex}) vs last turn positive OTC (${lastTurnPositiveOtcIndex})`);
 
-        if (exitStartOtcIndex > firstTurnOtcIndex) {
-            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC > turn positive OTC -> 低质量退场`);
+        if (exitStartOtcIndex > lastTurnPositiveOtcIndex) {
+            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC > last turn positive OTC -> 低质量退场`);
             return '低质量退场';
-        } else if (exitStartOtcIndex < firstTurnOtcIndex * 0.9) { // 退场期第一天明显低于转正时
-            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC significantly lower than turn positive OTC -> 高质量退场`);
+        } else if (exitStartOtcIndex < lastTurnPositiveOtcIndex * 0.9) { // 退场期第一天明显低于转正时
+            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC significantly lower than last turn positive OTC -> 高质量退场`);
             return '高质量退场';
         } else {
-            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC moderately lower than turn positive OTC -> 中等质量退场`);
+            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC moderately lower than last turn positive OTC -> 中等质量退场`);
             return '中等质量退场';
         }
     }
