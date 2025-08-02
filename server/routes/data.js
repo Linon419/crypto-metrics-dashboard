@@ -413,9 +413,48 @@ async function calculatePeriodQuality(coinId) {
         }
       }
 
-      // 如果还没跌破过200，质量暂时无法评估
+      // 如果还没跌破过200，检查是否满足提前判定条件
       if (!firstDipNode || !firstDipNode.otc_index) {
-        console.log(`[QualityCheck] CoinID ${coinId}: No explosion index dip below 200 found yet. Returning '进场期 (待观察)'.`);
+        console.log(`[QualityCheck] CoinID ${coinId}: No explosion index dip below 200 found yet.`);
+
+        // 新增规则：检查进场期一周内的爆破指数趋势
+        // 如果一周内没破200且爆破指数均值不增反降，则判定为低质量进场期
+        const entryStartDate = new Date(entryStartDateMetric.date);
+        const oneWeekLater = new Date(entryStartDate);
+        oneWeekLater.setDate(oneWeekLater.getDate() + 7);
+        const oneWeekLaterStr = oneWeekLater.toISOString().split('T')[0];
+
+        // 获取进场期开始后一周内的数据
+        const oneWeekData = historicalMetrics.filter(metric => {
+          const metricDate = new Date(metric.date);
+          return metricDate >= entryStartDate && metricDate <= oneWeekLater;
+        });
+
+        console.log(`[QualityCheck] CoinID ${coinId}: Checking one week trend from ${entryStartDateMetric.date} to ${oneWeekLaterStr}, found ${oneWeekData.length} data points.`);
+
+        if (oneWeekData.length >= 3) { // 至少需要3个数据点来判断趋势
+          // 检查是否有爆破指数跌破200
+          const hasBreak200 = oneWeekData.some(metric => metric.explosion_index < 200);
+
+          if (!hasBreak200) {
+            // 一周内没破200，计算爆破指数均值趋势
+            const firstHalf = oneWeekData.slice(Math.floor(oneWeekData.length / 2));
+            const secondHalf = oneWeekData.slice(0, Math.floor(oneWeekData.length / 2));
+
+            const firstHalfAvg = firstHalf.reduce((sum, m) => sum + (m.explosion_index || 0), 0) / firstHalf.length;
+            const secondHalfAvg = secondHalf.reduce((sum, m) => sum + (m.explosion_index || 0), 0) / secondHalf.length;
+
+            console.log(`[QualityCheck] CoinID ${coinId}: First half avg explosion index: ${firstHalfAvg.toFixed(2)}, Second half avg: ${secondHalfAvg.toFixed(2)}`);
+
+            // 如果后半周的均值低于前半周，说明爆破指数不增反降
+            if (secondHalfAvg < firstHalfAvg) {
+              console.log(`[QualityCheck] CoinID ${coinId}: 进场期一周内未破200且爆破指数均值下降 -> 低质量进场期（需调仓）`);
+              return '低质量进场期（需调仓）';
+            }
+          }
+        }
+
+        console.log(`[QualityCheck] CoinID ${coinId}: Returning '进场期 (待观察)'.`);
         return '进场期 (待观察)';
       }
       

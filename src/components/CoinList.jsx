@@ -164,6 +164,9 @@ function CoinList({
                     if (period_quality.includes('高质量')) {
                       color = 'green';
                       text = period_quality.replace('高质量', '高');
+                    } else if (period_quality.includes('需调仓')) {
+                      color = 'red';
+                      text = '需调仓';
                     } else if (period_quality.includes('低质量')) {
                       color = 'red';
                       text = period_quality.replace('低质量', '低');
@@ -240,6 +243,9 @@ function CoinList({
                       if (period_quality.includes('高质量')) {
                         color = 'green';
                         text = period_quality.replace('高质量', '高');
+                      } else if (period_quality.includes('需调仓')) {
+                        color = 'red';
+                        text = '需调仓';
                       } else if (period_quality.includes('低质量')) {
                         color = 'red';
                         text = period_quality.replace('低质量', '低');
