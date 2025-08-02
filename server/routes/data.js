@@ -347,6 +347,121 @@ router.get('/latest', async (req, res) => {
 
 
 /**
+ * 根据bodong文档第六章评估退场期质量
+ * @param {Array} historicalMetrics - 历史数据
+ * @param {Object} exitStartDateMetric - 退场期第一天数据
+ * @param {number} exitStartOtcIndex - 退场期第一天场外指数
+ * @param {number} coinId - 币种ID
+ * @returns {string} - 退场期质量评估结果
+ */
+function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId) {
+  // 找到所有"爆破指数由负转正"的节点
+  let turnPositiveNodes = [];
+  for (let i = historicalMetrics.length - 1; i >= 1; i--) {
+    const current = historicalMetrics[i];
+    const previous = historicalMetrics[i-1];
+    if (previous.explosion_index < 0 && current.explosion_index >= 0) {
+      turnPositiveNodes.push({
+        date: current.date,
+        otc_index: current.otc_index,
+        index: i
+      });
+    }
+  }
+
+  // 按时间排序（最早的在前）
+  turnPositiveNodes.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  console.log(`[QualityCheck] CoinID ${coinId}: Found ${turnPositiveNodes.length} turn positive nodes total.`);
+
+  if (turnPositiveNodes.length === 0) {
+    console.log(`[QualityCheck] CoinID ${coinId}: No explosion index turn positive found. Returning '退场期 (待观察)'.`);
+    return '退场期 (待观察)';
+  }
+
+  // 构建关键节点序列 (bodong 文档 - 第六章)
+  const exitStartDate = new Date(exitStartDateMetric.date);
+
+  // 找到退场期第一天之前的转正节点（节点1、2等）
+  const beforeExitNodes = turnPositiveNodes.filter(node =>
+    new Date(node.date) < exitStartDate
+  );
+
+  // 找到退场期第一天之后的转正节点（节点4、5等）
+  const afterExitNodes = turnPositiveNodes.filter(node =>
+    new Date(node.date) > exitStartDate
+  );
+
+  console.log(`[QualityCheck] CoinID ${coinId}: Before exit nodes: ${beforeExitNodes.length}, After exit nodes: ${afterExitNodes.length}`);
+
+  // 根据bodong文档第六章规则判断质量
+  if (afterExitNodes.length === 0) {
+    // 刚进入退场期，比较最近的转正节点（节点2）与退场期第一天（节点3）
+    if (beforeExitNodes.length === 0) {
+      console.log(`[QualityCheck] CoinID ${coinId}: No reference nodes found. Returning '退场期 (待观察)'.`);
+      return '退场期 (待观察)';
+    }
+
+    const lastBeforeExitNode = beforeExitNodes[beforeExitNodes.length - 1]; // 最近的转正节点
+    const node2OtcIndex = lastBeforeExitNode.otc_index;
+    const node3OtcIndex = exitStartOtcIndex; // 退场期第一天
+
+    console.log(`[QualityCheck] CoinID ${coinId}: 刚进入退场期，比较节点2(${node2OtcIndex}) vs 节点3(${node3OtcIndex})`);
+
+    if (node3OtcIndex < node2OtcIndex) {
+      console.log(`[QualityCheck] CoinID ${coinId}: 节点3 < 节点2，场外指数下降 -> 高质量退场`);
+      return '高质量退场';
+    } else {
+      console.log(`[QualityCheck] CoinID ${coinId}: 节点3 >= 节点2，场外指数未下降 -> 低质量退场`);
+      return '低质量退场';
+    }
+  } else {
+    // 已进入退场期且有后续转正数据，比较3与4、4与5等相邻节点
+    console.log(`[QualityCheck] CoinID ${coinId}: 已进入退场期，分析相邻节点趋势`);
+
+    // 构建完整的关键节点序列：退场期第一天 + 后续转正节点
+    const keyNodes = [
+      { date: exitStartDateMetric.date, otc_index: exitStartOtcIndex, type: 'exit_start', nodeNum: 3 },
+      ...afterExitNodes.map((node, index) => ({
+        ...node,
+        type: 'turn_positive',
+        nodeNum: 4 + index
+      }))
+    ];
+
+    // 分析相邻节点间的场外指数变化
+    let decreasingCount = 0;
+    let increasingCount = 0;
+
+    for (let i = 0; i < keyNodes.length - 1; i++) {
+      const currentNode = keyNodes[i];
+      const nextNode = keyNodes[i + 1];
+
+      console.log(`[QualityCheck] CoinID ${coinId}: 节点${currentNode.nodeNum}(${currentNode.otc_index}) -> 节点${nextNode.nodeNum}(${nextNode.otc_index})`);
+
+      if (nextNode.otc_index < currentNode.otc_index) {
+        decreasingCount++; // 场外指数下降（好现象）
+        console.log(`[QualityCheck] CoinID ${coinId}: 下降趋势 ✓`);
+      } else {
+        increasingCount++; // 场外指数上升或持平（坏现象）
+        console.log(`[QualityCheck] CoinID ${coinId}: 上升/持平趋势 ✗`);
+      }
+    }
+
+    console.log(`[QualityCheck] CoinID ${coinId}: 下降次数: ${decreasingCount}, 上升次数: ${increasingCount}`);
+
+    // 根据趋势判断质量
+    if (decreasingCount > increasingCount) {
+      console.log(`[QualityCheck] CoinID ${coinId}: 稳步下降趋势 -> 高质量退场`);
+      return '高质量退场';
+    } else {
+      console.log(`[QualityCheck] CoinID ${coinId}: 出现反复，非稳步下降 -> 低质量退场`);
+      return '低质量退场';
+    }
+  }
+}
+
+/**
  * 计算给定币种当前周期的质量
  * @param {number} coinId - 币种的ID
  * @returns {Promise<string>} - 描述周期质量的字符串
@@ -496,35 +611,8 @@ async function calculatePeriodQuality(coinId) {
 
         // 2. 在退场期内，找到第一个“爆破指数由负转正”的节点
         // 从退场期开始往前查找，找到的第一个转正节点就是上一次转正的节点
-        let lastTurnPositiveNode = null;
-        for (let i = exitPeriodStartIndex - 1; i >= 0; i--) {
-            const current = historicalMetrics[i];
-            const previous = historicalMetrics[i+1];
-            if (previous.explosion_index < 0 && current.explosion_index >= 0) {
-                lastTurnPositiveNode = current;
-                break;
-            }
-        }
-        
-        if (!lastTurnPositiveNode || !lastTurnPositiveNode.otc_index) {
-            console.log(`[QualityCheck] CoinID ${coinId}: No previous explosion index turn positive found yet. Returning '退场期 (待观察)'.`);
-            return '退场期 (待观察)';
-        }
-        
-        const lastTurnPositiveOtcIndex = lastTurnPositiveNode.otc_index;
-        console.log(`[QualityCheck] CoinID ${coinId}: Last turn positive node found on ${lastTurnPositiveNode.date} with OTC Index ${lastTurnPositiveOtcIndex}.`);
-
-        // 3. 比较场外指数 - 新的退场期质量判断逻辑
-        // 如果退场期第一天场外指数 > 上次爆破指数由负转正的场外指数，则为低质量退场期
-        console.log(`[QualityCheck] CoinID ${coinId}: Comparing exit start OTC (${exitStartOtcIndex}) vs last turn positive OTC (${lastTurnPositiveOtcIndex})`);
-
-        if (exitStartOtcIndex > lastTurnPositiveOtcIndex) {
-            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC (${exitStartOtcIndex}) > last turn positive OTC (${lastTurnPositiveOtcIndex}) -> 低质量退场`);
-            return '低质量退场';
-        } else {
-            console.log(`[QualityCheck] CoinID ${coinId}: Exit start OTC (${exitStartOtcIndex}) <= last turn positive OTC (${lastTurnPositiveOtcIndex}) -> 高质量退场`);
-            return '高质量退场';
-        }
+        // 按照bodong文档第六章实现退场期质量评估
+        return evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId);
     }
 
     console.log(`[QualityCheck] CoinID ${coinId}: Not in entry/exit period. Returning '观望'.`);
