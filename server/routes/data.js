@@ -356,16 +356,19 @@ router.get('/latest', async (req, res) => {
  */
 function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId) {
   // 找到所有"爆破指数跌破200"的节点
+  // 注意：historicalMetrics是按日期降序排列的，所以i=0是最新的数据
   let dipBelow200Nodes = [];
-  for (let i = historicalMetrics.length - 1; i >= 1; i--) {
-    const current = historicalMetrics[i];
-    const previous = historicalMetrics[i-1];
-    if (previous.explosion_index >= 200 && current.explosion_index < 200) {
+  for (let i = 1; i < historicalMetrics.length; i++) {
+    const current = historicalMetrics[i];      // 较早的日期
+    const previous = historicalMetrics[i-1];   // 较晚的日期
+    // 检查从高于200跌破到低于200：前一天≥200，当天<200
+    if (current.explosion_index >= 200 && previous.explosion_index < 200) {
       dipBelow200Nodes.push({
-        date: current.date,
-        otc_index: current.otc_index,
-        index: i
+        date: previous.date,  // 跌破200的那一天
+        otc_index: previous.otc_index,
+        index: i-1
       });
+      console.log(`[QualityCheck] CoinID ${coinId}: Found dip below 200 node: ${previous.date}, explosion: ${current.explosion_index} -> ${previous.explosion_index}, OTC: ${previous.otc_index}`);
     }
   }
 
@@ -499,16 +502,19 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
  */
 function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId) {
   // 找到所有"爆破指数由负转正"的节点
+  // 注意：historicalMetrics是按日期降序排列的，所以i=0是最新的数据
   let turnPositiveNodes = [];
-  for (let i = historicalMetrics.length - 1; i >= 1; i--) {
-    const current = historicalMetrics[i];
-    const previous = historicalMetrics[i-1];
-    if (previous.explosion_index < 0 && current.explosion_index >= 0) {
+  for (let i = 1; i < historicalMetrics.length; i++) {
+    const current = historicalMetrics[i];      // 较早的日期
+    const previous = historicalMetrics[i-1];   // 较晚的日期
+    // 检查从负数变为正数：前一天是负数，当天是正数或零
+    if (current.explosion_index < 0 && previous.explosion_index >= 0) {
       turnPositiveNodes.push({
-        date: current.date,
-        otc_index: current.otc_index,
-        index: i
+        date: previous.date,  // 转正的那一天
+        otc_index: previous.otc_index,
+        index: i-1
       });
+      console.log(`[QualityCheck] CoinID ${coinId}: Found turn positive node: ${previous.date}, explosion: ${current.explosion_index} -> ${previous.explosion_index}, OTC: ${previous.otc_index}`);
     }
   }
 
