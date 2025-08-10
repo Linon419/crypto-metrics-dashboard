@@ -22,6 +22,17 @@ module.exports = (sequelize, DataTypes) => {
     },
     daily_reminder: {
       type: DataTypes.TEXT
+    },
+    timestamp: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Precise timestamp for the liquidity data'
+    },
+    time_precision: {
+      type: DataTypes.ENUM('day', 'hour', 'minute'),
+      defaultValue: 'day',
+      allowNull: false,
+      comment: 'Precision level of the time data'
     }
   }, {
     timestamps: true

@@ -119,8 +119,8 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
   const cardPadding = isMobile ? { padding: '10px' } : { padding: '16px' };
 
   return (
-    <Card 
-        className="coin-card w-full shadow-sm hover:shadow-lg transition-shadow relative"
+    <Card
+        className={`coin-card w-full shadow-sm hover:shadow-lg transition-shadow relative ${isMobile ? 'mb-2' : ''}`}
         bodyStyle={cardPadding}
         onClick={handleCardBodyClick}
         size={isMobile ? "small" : "default"}

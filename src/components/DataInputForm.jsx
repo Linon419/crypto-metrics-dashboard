@@ -1,23 +1,25 @@
 // src/components/DataInputForm.jsx - 修复数据库导入功能
 import React, { useState, useRef } from 'react';
-import { Form, Input, Button, message, Card, Alert, Typography, DatePicker, Modal, Space, Divider, Dropdown, Spin } from 'antd';
-import { 
-  CalendarOutlined, 
-  InfoCircleOutlined, 
-  UploadOutlined, 
+import { Form, Input, Button, message, Card, Alert, Typography, DatePicker, Modal, Space, Divider, Dropdown, Spin, Select, TimePicker } from 'antd';
+import {
+  CalendarOutlined,
+  InfoCircleOutlined,
+  UploadOutlined,
   DownloadOutlined,
   FileTextOutlined,
   CheckCircleOutlined,
   DatabaseOutlined,
   FormOutlined,
   LoadingOutlined,
-  CaretDownOutlined
+  CaretDownOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons';
 import { submitRawData, exportAllData, importDatabaseDump } from '../services/api';
 import dayjs from 'dayjs';
 
 const { TextArea } = Input;
 const { Title, Text } = Typography;
+const { Option } = Select;
 
 function DataInputForm({ onSuccess }) {
   const [form] = Form.useForm();
@@ -26,6 +28,8 @@ function DataInputForm({ onSuccess }) {
   const [formValues, setFormValues] = useState({});
   const [debugInfo, setDebugInfo] = useState('');
   const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedTime, setSelectedTime] = useState(null);
+  const [timePrecision, setTimePrecision] = useState('day');
   const [jsonPreview, setJsonPreview] = useState(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const fileInputRef = useRef(null);
@@ -36,18 +40,66 @@ function DataInputForm({ onSuccess }) {
   const [batchImportLoading, setBatchImportLoading] = useState(false);
   const [importProgress, setImportProgress] = useState(''); // 增加进度信息状态
 
-  const formatDateForDisplay = (date) => {
+  const formatDateForDisplay = (date, time, precision) => {
     if (!date) return '';
-    return `${date.month() + 1}.${date.date()}`;
+    const month = date.month() + 1;
+    const day = date.date();
+
+    switch(precision) {
+      case 'minute':
+        if (time) {
+          return `${month}.${day} ${time.format('HH:mm')}`;
+        }
+        return `${month}.${day} 00:00`;
+      case 'hour':
+        if (time) {
+          return `${month}.${day} ${time.hour()}`;
+        }
+        return `${month}.${day} 0`;
+      case 'day':
+      default:
+        return `${month}.${day}`;
+    }
+  };
+
+  // 将ISO格式转换为用户友好的显示格式
+  const formatISOToUserFriendly = (isoString) => {
+    if (!isoString) return '';
+
+    try {
+      // 解析ISO格式的日期字符串
+      let dateObj;
+      if (isoString.includes(' ')) {
+        // 包含时间的格式：2024-05-09 14:30
+        const [datePart, timePart] = isoString.split(' ');
+        const [year, month, day] = datePart.split('-').map(Number);
+        const [hour, minute] = timePart.split(':').map(Number);
+
+        if (minute > 0) {
+          return `${month}.${day} ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        } else {
+          return `${month}.${day} ${hour}`;
+        }
+      } else {
+        // 只有日期的格式：2024-05-09
+        const [year, month, day] = isoString.split('-').map(Number);
+        return `${month}.${day}`;
+      }
+    } catch (error) {
+      console.warn('无法解析ISO日期格式:', isoString, error);
+      return isoString; // 如果解析失败，返回原始字符串
+    }
   };
 
   const preprocessData = (rawData) => {
     if (!rawData) return '';
     if (selectedDate) {
-      const dateStr = formatDateForDisplay(selectedDate);
+      const dateStr = formatDateForDisplay(selectedDate, selectedTime, timePrecision);
       const lines = rawData.trim().split('\n');
       const firstLine = lines[0];
-      if (firstLine.match(/^\s*\d{1,2}\.\d{1,2}\s*$/)) {
+      // 检查第一行是否是时间格式（支持多种精度和ISO格式）
+      const timeFormatRegex = /^\s*(\d{1,2}\.\d{1,2}(\s+\d{1,2}(:\d{2})?)?|\d{4}-\d{2}-\d{2}(\s+\d{2}:\d{2})?|\d{2,4}\.\d{1,2}\.\d{1,2}(\s+\d{1,2}(:\d{2})?)?)\s*$/;
+      if (firstLine.match(timeFormatRegex)) {
         lines[0] = dateStr;
         return lines.join('\n');
       } else {
@@ -70,6 +122,8 @@ function DataInputForm({ onSuccess }) {
       message.success('数据处理成功!');
       form.resetFields();
       setSelectedDate(null);
+      setSelectedTime(null);
+      setTimePrecision('day');
       if (onSuccess) onSuccess();
     } catch (error) {
       setDebugInfo('提交失败: ' + (error.message || '未知错误'));
@@ -103,9 +157,30 @@ function DataInputForm({ onSuccess }) {
 
   const handleDateSelect = (date) => {
     setSelectedDate(date);
-    let rawData = form.getFieldValue('rawData') || '';
-    const processedData = preprocessData(rawData); // Preprocess with the new date
-    form.setFieldsValue({ rawData: processedData });
+    updateFormWithDateTime();
+  };
+
+  const handleTimeSelect = (time) => {
+    setSelectedTime(time);
+    updateFormWithDateTime();
+  };
+
+  const handleTimePrecisionChange = (precision) => {
+    setTimePrecision(precision);
+    // 如果切换到日精度，清除时间选择
+    if (precision === 'day') {
+      setSelectedTime(null);
+    }
+    updateFormWithDateTime();
+  };
+
+  const updateFormWithDateTime = () => {
+    // 使用setTimeout确保状态更新后再处理
+    setTimeout(() => {
+      let rawData = form.getFieldValue('rawData') || '';
+      const processedData = preprocessData(rawData);
+      form.setFieldsValue({ rawData: processedData });
+    }, 0);
   };
 
   const handleExportFormJSON = () => {
@@ -118,6 +193,9 @@ function DataInputForm({ onSuccess }) {
     const exportData = {
       rawInput: rawData,
       date: selectedDate ? selectedDate.format('YYYY-MM-DD') : null,
+      time: selectedTime ? selectedTime.format('HH:mm') : null,
+      timePrecision: timePrecision,
+      formattedDateTime: selectedDate ? formatDateForDisplay(selectedDate, selectedTime, timePrecision) : null,
       timestamp: new Date().toISOString(),
       format: 'text/plain'
     };
@@ -428,31 +506,66 @@ if (jsonData.metadata && (jsonData.allCoinsInfo || jsonData.coins) && (jsonData.
       <Divider />
       
       <div className="mb-6">
-        <Title level={5}><CalendarOutlined className="mr-2" />选择数据日期</Title>
-        <div className="flex items-center">
-          <DatePicker 
-            placeholder="选择日期 (可选, 将覆盖文本中的日期)" 
-            onChange={handleDateSelect} 
-            value={selectedDate} 
-            format="YYYY-MM-DD" 
-            className="mr-3"
+        <Title level={5}><CalendarOutlined className="mr-2" />选择数据时间</Title>
+
+        {/* 时间精度选择 */}
+        <div className="mb-3">
+          <Text strong className="mr-2">时间精度:</Text>
+          <Select
+            value={timePrecision}
+            onChange={handleTimePrecisionChange}
+            style={{ width: 120 }}
+            size="small"
+          >
+            <Option value="day">日</Option>
+            <Option value="hour">小时</Option>
+            <Option value="minute">分钟</Option>
+          </Select>
+          <Text type="secondary" className="ml-2">
+            选择数据的时间精度级别
+          </Text>
+        </div>
+
+        {/* 日期和时间选择器 */}
+        <div className="flex items-center flex-wrap gap-3">
+          <DatePicker
+            placeholder="选择日期"
+            onChange={handleDateSelect}
+            value={selectedDate}
+            format="YYYY-MM-DD"
           />
+
+          {timePrecision !== 'day' && (
+            <TimePicker
+              placeholder={timePrecision === 'hour' ? "选择小时" : "选择时间"}
+              onChange={handleTimeSelect}
+              value={selectedTime}
+              format={timePrecision === 'hour' ? "HH" : "HH:mm"}
+              showNow={false}
+            />
+          )}
+
           {selectedDate && (
-            <Alert 
+            <Alert
               message={
                 <div>
-                  已选日期: <Text strong>{formatDateForDisplay(selectedDate)}</Text>
-                  <Text type="secondary" className="ml-2">(月.日格式)</Text>
+                  <ClockCircleOutlined className="mr-1" />
+                  已选时间: <Text strong>{formatDateForDisplay(selectedDate, selectedTime, timePrecision)}</Text>
+                  <Text type="secondary" className="ml-2">
+                    ({timePrecision === 'day' ? '日精度' : timePrecision === 'hour' ? '小时精度' : '分钟精度'})
+                  </Text>
                 </div>
-              } 
-              type="success" 
+              }
+              type="success"
               showIcon
+              className="flex-1"
             />
           )}
         </div>
-        <Text type="secondary" className="mt-1 block">
+
+        <Text type="secondary" className="mt-2 block">
           <InfoCircleOutlined className="mr-1" />
-          选择日期后，提交时将以此日期为准，并自动处理成 "月.日" 格式用于AI解析（如果文本中第一行是日期，则会被替换）。
+          选择时间后，提交时将以此时间为准。支持日、小时、分钟三种精度级别。如果文本中第一行是时间格式，则会被替换。
         </Text>
       </div>
       
@@ -519,14 +632,25 @@ Btc 场外指数1627场外进场期第26天
             icon={<FileTextOutlined />}
           />
           <Alert
-            message="日期格式说明"
+            message="时间格式说明"
             description={
               <div>
-                <p>1. 系统接受"月.日"格式的日期，例如 "5.9" 表示5月9日。</p>
-                <p>2. 如果在上方选择了日期，该日期将优先使用，并会覆盖文本中第一行的日期（如果存在）。</p>
-                <p>3. 如果未选择日期且文本中第一行不是 "月.日" 格式，提交时AI会尝试解析或使用当前日期。</p>
-                <p>4. 建议使用日期选择器以确保日期准确性。</p>
-              </div> 
+                <p><Text strong>支持的时间格式:</Text></p>
+                <ul>
+                  <li><Text code>日精度</Text>: "5.9" (5月9日) 或 "2024.5.9" (2024年5月9日)</li>
+                  <li><Text code>小时精度</Text>: "5.9 14" (5月9日14时) 或 "2024.5.9 14" (2024年5月9日14时)</li>
+                  <li><Text code>分钟精度</Text>: "5.9 14:30" (5月9日14时30分) 或 "2024.5.9 14:30" (2024年5月9日14时30分)</li>
+                </ul>
+                <p><Text strong>年份处理:</Text></p>
+                <p>• 可以省略年份，系统会智能推断（如当前1月输入12月数据会推断为去年）</p>
+                <p>• 支持完整年份格式：2024.5.9</p>
+                <p>• 支持简化年份格式：24.5.9（自动转换为2024年）</p>
+                <p><Text strong>使用说明:</Text></p>
+                <p>1. 选择时间精度后，可以设置相应精度的时间。</p>
+                <p>2. 如果选择了时间，该时间将优先使用，并会覆盖文本中第一行的时间（如果存在）。</p>
+                <p>3. 如果未选择时间且文本中第一行不是有效时间格式，提交时AI会尝试解析或使用当前时间。</p>
+                <p>4. 建议使用时间选择器以确保时间准确性和格式一致性。</p>
+              </div>
             }
             type="info" 
             showIcon 
@@ -563,26 +687,38 @@ Btc 场外指数1627场外进场期第26天
             <div className="bg-gray-100 p-3 rounded mt-1 mb-3">
               <p><Text type="secondary">时间戳:</Text> {jsonPreview.timestamp || '未知'}</p>
               {jsonPreview.date && <p><Text type="secondary">记录日期:</Text> {jsonPreview.date} <CheckCircleOutlined className="text-green-500 ml-1" /></p>}
+              {jsonPreview.data.timePrecision && <p><Text type="secondary">时间精度:</Text> {jsonPreview.data.timePrecision}</p>}
+              {jsonPreview.data.formattedDateTime && <p><Text type="secondary">格式化时间:</Text> {jsonPreview.data.formattedDateTime}</p>}
               <p><Text type="secondary">格式:</Text> {jsonPreview.format || '未知'}</p>
             </div>
             <Text strong>原始数据:</Text>
             <div className="bg-gray-100 p-2 rounded mt-1 max-h-60 overflow-y-auto mb-4">
               <pre className="whitespace-pre-wrap">{jsonPreview.data.rawInput}</pre>
             </div>
-            <Button 
+            <Button
               onClick={() => {
                 if (jsonPreview.data.rawInput) form.setFieldsValue({ rawData: jsonPreview.data.rawInput });
-                if (jsonPreview.data.date) { 
-                  try { 
-                    setSelectedDate(dayjs(jsonPreview.data.date)); 
-                  } catch(e){ 
+                if (jsonPreview.data.date) {
+                  try {
+                    setSelectedDate(dayjs(jsonPreview.data.date));
+                  } catch(e){
                     console.error(e);
                   }
                 }
+                if (jsonPreview.data.time) {
+                  try {
+                    setSelectedTime(dayjs(jsonPreview.data.time, 'HH:mm'));
+                  } catch(e) {
+                    console.error('无法解析时间:', e);
+                  }
+                }
+                if (jsonPreview.data.timePrecision) {
+                  setTimePrecision(jsonPreview.data.timePrecision);
+                }
                 message.success('表单数据已填充到输入框。');
                 setPreviewVisible(false);
-              }} 
-              type="primary" 
+              }}
+              type="primary"
               block
             >
               确认填充到表单

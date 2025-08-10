@@ -31,6 +31,17 @@ module.exports = (sequelize, DataTypes) => {
     near_threshold: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
+    },
+    timestamp: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Precise timestamp for the metric data'
+    },
+    time_precision: {
+      type: DataTypes.ENUM('day', 'hour', 'minute'),
+      defaultValue: 'day',
+      allowNull: false,
+      comment: 'Precision level of the time data'
     }
   }, {
     timestamps: true // 使用默认的 createdAt 和 updatedAt

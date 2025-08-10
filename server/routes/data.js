@@ -6,6 +6,7 @@ const { Coin, DailyMetric, LiquidityOverview, TrendingCoin, sequelize } = db; //
 const { Op } = require('sequelize');
 
 const openaiService = require('../services/openaiService');
+const { parseFlexibleDateTime, validateTimePrecision } = require('../utils/timeParser');
 
 // --- 辅助函数：计算百分比变化 ---
 function calculateChangePercent(current, previous) {
@@ -75,7 +76,10 @@ async function storeProcessedData(data) {
   const transaction = await sequelize.transaction(); // 使用事务
 
   try {
+    // 解析时间信息
+    const timeInfo = parseFlexibleDateTime(date);
     console.log(`[STORE_DATA] Processing data for date: ${date}`);
+    console.log(`[STORE_DATA] Parsed time info:`, timeInfo);
     console.log(`[STORE_DATA] Number of coins to process: ${coins.length}`);
 
     for (const coinData of coins) {
@@ -124,7 +128,9 @@ async function storeProcessedData(data) {
 
         const metricPayload = {
           coin_id: coinInstance.id,
-          date: date,
+          date: timeInfo.date,
+          timestamp: timeInfo.timestamp,
+          time_precision: validateTimePrecision(timeInfo.precision),
           otc_index: typeof coinData.otcIndex === 'number' ? coinData.otcIndex : null,
           explosion_index: typeof coinData.explosionIndex === 'number' ? coinData.explosionIndex : null,
           schelling_point: typeof coinData.schellingPoint === 'number' ? coinData.schellingPoint : null,
@@ -135,7 +141,7 @@ async function storeProcessedData(data) {
         // console.log('[STORE_DATA] Metric payload:', JSON.stringify(metricPayload, null, 2));
 
         const [metricInstance, metricCreated] = await DailyMetric.findOrCreate({
-          where: { coin_id: coinInstance.id, date: date },
+          where: { coin_id: coinInstance.id, date: timeInfo.date },
           defaults: metricPayload,
           transaction
         });
@@ -158,7 +164,9 @@ async function storeProcessedData(data) {
     if (liquidity && typeof liquidity === 'object') {
       // console.log('\n[STORE_DATA] Processing liquidity data...');
       const liquidityPayload = {
-        date: date,
+        date: timeInfo.date,
+        timestamp: timeInfo.timestamp,
+        time_precision: validateTimePrecision(timeInfo.precision),
         btc_fund_change: typeof liquidity.btcFundChange === 'number' ? liquidity.btcFundChange : null,
         eth_fund_change: typeof liquidity.ethFundChange === 'number' ? liquidity.ethFundChange : null,
         sol_fund_change: typeof liquidity.solFundChange === 'number' ? liquidity.solFundChange : null,
@@ -171,7 +179,7 @@ async function storeProcessedData(data) {
         liquidityPayload.daily_reminder = data.dailyReminder;
       }
       const [liqInstance, liqCreated] = await LiquidityOverview.findOrCreate({
-        where: { date: date },
+        where: { date: timeInfo.date },
         defaults: liquidityPayload,
         transaction
       });
@@ -191,7 +199,9 @@ async function storeProcessedData(data) {
         const trendSymbolUpper = trendData.symbol.toUpperCase();
         try {
             const trendPayload = {
-                date: date,
+                date: timeInfo.date,
+                timestamp: timeInfo.timestamp,
+                time_precision: validateTimePrecision(timeInfo.precision),
                 symbol: trendSymbolUpper,
                 otc_index: typeof trendData.otcIndex === 'number' ? trendData.otcIndex : null,
                 explosion_index: typeof trendData.explosionIndex === 'number' ? trendData.explosionIndex : null,
@@ -200,7 +210,7 @@ async function storeProcessedData(data) {
                 entry_exit_day: typeof trendData.entryExitDay === 'number' ? trendData.entryExitDay : 0,
             };
             const [trendInstance, trendCreated] = await TrendingCoin.findOrCreate({
-                where: { date: date, symbol: trendSymbolUpper },
+                where: { date: timeInfo.date, symbol: trendSymbolUpper },
                 defaults: trendPayload,
                 transaction
             });
@@ -875,9 +885,14 @@ router.post('/import-database', async (req, res) => {
 
         if (!coinId) { console.warn(`[IMPORT_DB] Skipping metric for unknown coin (symbol: ${coinSymbol}, date: ${mData.date}).`); continue; }
         
+        // 解析时间信息
+        const metricTimeInfo = parseFlexibleDateTime(mData.date);
+
         const metricPayload = {
           coin_id: coinId,
-          date: mData.date,
+          date: metricTimeInfo.date,
+          timestamp: metricTimeInfo.timestamp,
+          time_precision: validateTimePrecision(metricTimeInfo.precision),
           otc_index: typeof mData.otc_index === 'number' ? mData.otc_index : null,
           explosion_index: typeof mData.explosion_index === 'number' ? mData.explosion_index : null,
           schelling_point: typeof mData.schelling_point === 'number' ? mData.schelling_point : null,
@@ -885,7 +900,7 @@ router.post('/import-database', async (req, res) => {
           entry_exit_day: typeof mData.entry_exit_day === 'number' ? mData.entry_exit_day : 0,
           near_threshold: !!mData.near_threshold,
         };
-        const [instance, created] = await DailyMetric.findOrCreate({ where: { coin_id: coinId, date: mData.date }, defaults: metricPayload, transaction });
+        const [instance, created] = await DailyMetric.findOrCreate({ where: { coin_id: coinId, date: metricTimeInfo.date }, defaults: metricPayload, transaction });
         if (!created) await instance.update(metricPayload, { transaction });
         counts.metrics++;
       }
@@ -896,15 +911,20 @@ router.post('/import-database', async (req, res) => {
         console.log(`[IMPORT_DB] Processing ${dumpData.allLiquidityHistory.length} liquidity entries...`);
         for (const lData of dumpData.allLiquidityHistory) {
             if (!lData || !lData.date) { console.warn('[IMPORT_DB] Skipping liquidity entry with no date.'); continue; }
+            // 解析时间信息
+            const liquidityTimeInfo = parseFlexibleDateTime(lData.date);
+
             const liquidityPayload = {
-                date: lData.date,
+                date: liquidityTimeInfo.date,
+                timestamp: liquidityTimeInfo.timestamp,
+                time_precision: validateTimePrecision(liquidityTimeInfo.precision),
                 btc_fund_change: typeof lData.btc_fund_change === 'number' ? lData.btc_fund_change : null,
                 eth_fund_change: typeof lData.eth_fund_change === 'number' ? lData.eth_fund_change : null,
                 sol_fund_change: typeof lData.sol_fund_change === 'number' ? lData.sol_fund_change : null,
                 total_market_fund_change: typeof lData.total_market_fund_change === 'number' ? lData.total_market_fund_change : null,
                 comments: lData.comments || null,
             };
-            const [instance, created] = await LiquidityOverview.findOrCreate({ where: { date: lData.date }, defaults: liquidityPayload, transaction });
+            const [instance, created] = await LiquidityOverview.findOrCreate({ where: { date: liquidityTimeInfo.date }, defaults: liquidityPayload, transaction });
             if (!created) await instance.update(liquidityPayload, { transaction });
             counts.liquidity++;
         }
@@ -916,8 +936,13 @@ router.post('/import-database', async (req, res) => {
         for (const tData of dumpData.allTrendingCoinsHistory) {
             if (!tData || !tData.date || !tData.symbol) { console.warn('[IMPORT_DB] Skipping trending coin with no date or symbol.'); continue; }
             const symbolUpper = tData.symbol.toUpperCase();
+            // 解析时间信息
+            const trendTimeInfo = parseFlexibleDateTime(tData.date);
+
             const trendPayload = {
-                date: tData.date,
+                date: trendTimeInfo.date,
+                timestamp: trendTimeInfo.timestamp,
+                time_precision: validateTimePrecision(trendTimeInfo.precision),
                 symbol: symbolUpper,
                 otc_index: typeof tData.otc_index === 'number' ? tData.otc_index : null,
                 explosion_index: typeof tData.explosion_index === 'number' ? tData.explosion_index : null,
@@ -925,7 +950,7 @@ router.post('/import-database', async (req, res) => {
                 entry_exit_type: tData.entry_exit_type || 'neutral',
                 entry_exit_day: typeof tData.entry_exit_day === 'number' ? tData.entry_exit_day : 0,
             };
-            const [instance, created] = await TrendingCoin.findOrCreate({ where: { date: tData.date, symbol: symbolUpper }, defaults: trendPayload, transaction });
+            const [instance, created] = await TrendingCoin.findOrCreate({ where: { date: trendTimeInfo.date, symbol: symbolUpper }, defaults: trendPayload, transaction });
             if (!created) await instance.update(trendPayload, { transaction });
             counts.trending++;
         }

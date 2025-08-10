@@ -524,7 +524,7 @@ function Dashboard() {
         )}
       </Header>
 
-      <Content className="p-2 sm:p-4">
+      <Content className="p-1 sm:p-4">
         {error && (
           <Alert
             message="数据加载错误"
@@ -699,11 +699,11 @@ function Dashboard() {
               />
             ) : (
               !loading && ( // Only show placeholder if not loading and no coin selected
-                <div className="text-center py-10 bg-white rounded-lg shadow mb-4">
-                  <SearchOutlined style={{ fontSize: 32 }} className="text-gray-400 mb-4" />
-                  <Title level={4}>请选择一个币种查看详情</Title>
+                <div className={`text-center ${isMobile ? 'py-6' : 'py-10'} bg-white rounded-lg shadow mb-4`}>
+                  <SearchOutlined style={{ fontSize: isMobile ? 24 : 32 }} className="text-gray-400 mb-4" />
+                  <Title level={isMobile ? 5 : 4}>请选择一个币种查看详情</Title>
                   <Text className="text-gray-500">
-                    点击上方的币种卡片查看详细图表和指标数据
+                    {isMobile ? '点击币种卡片查看图表' : '点击上方的币种卡片查看详细图表和指标数据'}
                   </Text>
                 </div>
               )

@@ -23,6 +23,17 @@ module.exports = (sequelize, DataTypes) => {
     },
     schelling_point: {
       type: DataTypes.FLOAT
+    },
+    timestamp: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Precise timestamp for the trending coin data'
+    },
+    time_precision: {
+      type: DataTypes.ENUM('day', 'hour', 'minute'),
+      defaultValue: 'day',
+      allowNull: false,
+      comment: 'Precision level of the time data'
     }
   }, {
     timestamps: true

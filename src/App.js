@@ -10,6 +10,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useSelector } from 'react-redux';
+import './styles/mobile.css';
 
 const { Header, Content, Footer } = Layout;
 

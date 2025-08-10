@@ -17,7 +17,7 @@ function CoinList({
 }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const pageSize = isMobile ? 4 : 8; // Smaller page size on mobile
+  const pageSize = isMobile ? 6 : 8; // Optimized page size for mobile
   
   const safeCoins = Array.isArray(coins) ? coins : [];
 
@@ -230,8 +230,8 @@ function CoinList({
           <div className="block md:hidden">
             {currentCoinsToDisplay.length > 0 ? (
               <>
-                {/* Grid layout instead of Carousel for better mobile UX */}
-                <Row gutter={[12, 12]} className="mb-4">
+                {/* Optimized mobile grid layout */}
+                <Row gutter={[8, 8]} className="mb-4">
                   {currentCoinsToDisplay.map((coin, index) => {
                     // Helper function to get quality ribbon props (same as desktop)
                     const getQualityRibbonProps = (period_quality) => {
@@ -266,11 +266,11 @@ function CoinList({
                     const ribbonProps = getQualityRibbonProps(coin.period_quality);
 
                     return (
-                    <Col key={`${coin.symbol}-${index}`} xs={12}>
+                    <Col key={`${coin.symbol}-${index}`} xs={24} sm={12}>
                       <Badge.Ribbon
                         text={ribbonProps.text}
                         color={ribbonProps.color}
-                        style={{ display: ribbonProps.display, fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '5px' }}
+                        style={{ display: ribbonProps.display, fontSize: '9px', lineHeight: '12px', height: '14px', top: '-1px', right: '3px' }}
                       >
                         <div 
                           className={`cursor-pointer relative ${

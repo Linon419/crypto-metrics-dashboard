@@ -27,7 +27,18 @@ function CoinDetailChart({ coin, onRefresh }) {
   const [zoomState, setZoomState] = useState(null);
   const [displayData, setDisplayData] = useState([]);
   const [chartMode, setChartMode] = useState('both'); // 'blast', 'otc', 'both'
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const chartRef = useRef(null);
+
+  // 监听窗口大小变化
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   // 重置图表缩放
   const handleReset = () => {
@@ -221,7 +232,8 @@ function CoinDetailChart({ coin, onRefresh }) {
                 otcIndex: coin.otcIndex !== undefined ? coin.otcIndex : metric.otc_index || 0,
                 schellingPoint: coin.schellingPoint !== undefined ? coin.schellingPoint : metric.schelling_point || 0,
                 actionType: coin.entryExitType || metric.entry_exit_type || 'neutral',
-                actionDay: coin.entryExitDay !== undefined ? coin.entryExitDay : metric.entry_exit_day || 0
+                actionDay: coin.entryExitDay !== undefined ? coin.entryExitDay : metric.entry_exit_day || 0,
+                nearThreshold: coin.nearThreshold !== undefined ? coin.nearThreshold : metric.near_threshold || false
               };
             }
             
@@ -232,7 +244,8 @@ function CoinDetailChart({ coin, onRefresh }) {
               otcIndex: metric.otc_index || 0,
               schellingPoint: metric.schelling_point || 0,
               actionType: metric.entry_exit_type === 'entry' ? '进场' : metric.entry_exit_type === 'exit' ? '退场' : '中性',
-              actionDay: metric.entry_exit_day || 0
+              actionDay: metric.entry_exit_day || 0,
+              nearThreshold: metric.near_threshold || false
             };
           });
           
@@ -286,7 +299,8 @@ function CoinDetailChart({ coin, onRefresh }) {
           otcIndex: baseOtcIndex,
           schellingPoint: baseSchellingPoint,
           actionType: entryExitType,
-          actionDay: entryExitDay
+          actionDay: entryExitDay,
+          nearThreshold: coin.nearThreshold || false
         });
         continue;
       }
@@ -301,7 +315,8 @@ function CoinDetailChart({ coin, onRefresh }) {
         otcIndex: Math.max(500, Math.min(2000, baseOtcIndex + randomFactor * 5)),
         schellingPoint: Math.max(100, baseSchellingPoint * (1 + (randomFactor / 1000))),
         actionType: entryExitType,
-        actionDay: entryExitType !== '中性' ? Math.max(0, entryExitDay - (dayCount - i)) : 0
+        actionDay: entryExitType !== '中性' ? Math.max(0, entryExitDay - (dayCount - i)) : 0,
+        nearThreshold: Math.random() > 0.8 // 模拟数据中随机生成nearThreshold
       });
     }
     
@@ -567,11 +582,14 @@ function CoinDetailChart({ coin, onRefresh }) {
           </div>
           
           {/* 爆破指数图表 */}
-          <div style={{ height: '400px', userSelect: 'none' }}>
+          <div style={{ height: isMobile ? '300px' : '400px', userSelect: 'none' }}>
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart 
-                data={displayData} 
-                margin={{ top: 10, right: 30, left: 20, bottom: 30 }}
+              <ComposedChart
+                data={displayData}
+                margin={isMobile ?
+                  { top: 10, right: 10, left: 10, bottom: 20 } :
+                  { top: 10, right: 30, left: 20, bottom: 30 }
+                }
                 onMouseDown={handleMouseDown}
                 onMouseMove={zoomState ? handleMouseMove : null}
                 onMouseUp={zoomState ? handleMouseUp : null}
@@ -595,14 +613,24 @@ function CoinDetailChart({ coin, onRefresh }) {
                   <pattern id="exitPattern" patternUnits="userSpaceOnUse" width="10" height="10">
                     <rect width="10" height="10" fill="#fee2e2" />
                   </pattern>
+
+                  <pattern id="nearThresholdPattern" patternUnits="userSpaceOnUse" width="10" height="10">
+                    <rect width="10" height="10" fill="#fef3c7" />
+                  </pattern>
+
+                  <linearGradient id="colorNearThreshold" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.6} />
+                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.1} />
+                  </linearGradient>
                 </defs>
                 
                 <CartesianGrid strokeDasharray="3 3" />
                 
-                <XAxis 
-                  dataKey="date" 
-                  tick={{ fontSize: 12 }}
-                  tickMargin={10}
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: isMobile ? 10 : 12 }}
+                  tickMargin={isMobile ? 5 : 10}
+                  interval={isMobile ? 'preserveStartEnd' : 'preserveStart'}
                   tickFormatter={(value) => {
                     // 格式化日期，只显示月和日
                     const date = new Date(value);
@@ -612,33 +640,35 @@ function CoinDetailChart({ coin, onRefresh }) {
                 
                 {/* 爆破指数Y轴 - 只有在显示爆破指数时显示 */}
                 {(chartMode === 'blast' || chartMode === 'both') && (
-                  <YAxis 
+                  <YAxis
                     yAxisId="left"
                     domain={getYAxisDomain('blastIndex')}
-                    label={{ 
-                      value: '爆破指数', 
-                      angle: -90, 
+                    label={isMobile ? undefined : {
+                      value: '爆破指数',
+                      angle: -90,
                       position: 'insideLeft',
                       offset: -5,
                       style: { fill: '#ef4444' }
                     }}
-                    tick={{ fill: '#ef4444' }}
+                    tick={{ fill: '#ef4444', fontSize: isMobile ? 10 : 12 }}
+                    width={isMobile ? 35 : 60}
                   />
                 )}
                 
                 {/* 场外指数Y轴 - 只有在显示场外指数时显示 */}
                 {chartMode === 'otc' && (
-                  <YAxis 
+                  <YAxis
                     yAxisId="left"
                     domain={getYAxisDomain('otcIndex')}
-                    label={{ 
-                      value: '场外指数', 
-                      angle: -90, 
+                    label={isMobile ? undefined : {
+                      value: '场外指数',
+                      angle: -90,
                       position: 'insideLeft',
                       offset: -5,
                       style: { fill: '#3b82f6' }
                     }}
-                    tick={{ fill: '#3b82f6' }}
+                    tick={{ fill: '#3b82f6', fontSize: isMobile ? 10 : 12 }}
+                    width={isMobile ? 35 : 60}
                   />
                 )}
                 
@@ -673,7 +703,13 @@ function CoinDetailChart({ coin, onRefresh }) {
                 )}
                 
                 <Tooltip content={<CustomTooltip />} />
-                <Legend />
+                <Legend
+                  wrapperStyle={{
+                    fontSize: isMobile ? '11px' : '12px',
+                    paddingTop: isMobile ? '5px' : '10px'
+                  }}
+                  iconSize={isMobile ? 12 : 14}
+                />
                 
                 {/* 进场期区域 */}
                 <Area
@@ -696,6 +732,18 @@ function CoinDetailChart({ coin, onRefresh }) {
                   fillOpacity={0.2}
                   activeDot={false}
                   name="退场期"
+                  yAxisId={chartMode === 'otc' ? 'left' : 'left'}
+                />
+
+                {/* 逼近阈值区域 - 黄色背景 */}
+                <Area
+                  type="monotone"
+                  dataKey={(entry) => (entry.nearThreshold ? 350 : 0)}
+                  stroke="none"
+                  fill="url(#colorNearThreshold)"
+                  fillOpacity={0.4}
+                  activeDot={false}
+                  name="逼近阈值"
                   yAxisId={chartMode === 'otc' ? 'left' : 'left'}
                 />
                 

@@ -1,0 +1,307 @@
+/* src/styles/mobile.css */
+/* 移动端优化样式 */
+
+/* 移动端通用优化 */
+@media (max-width: 768px) {
+  /* 减少卡片间距 */
+  .ant-card {
+    margin-bottom: 8px !important;
+  }
+  
+  .ant-card-body {
+    padding: 12px !important;
+  }
+  
+  /* 优化按钮大小 */
+  .ant-btn {
+    font-size: 12px;
+    height: 28px;
+    padding: 0 8px;
+  }
+  
+  .ant-btn-sm {
+    font-size: 11px;
+    height: 24px;
+    padding: 0 6px;
+  }
+  
+  /* 优化表格 */
+  .ant-table {
+    font-size: 12px;
+  }
+  
+  .ant-table-thead > tr > th {
+    padding: 8px 4px;
+    font-size: 11px;
+  }
+  
+  .ant-table-tbody > tr > td {
+    padding: 6px 4px;
+    font-size: 11px;
+  }
+  
+  /* 优化统计卡片 */
+  .ant-statistic {
+    text-align: center;
+  }
+  
+  .ant-statistic-title {
+    font-size: 11px !important;
+    margin-bottom: 2px !important;
+  }
+  
+  .ant-statistic-content {
+    font-size: 16px !important;
+  }
+  
+  /* 优化标签 */
+  .ant-tag {
+    font-size: 10px;
+    padding: 0 4px;
+    line-height: 16px;
+  }
+  
+  /* 优化输入框 */
+  .ant-input {
+    font-size: 14px;
+    padding: 4px 8px;
+  }
+  
+  /* 优化选择器 */
+  .ant-select {
+    font-size: 12px;
+  }
+  
+  .ant-select-selector {
+    padding: 0 8px !important;
+  }
+  
+  /* 优化抽屉 */
+  .ant-drawer-body {
+    padding: 12px;
+  }
+  
+  /* 优化模态框 */
+  .ant-modal-body {
+    padding: 16px;
+  }
+  
+  /* 优化分页 */
+  .ant-pagination {
+    text-align: center;
+    margin-top: 12px;
+  }
+  
+  .ant-pagination-item {
+    min-width: 28px;
+    height: 28px;
+    line-height: 26px;
+    font-size: 12px;
+  }
+  
+  /* 优化警告框 */
+  .ant-alert {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  
+  .ant-alert-message {
+    font-size: 13px;
+  }
+  
+  .ant-alert-description {
+    font-size: 11px;
+  }
+}
+
+/* 币种卡片移动端优化 */
+@media (max-width: 768px) {
+  .coin-card {
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+  }
+  
+  .coin-card:active {
+    transform: scale(0.98);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+  
+  .coin-card .ant-card-body {
+    padding: 8px !important;
+  }
+}
+
+/* 图表移动端优化 */
+@media (max-width: 768px) {
+  .recharts-wrapper {
+    font-size: 10px;
+  }
+  
+  .recharts-cartesian-axis-tick-value {
+    font-size: 9px !important;
+  }
+  
+  .recharts-legend-wrapper {
+    font-size: 10px !important;
+  }
+  
+  .recharts-tooltip-wrapper {
+    font-size: 11px !important;
+  }
+  
+  /* 隐藏图表的一些标签以节省空间 */
+  .recharts-cartesian-axis-label {
+    display: none;
+  }
+}
+
+/* 头部移动端优化 */
+@media (max-width: 768px) {
+  .ant-layout-header {
+    padding: 0 8px !important;
+    height: 48px !important;
+    line-height: 48px !important;
+  }
+  
+  .ant-layout-header .ant-btn {
+    height: 32px;
+    padding: 0 8px;
+  }
+}
+
+/* 内容区域移动端优化 */
+@media (max-width: 768px) {
+  .ant-layout-content {
+    padding: 4px !important;
+  }
+  
+  /* 减少行间距 */
+  .ant-row {
+    margin-left: -4px !important;
+    margin-right: -4px !important;
+  }
+  
+  .ant-col {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+}
+
+/* 搜索栏移动端优化 */
+@media (max-width: 768px) {
+  .ant-input-search {
+    max-width: 120px;
+  }
+  
+  .ant-input-search .ant-input {
+    font-size: 12px;
+    padding: 2px 6px;
+  }
+  
+  .ant-input-search .ant-btn {
+    height: 24px;
+    width: 24px;
+  }
+}
+
+/* 标题移动端优化 */
+@media (max-width: 768px) {
+  .ant-typography h1 {
+    font-size: 20px !important;
+    margin-bottom: 8px !important;
+  }
+  
+  .ant-typography h2 {
+    font-size: 18px !important;
+    margin-bottom: 6px !important;
+  }
+  
+  .ant-typography h3 {
+    font-size: 16px !important;
+    margin-bottom: 4px !important;
+  }
+  
+  .ant-typography h4 {
+    font-size: 14px !important;
+    margin-bottom: 4px !important;
+  }
+  
+  .ant-typography h5 {
+    font-size: 13px !important;
+    margin-bottom: 2px !important;
+  }
+}
+
+/* 空状态移动端优化 */
+@media (max-width: 768px) {
+  .ant-empty {
+    padding: 16px 8px;
+  }
+  
+  .ant-empty-description {
+    font-size: 12px;
+    color: #999;
+  }
+  
+  .ant-empty-image {
+    height: 40px !important;
+  }
+}
+
+/* 加载状态移动端优化 */
+@media (max-width: 768px) {
+  .ant-spin {
+    font-size: 12px;
+  }
+  
+  .ant-spin-dot {
+    font-size: 16px;
+  }
+}
+
+/* 工具提示移动端优化 */
+@media (max-width: 768px) {
+  .ant-tooltip {
+    font-size: 11px;
+  }
+  
+  .ant-tooltip-inner {
+    padding: 4px 6px;
+    min-height: auto;
+  }
+}
+
+/* 徽章移动端优化 */
+@media (max-width: 768px) {
+  .ant-badge-ribbon {
+    font-size: 9px !important;
+    padding: 0 4px !important;
+    height: 14px !important;
+    line-height: 14px !important;
+  }
+}
+
+/* 自定义移动端工具类 */
+@media (max-width: 768px) {
+  .mobile-compact {
+    padding: 4px !important;
+    margin: 2px !important;
+  }
+  
+  .mobile-text-xs {
+    font-size: 10px !important;
+  }
+  
+  .mobile-text-sm {
+    font-size: 11px !important;
+  }
+  
+  .mobile-hidden {
+    display: none !important;
+  }
+  
+  .mobile-full-width {
+    width: 100% !important;
+  }
+}
