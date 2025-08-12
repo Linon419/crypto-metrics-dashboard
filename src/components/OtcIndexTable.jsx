@@ -1,6 +1,6 @@
 // src/components/OtcIndexTable.jsx - Mobile-friendly version
 import React, { useState, useEffect } from 'react';
-import { Table, Typography, Tag, Tooltip, Badge, Button, Card, List, Collapse } from 'antd';
+import { Table, Typography, Tag, Tooltip, Badge, Button, List, Collapse } from 'antd';
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
@@ -19,6 +19,7 @@ function OtcIndexTable({ coins, loading = false }) {
     order: 'descend',
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [pageSize, setPageSize] = useState(10); // 添加分页大小状态
 
   // Listen for window resize to adjust for mobile
   useEffect(() => {
@@ -33,6 +34,10 @@ function OtcIndexTable({ coins, loading = false }) {
   // Handle table sort change
   const handleChange = (pagination, filters, sorter) => {
     setSortedInfo(sorter);
+    // 处理分页大小变化
+    if (pagination && pagination.pageSize !== pageSize) {
+      setPageSize(pagination.pageSize);
+    }
   };
 
   // Prepare table data (moved before getSortedData to be accessible)
@@ -576,7 +581,14 @@ function OtcIndexTable({ coins, loading = false }) {
           <Table
             columns={columns}
             dataSource={tableData}
-            pagination={tableData.length > 10 ? { pageSize: 10 } : false}
+            pagination={tableData.length > pageSize ? {
+              pageSize: pageSize,
+              showSizeChanger: true,
+              showQuickJumper: true,
+              showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+              pageSizeOptions: ['10', '20', '50', '100'],
+              onShowSizeChange: (current, size) => setPageSize(size)
+            } : false}
             size="middle"
             className="overflow-x-auto"
             loading={loading}
