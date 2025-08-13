@@ -464,13 +464,24 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
     const node2OtcIndex = lastBeforeEntryNode.otc_index;
     const node3OtcIndex = entryStartOtcIndex; // 进场期第一天
 
-    console.log(`[QualityCheck] CoinID ${coinId}: 刚进入进场期，比较节点2(${node2OtcIndex}) vs 节点3(${node3OtcIndex})`);
+    const node2Date = beforeEntryNodes.length >= 1 ? beforeEntryNodes[beforeEntryNodes.length - 1].date : '未知';
+    const node3Date = entryStartDate;
+    const node2Name = `${beforeEntryNodes.length}爆破跌200`;
+    const node3Name = `${beforeEntryNodes.length + 1}进场期第一天`;
+    console.log(`[QualityCheck] CoinID ${coinId}: 刚进入进场期，比较${node2Name}[${node2Date}](${node2OtcIndex}) vs ${node3Name}[${node3Date}](${node3OtcIndex})`);
 
-    if (node3OtcIndex > node2OtcIndex) {
-      console.log(`[QualityCheck] CoinID ${coinId}: 节点3 > 节点2，场外指数上升 -> 高质量进场`);
+    const otcIndexChange = node3OtcIndex - node2OtcIndex;
+    const changePercent = (otcIndexChange / node2OtcIndex) * 100;
+    console.log(`[QualityCheck] CoinID ${coinId}: 场外指数变化: ${otcIndexChange} (${changePercent.toFixed(2)}%)`);
+
+    if (Math.abs(changePercent) < 5) {
+      console.log(`[QualityCheck] CoinID ${coinId}: 场外指数变化<±5%，近乎持平 -> 低质量进场`);
+      return '低质量进场';
+    } else if (otcIndexChange > 0) {
+      console.log(`[QualityCheck] CoinID ${coinId}: ${node3Name}[${node3Date}] > ${node2Name}[${node2Date}]，场外指数上升 -> 高质量进场`);
       return '高质量进场';
     } else {
-      console.log(`[QualityCheck] CoinID ${coinId}: 节点3 <= 节点2，场外指数未上升 -> 低质量进场`);
+      console.log(`[QualityCheck] CoinID ${coinId}: ${node3Name}[${node3Date}] < ${node2Name}[${node2Date}]，场外指数下降 -> 低质量进场`);
       return '低质量进场';
     }
   } else {
@@ -478,12 +489,15 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
     console.log(`[QualityCheck] CoinID ${coinId}: 已进入进场期，分析相邻节点趋势`);
 
     // 构建完整的关键节点序列：进场期第一天 + 后续跌破200节点
+    const dipNodesBeforeEntry = beforeEntryNodes.length; // 进场期开始前的爆破跌200节点数量
+    const entryStartNodeNum = dipNodesBeforeEntry + 1; // 进场期第一天的节点编号
+
     const keyNodes = [
-      { date: entryStartDateMetric.date, otc_index: entryStartOtcIndex, type: 'entry_start', nodeNum: 3 },
+      { date: entryStartDateMetric.date, otc_index: entryStartOtcIndex, type: 'entry_start', nodeNum: entryStartNodeNum },
       ...afterEntryNodes.map((node, index) => ({
         ...node,
         type: 'dip_200',
-        nodeNum: 4 + index
+        nodeNum: entryStartNodeNum + 1 + index
       }))
     ];
 
@@ -495,14 +509,30 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
       const currentNode = keyNodes[i];
       const nextNode = keyNodes[i + 1];
 
-      console.log(`[QualityCheck] CoinID ${coinId}: 节点${currentNode.nodeNum}(${currentNode.otc_index}) -> 节点${nextNode.nodeNum}(${nextNode.otc_index})`);
+      // 生成节点名称
+      const currentNodeName = currentNode.nodeNum === entryStartNodeNum ?
+        `${currentNode.nodeNum}进场期第一天` :
+        `${currentNode.nodeNum}爆破跌200`;
 
-      if (nextNode.otc_index > currentNode.otc_index) {
+      const nextNodeName = nextNode.nodeNum === entryStartNodeNum ?
+        `${nextNode.nodeNum}进场期第一天` :
+        `${nextNode.nodeNum}爆破跌200`;
+
+      console.log(`[QualityCheck] CoinID ${coinId}: ${currentNodeName}[${currentNode.date}](${currentNode.otc_index}) -> ${nextNodeName}[${nextNode.date}](${nextNode.otc_index})`);
+
+      const otcIndexChange = nextNode.otc_index - currentNode.otc_index;
+      const changePercent = (otcIndexChange / currentNode.otc_index) * 100;
+      console.log(`[QualityCheck] CoinID ${coinId}: 场外指数变化: ${otcIndexChange} (${changePercent.toFixed(2)}%)`);
+
+      if (Math.abs(changePercent) < 5) {
+        decreasingCount++; // 场外指数变化<±5%，近乎持平（坏现象）
+        console.log(`[QualityCheck] CoinID ${coinId}: 持平趋势（变化<±5%）✗`);
+      } else if (otcIndexChange > 0) {
         increasingCount++; // 场外指数上升（好现象）
         console.log(`[QualityCheck] CoinID ${coinId}: 上升趋势 ✓`);
       } else {
-        decreasingCount++; // 场外指数下降或持平（坏现象）
-        console.log(`[QualityCheck] CoinID ${coinId}: 下降/持平趋势 ✗`);
+        decreasingCount++; // 场外指数下降（坏现象）
+        console.log(`[QualityCheck] CoinID ${coinId}: 下降趋势 ✗`);
       }
     }
 
@@ -582,13 +612,24 @@ function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitS
     const node2OtcIndex = lastBeforeExitNode.otc_index;
     const node3OtcIndex = exitStartOtcIndex; // 退场期第一天
 
-    console.log(`[QualityCheck] CoinID ${coinId}: 刚进入退场期，比较节点2(${node2OtcIndex}) vs 节点3(${node3OtcIndex})`);
+    const node2Date = turnPositiveNodes.length >= 2 ? turnPositiveNodes[turnPositiveNodes.length - 2].date : '未知';
+    const node3Date = exitStartDate;
+    const node2Name = `${turnPositiveNodes.length}爆破负变正`;
+    const node3Name = `${turnPositiveNodes.length + 1}退场期第一天`;
+    console.log(`[QualityCheck] CoinID ${coinId}: 刚进入退场期，比较${node2Name}[${node2Date}](${node2OtcIndex}) vs ${node3Name}[${node3Date}](${node3OtcIndex})`);
 
-    if (node3OtcIndex < node2OtcIndex) {
-      console.log(`[QualityCheck] CoinID ${coinId}: 节点3 < 节点2，场外指数下降 -> 高质量退场`);
+    const otcIndexChange = node3OtcIndex - node2OtcIndex;
+    const changePercent = (otcIndexChange / node2OtcIndex) * 100;
+    console.log(`[QualityCheck] CoinID ${coinId}: 场外指数变化: ${otcIndexChange} (${changePercent.toFixed(2)}%)`);
+
+    if (Math.abs(changePercent) < 5) {
+      console.log(`[QualityCheck] CoinID ${coinId}: 场外指数变化<±5%，近乎持平 -> 低质量退场`);
+      return '低质量退场';
+    } else if (otcIndexChange < 0) {
+      console.log(`[QualityCheck] CoinID ${coinId}: ${node3Name}[${node3Date}] < ${node2Name}[${node2Date}]，场外指数下降 -> 高质量退场`);
       return '高质量退场';
     } else {
-      console.log(`[QualityCheck] CoinID ${coinId}: 节点3 >= 节点2，场外指数未下降 -> 低质量退场`);
+      console.log(`[QualityCheck] CoinID ${coinId}: ${node3Name}[${node3Date}] > ${node2Name}[${node2Date}]，场外指数上升 -> 低质量退场`);
       return '低质量退场';
     }
   } else {
@@ -596,12 +637,15 @@ function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitS
     console.log(`[QualityCheck] CoinID ${coinId}: 已进入退场期，分析相邻节点趋势`);
 
     // 构建完整的关键节点序列：退场期第一天 + 后续转正节点
+    const turnPositiveNodesBeforeExit = beforeExitNodes.length; // 退场期开始前的爆破负变正节点数量
+    const exitStartNodeNum = turnPositiveNodesBeforeExit + 1; // 退场期第一天的节点编号
+
     const keyNodes = [
-      { date: exitStartDateMetric.date, otc_index: exitStartOtcIndex, type: 'exit_start', nodeNum: 3 },
+      { date: exitStartDateMetric.date, otc_index: exitStartOtcIndex, type: 'exit_start', nodeNum: exitStartNodeNum },
       ...afterExitNodes.map((node, index) => ({
         ...node,
         type: 'turn_positive',
-        nodeNum: 4 + index
+        nodeNum: exitStartNodeNum + 1 + index
       }))
     ];
 
@@ -613,14 +657,30 @@ function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitS
       const currentNode = keyNodes[i];
       const nextNode = keyNodes[i + 1];
 
-      console.log(`[QualityCheck] CoinID ${coinId}: 节点${currentNode.nodeNum}(${currentNode.otc_index}) -> 节点${nextNode.nodeNum}(${nextNode.otc_index})`);
+      // 生成节点名称
+      const currentNodeName = currentNode.nodeNum === exitStartNodeNum ?
+        `${currentNode.nodeNum}退场期第一天` :
+        `${currentNode.nodeNum}爆破负变正`;
 
-      if (nextNode.otc_index < currentNode.otc_index) {
+      const nextNodeName = nextNode.nodeNum === exitStartNodeNum ?
+        `${nextNode.nodeNum}退场期第一天` :
+        `${nextNode.nodeNum}爆破负变正`;
+
+      console.log(`[QualityCheck] CoinID ${coinId}: ${currentNodeName}[${currentNode.date}](${currentNode.otc_index}) -> ${nextNodeName}[${nextNode.date}](${nextNode.otc_index})`);
+
+      const otcIndexChange = nextNode.otc_index - currentNode.otc_index;
+      const changePercent = (otcIndexChange / currentNode.otc_index) * 100;
+      console.log(`[QualityCheck] CoinID ${coinId}: 场外指数变化: ${otcIndexChange} (${changePercent.toFixed(2)}%)`);
+
+      if (Math.abs(changePercent) < 5) {
+        increasingCount++; // 场外指数变化<±5%，近乎持平（坏现象）
+        console.log(`[QualityCheck] CoinID ${coinId}: 持平趋势（变化<±5%）✗`);
+      } else if (otcIndexChange < 0) {
         decreasingCount++; // 场外指数下降（好现象）
         console.log(`[QualityCheck] CoinID ${coinId}: 下降趋势 ✓`);
       } else {
-        increasingCount++; // 场外指数上升或持平（坏现象）
-        console.log(`[QualityCheck] CoinID ${coinId}: 上升/持平趋势 ✗`);
+        increasingCount++; // 场外指数上升（坏现象）
+        console.log(`[QualityCheck] CoinID ${coinId}: 上升趋势 ✗`);
       }
     }
 
