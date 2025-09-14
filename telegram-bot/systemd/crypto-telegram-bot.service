@@ -1,0 +1,27 @@
+[Unit]
+Description=Crypto Metrics Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=nodejs
+WorkingDirectory=/opt/crypto-telegram-bot
+ExecStart=/usr/bin/node bot.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/crypto-telegram-bot/.env
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=crypto-telegram-bot
+
+# 安全设置
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/crypto-telegram-bot/data
+
+[Install]
+WantedBy=multi-user.target

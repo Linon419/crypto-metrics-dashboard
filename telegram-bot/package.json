@@ -1,0 +1,21 @@
+{
+  "name": "crypto-metrics-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for crypto metrics monitoring and alerts",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --watch bot.js",
+    "setup": "node setup-bot-user.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0",
+    "axios": "^1.9.0",
+    "dotenv": "^16.5.0",
+    "node-cron": "^3.0.3",
+    "sqlite3": "^5.1.7"
+  },
+  "keywords": ["telegram", "bot", "crypto", "monitoring"],
+  "author": "",
+  "license": "MIT"
+}

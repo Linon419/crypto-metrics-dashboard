@@ -14,26 +14,38 @@ COPY src/ ./src/
 RUN npm install
 RUN npm run build
 
-# 阶段 2: 设置API服务器
+# 阶段 2: 设置API服务器和Telegram机器人
 FROM node:18-alpine
 WORKDIR /app
 
 # 复制服务器代码
-COPY server/ ./
+COPY server/ ./server/
+# 复制Telegram机器人代码  
+COPY telegram-bot/ ./telegram-bot/
 
 # 安装后端依赖
+WORKDIR /app/server
 RUN npm install --production
 # 安装认证所需模块
 RUN npm install jsonwebtoken bcryptjs
 
+# 安装Telegram机器人依赖
+WORKDIR /app/telegram-bot
+RUN npm install --production
+
+# 回到根目录
+WORKDIR /app
+
 # 创建数据目录
 RUN mkdir -p /data/db
 
-# 创建前端文件目录 - 注意路径是 /app/client/build
-RUN mkdir -p /app/client/build
+# 创建前端文件目录 - 注意路径是 /app/server/client/build
+RUN mkdir -p /app/server/client/build
+# 创建机器人数据目录
+RUN mkdir -p /app/telegram-bot/data
 
 # 从前一阶段复制构建好的前端文件到正确路径
-COPY --from=frontend-builder /app/build/ /app/client/build/
+COPY --from=frontend-builder /app/build/ /app/server/client/build/
 
 # 环境变量
 ENV NODE_ENV=production
@@ -42,5 +54,27 @@ ENV PORT=3001
 # 暴露端口
 EXPOSE 3001
 
+# 创建启动脚本
+COPY <<'EOF' /app/start.sh
+#!/bin/sh
+echo "Starting Crypto Metrics Dashboard..."
+
+# 启动API服务器（后台）
+echo "Starting API server..."
+cd /app/server && node index.js &
+
+# 等待API服务器启动
+sleep 10
+
+# 启动Telegram机器人
+echo "Starting Telegram bot..."
+cd /app/telegram-bot && node bot.js &
+
+# 等待所有进程
+wait
+EOF
+
+RUN chmod +x /app/start.sh
+
 # 启动命令
-CMD ["node", "index.js"]
+CMD ["/app/start.sh"]
