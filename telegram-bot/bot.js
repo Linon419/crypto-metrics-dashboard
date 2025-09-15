@@ -75,7 +75,30 @@ db.serialize(() => {
     )`);
 });
 
+// 设置机器人菜单
+async function setupBotMenu() {
+    try {
+        await bot.setMyCommands([
+            { command: 'start', description: '🏠 启动机器人' },
+            { command: 'help', description: '❓ 查看帮助' },
+            { command: 'auth', description: '🔑 设置账户认证' },
+            { command: 'latest', description: '📊 市场概览' },
+            { command: 'check', description: '🔍 查询币种 (例: /check BTC)' },
+            { command: 'favorite', description: '⭐ 添加收藏 (例: /favorite ETH)' },
+            { command: 'unfavorite', description: '❌ 取消收藏 (例: /unfavorite BTC)' },
+            { command: 'myfavorites', description: '📋 我的收藏' },
+            { command: 'subscribe', description: '🔔 订阅通知' },
+            { command: 'unsubscribe', description: '🔕 取消通知' },
+            { command: 'status', description: '📈 查看状态' }
+        ]);
+        console.log('Bot menu set successfully!');
+    } catch (error) {
+        console.error('Error setting bot menu:', error);
+    }
+}
+
 console.log('Crypto Metrics Telegram Bot started successfully!');
+setupBotMenu();
 
 // 导入用户认证模块
 const UserAuth = require('./user-auth');

@@ -135,12 +135,12 @@ async function checkAllCoinsQualityEntry() {
                         const message = `
 🌟 *高质量进场期机会*
 
-${coinSymbol} (${coinData.coin.name})
-⭐ 质量评估：${coinData.period_quality}
-📈 进场第${coinData.entry_exit_day}天（初期）
-💥 爆破指数：${coinData.explosion_index}
-📊 场外指数：${coinData.otc_index}
-🎯 谢林点：${coinData.schelling_point}
+**${coinData.coin.name} (${coinSymbol})**
+⭐ 质量评估：${coinData.period_quality || '待评估'}
+📈 ${getTypeDisplay(coinData.entry_exit_type)}第${coinData.entry_exit_day}天（初期）
+💥 爆破指数：${coinData.explosion_index || 'N/A'}
+📊 场外指数：${coinData.otc_index || 'N/A'}
+🎯 谢林点：${coinData.schelling_point || 'N/A'}
 
 💡 处于高质量进场期初期，值得关注！
                         `;
@@ -212,11 +212,12 @@ async function checkFavoriteCoinsAlerts() {
                             const message = `
 ⚠️ *收藏币种爆破指数跌破200*
 
-您收藏的 ${favoriteSymbol} (${coinData.coin.name})
-💥 爆破指数：${coinData.explosion_index} (跌破200)
-📊 场外指数：${coinData.otc_index}
-📈 当前状态：${getTypeDisplay(coinData.entry_exit_type)}
+**${coinData.coin.name} (${favoriteSymbol})**
+💥 爆破指数：${coinData.explosion_index || 'N/A'} (⬇️ 跌破200)
+📊 场外指数：${coinData.otc_index || 'N/A'}
+📈 当前状态：${getTypeDisplay(coinData.entry_exit_type)}${coinData.entry_exit_day ? `第${coinData.entry_exit_day}天` : ''}
 ⭐ 质量评估：${coinData.period_quality || '待评估'}
+🎯 谢林点：${coinData.schelling_point || 'N/A'}
 
 ⚠️ 爆破指数已跌破关键阈值，请注意风险！
                             `;
@@ -239,11 +240,12 @@ async function checkFavoriteCoinsAlerts() {
                             const message = `
 🚨 *收藏币种进入退场期*
 
-您收藏的 ${favoriteSymbol} (${coinData.coin.name})
-📉 已进入退场期第${coinData.entry_exit_day}天
-💥 爆破指数：${coinData.explosion_index}
-📊 场外指数：${coinData.otc_index}
+**${coinData.coin.name} (${favoriteSymbol})**
+📉 已进入${getTypeDisplay(coinData.entry_exit_type)}第${coinData.entry_exit_day}天
+💥 爆破指数：${coinData.explosion_index || 'N/A'}
+📊 场外指数：${coinData.otc_index || 'N/A'}
 ⭐ 质量评估：${coinData.period_quality || '待评估'}
+🎯 谢林点：${coinData.schelling_point || 'N/A'}
 
 🔔 建议密切关注并考虑调整仓位策略！
                             `;
