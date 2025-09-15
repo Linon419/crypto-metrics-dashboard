@@ -135,12 +135,25 @@ async function getUserFavoriteCoins(chatId) {
 // 数据库辅助函数
 function addUser(chatId, userInfo) {
     return new Promise((resolve, reject) => {
-        db.run(`INSERT OR REPLACE INTO users (chat_id, username, first_name, last_name, updated_at) 
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        // 使用INSERT OR IGNORE先尝试插入，如果已存在则更新非关键字段
+        db.run(`INSERT OR IGNORE INTO users (chat_id, username, first_name, last_name, created_at, updated_at) 
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
             [chatId, userInfo.username, userInfo.first_name, userInfo.last_name],
             function(err) {
-                if (err) reject(err);
-                else resolve(this.lastID);
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                
+                // 如果记录已存在，只更新用户信息，不影响订阅状态
+                db.run(`UPDATE users SET username = ?, first_name = ?, last_name = ?, updated_at = CURRENT_TIMESTAMP 
+                        WHERE chat_id = ?`,
+                    [userInfo.username, userInfo.first_name, userInfo.last_name, chatId],
+                    function(updateErr) {
+                        if (updateErr) reject(updateErr);
+                        else resolve(this.lastID || chatId);
+                    }
+                );
             }
         );
     });
