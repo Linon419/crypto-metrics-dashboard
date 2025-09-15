@@ -90,7 +90,7 @@ async function checkAllCoinsQualityEntry() {
     try {
         const subscribedUsers = await getAllSubscribedUsers();
         const now = new Date();
-        const currentHour = now.toISOString().slice(0, 13); // YYYY-MM-DDTHH format
+        const currentDate = now.toISOString().slice(0, 10); // YYYY-MM-DD format
         
         console.log(`Checking quality entry for ${subscribedUsers.length} subscribed users`);
 
@@ -121,8 +121,8 @@ async function checkAllCoinsQualityEntry() {
                 for (const coinData of qualityEarlyEntryCoins) {
                     const coinSymbol = coinData.coin.symbol;
                     
-                    // 检查是否已经在这个时间段发送过通知（避免同一天同一时间重复发送）
-                    const alreadySent = await hasNotificationSent(chatId, coinSymbol, 'quality_early_entry', currentHour);
+                    // 检查是否已经在今天发送过通知
+                    const alreadySent = await hasNotificationSent(chatId, coinSymbol, 'quality_early_entry', currentDate);
                     
                     if (!alreadySent) {
                         const message = `
@@ -140,7 +140,7 @@ async function checkAllCoinsQualityEntry() {
                         
                         try {
                             await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                            await recordNotification(chatId, coinSymbol, 'quality_early_entry', currentHour);
+                            await recordNotification(chatId, coinSymbol, 'quality_early_entry', currentDate);
                             console.log(`Quality early entry notification sent to ${chatId} for ${coinSymbol}`);
                         } catch (error) {
                             console.error(`Failed to send quality early entry notification to ${chatId}:`, error);
@@ -163,7 +163,7 @@ async function checkFavoriteCoinsAlerts() {
     try {
         const subscribedUsers = await getAllSubscribedUsers();
         const now = new Date();
-        const currentTime = now.toISOString(); // 完整时间戳，用于精确去重
+        const currentDate = now.toISOString().slice(0, 10); // YYYY-MM-DD format
         
         console.log(`Checking favorite alerts for ${subscribedUsers.length} subscribed users`);
 
@@ -195,11 +195,11 @@ async function checkFavoriteCoinsAlerts() {
                         continue;
                     }
 
-                    const currentHour = now.toISOString().slice(0, 13); // YYYY-MM-DDTHH
+                    // 使用当前日期进行去重检查
 
                     // 1. 检查爆破指数跌破200（从>200降到<200）
                     if (coinData.explosion_index < 200) {
-                        const alreadySentExplosion = await hasNotificationSent(chatId, favoriteSymbol, 'explosion_drop_200', currentHour);
+                        const alreadySentExplosion = await hasNotificationSent(chatId, favoriteSymbol, 'explosion_drop_200', currentDate);
                         
                         if (!alreadySentExplosion) {
                             const message = `
@@ -217,7 +217,7 @@ async function checkFavoriteCoinsAlerts() {
                             
                             try {
                                 await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                                await recordNotification(chatId, favoriteSymbol, 'explosion_drop_200', currentHour);
+                                await recordNotification(chatId, favoriteSymbol, 'explosion_drop_200', currentDate);
                                 console.log(`Explosion drop notification sent to ${chatId} for ${favoriteSymbol}`);
                             } catch (error) {
                                 console.error(`Failed to send explosion drop notification to ${chatId}:`, error);
@@ -227,7 +227,7 @@ async function checkFavoriteCoinsAlerts() {
 
                     // 2. 检查进入退场期
                     if (coinData.entry_exit_type === 'exit') {
-                        const alreadySentExit = await hasNotificationSent(chatId, favoriteSymbol, 'favorite_exit_alert', currentHour);
+                        const alreadySentExit = await hasNotificationSent(chatId, favoriteSymbol, 'favorite_exit_alert', currentDate);
                         
                         if (!alreadySentExit) {
                             const message = `
@@ -245,7 +245,7 @@ async function checkFavoriteCoinsAlerts() {
                             
                             try {
                                 await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                                await recordNotification(chatId, favoriteSymbol, 'favorite_exit_alert', currentHour);
+                                await recordNotification(chatId, favoriteSymbol, 'favorite_exit_alert', currentDate);
                                 console.log(`Favorite exit alert sent to ${chatId} for ${favoriteSymbol}`);
                             } catch (error) {
                                 console.error(`Failed to send favorite exit alert to ${chatId}:`, error);
@@ -289,25 +289,25 @@ function getTypeDisplay(type) {
 function initializeScheduler() {
     console.log('Initializing scheduler...');
 
-    // 每2小时轮询所有币种的高质量进场期机会
-    cron.schedule('0 */2 * * *', async () => {
-        console.log('Running 2-hourly all coins quality entry polling');
+    // 每天早上8:00轮询所有币种的高质量进场期机会
+    cron.schedule('0 8 * * *', async () => {
+        console.log('Running daily all coins quality entry polling');
         await checkAllCoinsQualityEntry();
     }, {
         timezone: "Asia/Shanghai"
     });
 
-    // 每2小时轮询用户收藏币种的爆破指数和退场期状态
-    cron.schedule('30 */2 * * *', async () => {
-        console.log('Running 2-hourly favorite coins alerts check');
+    // 每天晚上6:00轮询用户收藏币种的爆破指数和退场期状态
+    cron.schedule('0 18 * * *', async () => {
+        console.log('Running daily favorite coins alerts check');
         await checkFavoriteCoinsAlerts();
     }, {
         timezone: "Asia/Shanghai"
     });
 
     console.log('Scheduler initialized with the following jobs:');
-    console.log('- Every 2 hours (00:00, 02:00, 04:00...): All coins quality entry polling');
-    console.log('- Every 2 hours (00:30, 02:30, 04:30...): Favorite coins explosion & exit alerts');
+    console.log('- Daily at 8:00 AM: All coins quality entry polling');
+    console.log('- Daily at 6:00 PM: Favorite coins explosion & exit alerts');
 }
 
 // 立即执行一次检查（用于测试）
