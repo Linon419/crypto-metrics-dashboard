@@ -82,7 +82,7 @@ async function setupBotMenu() {
             { command: 'start', description: '🏠 启动机器人' },
             { command: 'help', description: '❓ 查看帮助' },
             { command: 'auth', description: '🔑 设置账户认证' },
-            { command: 'latest', description: '📊 市场概览' },
+            { command: 'latest', description: '📊 市场概览 (可加页码: /latest 2)' },
             { command: 'check', description: '🔍 查询币种 (例: /check BTC)' },
             { command: 'favorite', description: '⭐ 添加收藏 (例: /favorite ETH)' },
             { command: 'unfavorite', description: '❌ 取消收藏 (例: /unfavorite BTC)' },
@@ -270,7 +270,7 @@ bot.onText(/\/start/, async (msg) => {
 /help - 查看帮助
 /auth - 设置Dashboard账户认证
 /check <币种> - 查询单个币种状态
-/latest - 获取最新数据概览
+/latest [页码] - 获取最新数据概览（支持分页）
 /favorite <币种> - 添加到Dashboard收藏
 /unfavorite <币种> - 从Dashboard收藏移除
 /myfavorites - 查看Dashboard收藏
@@ -526,9 +526,11 @@ bot.onText(/\/check (.+)/, async (msg, match) => {
     }
 });
 
-// 获取最新数据概览
-bot.onText(/\/latest/, async (msg) => {
+// 获取最新数据概览 - 支持分页
+bot.onText(/\/latest(?:\s+(\d+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
+    const page = parseInt(match?.[1]) || 1; // 默认第1页
+    const pageSize = 8; // 每页显示8个币种
 
     try {
         await addUser(chatId, msg.from);
@@ -555,36 +557,66 @@ bot.onText(/\/latest/, async (msg) => {
             (m.period_quality === '高质量进场' || m.period_quality?.includes('高质量'))
         );
 
+        // 按场外指数排序（降序）
+        const sortedQualityCoins = qualityEntryCoins.sort((a, b) => 
+            (b.otc_index || 0) - (a.otc_index || 0)
+        );
+
+        // 分页计算
+        const totalPages = Math.ceil(sortedQualityCoins.length / pageSize);
+        const startIndex = (page - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const currentPageCoins = sortedQualityCoins.slice(startIndex, endIndex);
+
         let message = `📊 *市场概览* (${data.date})\n\n`;
         message += `📈 进场期币种：${entryCoins.length} 个\n`;
         message += `📉 退场期币种：${exitCoins.length} 个\n`;
         message += `⭐ 优质进场期：${qualityEntryCoins.length} 个\n\n`;
 
-        // 显示优质进场期币种
-        if (qualityEntryCoins.length > 0) {
-            message += `🌟 *优质进场期币种：*\n`;
-            qualityEntryCoins.slice(0, 5).forEach(coin => {
-                message += `• ${coin.coin.symbol} - ${coin.period_quality}\n`;
+        // 显示当前页的优质进场期币种
+        if (currentPageCoins.length > 0) {
+            message += `🌟 *优质进场期币种* (第${page}/${totalPages}页)：\n\n`;
+            currentPageCoins.forEach((coin, index) => {
+                const num = startIndex + index + 1;
+                message += `${num}. **${coin.coin.name} (${coin.coin.symbol})**\n`;
+                message += `   📊 场外指数：${coin.otc_index || 'N/A'}\n`;
+                message += `   💥 爆破指数：${coin.explosion_index || 'N/A'}\n`;
+                message += `   📈 ${getTypeDisplay(coin.entry_exit_type)}第${coin.entry_exit_day}天\n`;
+                message += `   ⭐ ${coin.period_quality}\n\n`;
             });
-            if (qualityEntryCoins.length > 5) {
-                message += `...和其他 ${qualityEntryCoins.length - 5} 个币种\n`;
+            
+            // 分页导航
+            if (totalPages > 1) {
+                message += `📖 分页导航：\n`;
+                if (page > 1) {
+                    message += `/latest ${page - 1} ⬅️ 上一页  `;
+                }
+                if (page < totalPages) {
+                    message += `/latest ${page + 1} ➡️ 下一页`;
+                }
+                message += '\n\n';
             }
-            message += '\n';
+        } else if (qualityEntryCoins.length > 0 && page > totalPages) {
+            message += `❌ 页面不存在。总共${totalPages}页，请输入 /latest 1 到 /latest ${totalPages}\n\n`;
         }
 
-        // 显示爆破指数>200的币种
-        const highExplosionCoins = metrics.filter(m => m.explosion_index > 200);
+        // 显示爆破指数>200的币种（始终显示，不分页）
+        const highExplosionCoins = metrics.filter(m => m.explosion_index > 200)
+            .sort((a, b) => (b.explosion_index || 0) - (a.explosion_index || 0));
+        
         if (highExplosionCoins.length > 0) {
-            message += `🚀 *爆破指数>200：*\n`;
+            message += `🚀 *爆破指数>200* (按爆破指数排序)：\n`;
             highExplosionCoins.slice(0, 5).forEach(coin => {
-                message += `• ${coin.coin.symbol}: ${coin.explosion_index}\n`;
+                message += `• **${coin.coin.name} (${coin.coin.symbol})**: ${coin.explosion_index}\n`;
             });
             if (highExplosionCoins.length > 5) {
                 message += `...和其他 ${highExplosionCoins.length - 5} 个币种\n`;
             }
+            message += '\n';
         }
 
-        message += '\n💡 使用 /check <币种> 查看详细信息';
+        message += '💡 使用 /check <币种> 查看详细信息\n';
+        message += '💡 使用 /latest <页码> 查看其他页面';
         
         await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
         
