@@ -82,7 +82,7 @@ async function setupBotMenu() {
             { command: 'start', description: '🏠 启动机器人' },
             { command: 'help', description: '❓ 查看帮助' },
             { command: 'auth', description: '🔑 设置账户认证' },
-            { command: 'latest', description: '📊 市场概览 (可加页码: /latest 2)' },
+            { command: 'latest', description: '📊 市场概览 (支持按钮分页)' },
             { command: 'check', description: '🔍 查询币种 (例: /check BTC)' },
             { command: 'favorite', description: '⭐ 添加收藏 (例: /favorite ETH)' },
             { command: 'unfavorite', description: '❌ 取消收藏 (例: /unfavorite BTC)' },
@@ -261,7 +261,7 @@ bot.onText(/\/start/, async (msg) => {
 /help - 查看帮助
 /auth - 设置Dashboard账户认证
 /check <币种> - 查询单个币种状态
-/latest [页码] - 获取最新数据概览（支持分页）
+/latest - 获取最新数据概览（支持按钮分页）
 /favorite <币种> - 添加到Dashboard收藏
 /unfavorite <币种> - 从Dashboard收藏移除
 /myfavorites - 查看Dashboard收藏
@@ -517,11 +517,92 @@ bot.onText(/\/check (.+)/, async (msg, match) => {
     }
 });
 
+// 生成latest数据的可重用函数
+async function generateLatestData(chatId, page = 1) {
+    const pageSize = 8; // 每页显示8个币种
+    
+    const data = await getUserLatestData(chatId);
+    if (!data || !data.success) {
+        throw new Error('无法获取数据');
+    }
+
+    // 统计数据
+    const metrics = data.metrics || [];
+    const entryCoins = metrics.filter(m => m.entry_exit_type === 'entry');
+    const exitCoins = metrics.filter(m => m.entry_exit_type === 'exit');
+    const qualityEntryCoins = metrics.filter(m => 
+        m.entry_exit_type === 'entry' && 
+        (m.period_quality === '高质量进场' || m.period_quality?.includes('高质量'))
+    );
+
+    // 按场外指数排序（降序）
+    const sortedQualityCoins = qualityEntryCoins.sort((a, b) => 
+        (b.otc_index || 0) - (a.otc_index || 0)
+    );
+
+    // 分页计算
+    const totalPages = Math.ceil(sortedQualityCoins.length / pageSize);
+    const startIndex = (page - 1) * pageSize;
+    const currentPageCoins = sortedQualityCoins.slice(startIndex, startIndex + pageSize);
+
+    let message = `📊 *市场概览* (${data.date})\n\n`;
+    message += `📈 进场期币种：${entryCoins.length} 个\n`;
+    message += `📉 退场期币种：${exitCoins.length} 个\n`;
+    message += `⭐ 优质进场期：${qualityEntryCoins.length} 个\n\n`;
+
+    // 显示当前页的优质进场期币种
+    if (currentPageCoins.length > 0) {
+        message += `🌟 *优质进场期币种* (第${page}/${totalPages}页)：\n\n`;
+        currentPageCoins.forEach((coin, index) => {
+            const num = startIndex + index + 1;
+            message += `${num}. **${coin.coin.name} (${coin.coin.symbol})**\n`;
+            message += `   📊 场外指数：${coin.otc_index || 'N/A'}\n`;
+            message += `   💥 爆破指数：${coin.explosion_index || 'N/A'}\n`;
+            message += `   📈 ${getTypeDisplay(coin.entry_exit_type)}第${coin.entry_exit_day}天\n`;
+            message += `   ⭐ ${coin.period_quality}\n\n`;
+        });
+    } else if (qualityEntryCoins.length > 0 && page > totalPages) {
+        message += `❌ 页面不存在。总共${totalPages}页\n\n`;
+    }
+
+    // 显示爆破指数>200的币种（始终显示，不分页）
+    const highExplosionCoins = metrics.filter(m => m.explosion_index > 200)
+        .sort((a, b) => (b.explosion_index || 0) - (a.explosion_index || 0));
+    
+    if (highExplosionCoins.length > 0) {
+        message += `🚀 *爆破指数>200* (按爆破指数排序)：\n`;
+        highExplosionCoins.slice(0, 5).forEach(coin => {
+            message += `• **${coin.coin.name} (${coin.coin.symbol})**: ${coin.explosion_index}\n`;
+        });
+        if (highExplosionCoins.length > 5) {
+            message += `...和其他 ${highExplosionCoins.length - 5} 个币种\n`;
+        }
+        message += '\n';
+    }
+
+    message += '💡 使用 /check <币种> 查看详细信息';
+    
+    // 创建分页按钮
+    const keyboard = [];
+    if (qualityEntryCoins.length > 0 && totalPages > 1) {
+        const row = [];
+        if (page > 1) {
+            row.push({ text: '⬅️ 上一页', callback_data: `latest_${page - 1}` });
+        }
+        row.push({ text: `${page}/${totalPages}`, callback_data: 'latest_current' });
+        if (page < totalPages) {
+            row.push({ text: '下一页 ➡️', callback_data: `latest_${page + 1}` });
+        }
+        keyboard.push(row);
+    }
+    
+    return { message, keyboard };
+}
+
 // 获取最新数据概览 - 支持分页
 bot.onText(/\/latest(?:\s+(\d+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const page = parseInt(match?.[1]) || 1; // 默认第1页
-    const pageSize = 8; // 每页显示8个币种
 
     try {
         await addUser(chatId, msg.from);
@@ -533,83 +614,14 @@ bot.onText(/\/latest(?:\s+(\d+))?/, async (msg, match) => {
             return;
         }
         
-        const data = await getUserLatestData(chatId);
-        if (!data || !data.success) {
-            await bot.sendMessage(chatId, '❌ 暂时无法获取数据，请稍后重试。\n如果问题持续，请尝试重新认证：/reauth');
-            return;
-        }
-
-        // 统计数据
-        const metrics = data.metrics || [];
-        const entryCoins = metrics.filter(m => m.entry_exit_type === 'entry');
-        const exitCoins = metrics.filter(m => m.entry_exit_type === 'exit');
-        const qualityEntryCoins = metrics.filter(m => 
-            m.entry_exit_type === 'entry' && 
-            (m.period_quality === '高质量进场' || m.period_quality?.includes('高质量'))
-        );
-
-        // 按场外指数排序（降序）
-        const sortedQualityCoins = qualityEntryCoins.sort((a, b) => 
-            (b.otc_index || 0) - (a.otc_index || 0)
-        );
-
-        // 分页计算
-        const totalPages = Math.ceil(sortedQualityCoins.length / pageSize);
-        const startIndex = (page - 1) * pageSize;
-        const endIndex = startIndex + pageSize;
-        const currentPageCoins = sortedQualityCoins.slice(startIndex, endIndex);
-
-        let message = `📊 *市场概览* (${data.date})\n\n`;
-        message += `📈 进场期币种：${entryCoins.length} 个\n`;
-        message += `📉 退场期币种：${exitCoins.length} 个\n`;
-        message += `⭐ 优质进场期：${qualityEntryCoins.length} 个\n\n`;
-
-        // 显示当前页的优质进场期币种
-        if (currentPageCoins.length > 0) {
-            message += `🌟 *优质进场期币种* (第${page}/${totalPages}页)：\n\n`;
-            currentPageCoins.forEach((coin, index) => {
-                const num = startIndex + index + 1;
-                message += `${num}. **${coin.coin.name} (${coin.coin.symbol})**\n`;
-                message += `   📊 场外指数：${coin.otc_index || 'N/A'}\n`;
-                message += `   💥 爆破指数：${coin.explosion_index || 'N/A'}\n`;
-                message += `   📈 ${getTypeDisplay(coin.entry_exit_type)}第${coin.entry_exit_day}天\n`;
-                message += `   ⭐ ${coin.period_quality}\n\n`;
-            });
-            
-            // 分页导航
-            if (totalPages > 1) {
-                message += `📖 分页导航：\n`;
-                if (page > 1) {
-                    message += `/latest ${page - 1} ⬅️ 上一页  `;
-                }
-                if (page < totalPages) {
-                    message += `/latest ${page + 1} ➡️ 下一页`;
-                }
-                message += '\n\n';
-            }
-        } else if (qualityEntryCoins.length > 0 && page > totalPages) {
-            message += `❌ 页面不存在。总共${totalPages}页，请输入 /latest 1 到 /latest ${totalPages}\n\n`;
-        }
-
-        // 显示爆破指数>200的币种（始终显示，不分页）
-        const highExplosionCoins = metrics.filter(m => m.explosion_index > 200)
-            .sort((a, b) => (b.explosion_index || 0) - (a.explosion_index || 0));
+        const { message, keyboard } = await generateLatestData(chatId, page);
         
-        if (highExplosionCoins.length > 0) {
-            message += `🚀 *爆破指数>200* (按爆破指数排序)：\n`;
-            highExplosionCoins.slice(0, 5).forEach(coin => {
-                message += `• **${coin.coin.name} (${coin.coin.symbol})**: ${coin.explosion_index}\n`;
-            });
-            if (highExplosionCoins.length > 5) {
-                message += `...和其他 ${highExplosionCoins.length - 5} 个币种\n`;
-            }
-            message += '\n';
-        }
-
-        message += '💡 使用 /check <币种> 查看详细信息\n';
-        message += '💡 使用 /latest <页码> 查看其他页面';
+        const options = { 
+            parse_mode: 'Markdown',
+            reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
+        };
         
-        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        await bot.sendMessage(chatId, message, options);
         
     } catch (error) {
         console.error('Error in /latest command:', error);
@@ -1012,5 +1024,57 @@ function getTypeDisplay(type) {
         default: return '观望期';
     }
 }
+
+// 处理Inline Keyboard按钮点击
+bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const messageId = callbackQuery.message.message_id;
+    const data = callbackQuery.data;
+
+    try {
+        // 处理latest分页按钮
+        if (data.startsWith('latest_')) {
+            if (data === 'latest_current') {
+                // 当前页按钮，只需要回答callback query
+                await bot.answerCallbackQuery(callbackQuery.id, { text: '当前页面' });
+                return;
+            }
+
+            const page = parseInt(data.replace('latest_', ''));
+            if (isNaN(page)) {
+                await bot.answerCallbackQuery(callbackQuery.id, { text: '无效页码' });
+                return;
+            }
+
+            // 检查用户是否已认证
+            const isAuthenticated = await isUserAuthenticated(chatId);
+            if (!isAuthenticated) {
+                await bot.answerCallbackQuery(callbackQuery.id, { text: '请先认证账户' });
+                return;
+            }
+
+            // 生成新页面数据
+            const { message, keyboard } = await generateLatestData(chatId, page);
+            
+            const options = { 
+                parse_mode: 'Markdown',
+                reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
+            };
+
+            // 编辑原消息
+            await bot.editMessageText(message, {
+                chat_id: chatId,
+                message_id: messageId,
+                ...options
+            });
+
+            // 回答callback query
+            await bot.answerCallbackQuery(callbackQuery.id, { text: `已切换到第${page}页` });
+        }
+    } catch (error) {
+        console.error('Error handling callback query:', error);
+        await bot.answerCallbackQuery(callbackQuery.id, { text: '操作失败，请稍后重试' });
+    }
+});
 
 module.exports = { bot, db };
