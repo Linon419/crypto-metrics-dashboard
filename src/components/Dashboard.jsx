@@ -30,7 +30,7 @@ import OtcIndexTable from './OtcIndexTable';
 import LiquidityChart from './LiquidityChart';
 import LoadingPlaceholder from './LoadingPlaceholder';
 import FavoriteDebug from './FavoriteDebug';
-import { fetchLatestMetrics } from '../services/api'; // Keep this
+import { fetchLatestMetrics, fetchDataByDate } from '../services/api'; // Keep this
 import { logout } from '../redux/slices/authSlice';
 import ChangePassword from './ChangePassword';
 import UserProfile from './UserProfile';
@@ -216,11 +216,54 @@ function Dashboard() {
   }, [loadData]); // loadData is now stable due to useCallback
 
   // Handle date change
-  const handleDateChange = (date) => {
+  const handleDateChange = async (date) => {
     if (date) {
       setSelectedDate(date);
-      // Potentially reload data for the new date if your API supports it
-      // loadData(date.format('YYYY-MM-DD')); // Example if loadData accepted a date
+      const selectedDateStr = date.format('YYYY-MM-DD');
+
+      // 如果选择的是今天，加载最新数据
+      const today = dayjs().format('YYYY-MM-DD');
+      if (selectedDateStr === today) {
+        loadData();
+        return;
+      }
+
+      // 加载历史数据
+      setLoading(true);
+      setError(null);
+
+      try {
+        console.log(`加载 ${selectedDateStr} 的历史数据...`);
+        const historicalData = await fetchDataByDate(selectedDateStr);
+
+        if (historicalData && historicalData.success) {
+          // 更新状态以显示历史数据
+          setAllCoins(historicalData.coins || []);
+          setLatestDateStr(selectedDateStr);
+
+          notification.success({
+            message: '历史数据加载成功',
+            description: `已获取 ${selectedDateStr} 的数据，包含 ${historicalData.totalCoins || 0} 个币种`,
+            duration: 3
+          });
+
+          setApiStatus({ ok: true, message: `历史数据加载成功 (${selectedDateStr})` });
+        } else {
+          throw new Error(historicalData?.error || '获取历史数据失败');
+        }
+      } catch (error) {
+        console.error('加载历史数据失败:', error);
+        setError(`加载 ${selectedDateStr} 的数据失败: ${error.message}`);
+        setApiStatus({ ok: false, message: `加载历史数据失败: ${error.message}` });
+
+        notification.error({
+          message: '历史数据加载失败',
+          description: `无法获取 ${selectedDateStr} 的数据: ${error.message}`,
+          duration: 5
+        });
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -446,16 +489,22 @@ function Dashboard() {
           <Space wrap>
             {latestDateStr && (
               <Text className="text-gray-300 mr-2 hidden sm:inline">
-                最新数据: {latestDateStr}
+                {selectedDate && selectedDate.format('YYYY-MM-DD') !== dayjs().format('YYYY-MM-DD')
+                  ? `历史数据: ${latestDateStr}`
+                  : `最新数据: ${latestDateStr}`}
               </Text>
             )}
-            <DatePicker
-              value={selectedDate}
-              onChange={handleDateChange}
-              format="YYYY-MM-DD"
-              allowClear={false}
-              className="mr-2"
-            />
+            <Tooltip title="点击选择日期查看历史数据">
+              <DatePicker
+                value={selectedDate}
+                onChange={handleDateChange}
+                format="YYYY-MM-DD"
+                allowClear={false}
+                className="mr-2"
+                placeholder="选择日期查看历史数据"
+                disabled={loading}
+              />
+            </Tooltip>
             <Button
               type="primary"
               icon={<ReloadOutlined />}
@@ -696,6 +745,7 @@ function Dashboard() {
               <CoinDetailChart
                 coin={getSelectedCoinData()}
                 onRefresh={handleRefresh}
+                selectedDate={selectedDate}
               />
             ) : (
               !loading && ( // Only show placeholder if not loading and no coin selected
@@ -785,6 +835,8 @@ function Dashboard() {
             format="YYYY-MM-DD"
             allowClear={false}
             className="w-full mb-3"
+            placeholder="选择日期查看历史数据"
+            disabled={loading}
           />
 
           <Button

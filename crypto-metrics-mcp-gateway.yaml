@@ -1,0 +1,548 @@
+name: crypto-metrics-dashboard
+tenant: default
+routers:
+  - server: crypto-metrics-api
+    prefix: /default/crypto
+    cors:
+      allowOrigins:
+        - '*'
+      allowMethods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      allowHeaders:
+        - Content-Type
+        - Authorization
+        - Mcp-Session-Id
+        - mcp-protocol-version
+      exposeHeaders:
+        - Mcp-Session-Id
+        - mcp-protocol-version
+      allowCredentials: true
+servers:
+  - name: crypto-metrics-api
+    description: Crypto Metrics Dashboard API Service
+    allowedTools:
+      - auth_login
+      - auth_auto_login
+      - auth_register
+      - auth_verify
+      - auth_change_password
+      - get_latest_data
+      - get_historical_data
+      - get_dashboard_data
+      - get_coins
+      - get_coin_by_symbol
+      - get_coin_metrics
+      - get_liquidity_data
+      - get_liquidity_by_date
+      - get_favorites
+      - add_favorite
+      - remove_favorite
+      - get_db_status
+      - get_date_range
+    config:
+      authToken: Bearer {{ env "CRYPTO_API_TOKEN" }}
+      baseUrl: http://168.138.207.11:3080/api
+      defaultPassword: Li0122373853
+      defaultUsername: admin
+tools:
+  - name: auth_auto_login
+    description: Auto login with default credentials
+    method: POST
+    endpoint: '{{.Config.baseUrl}}/auth/login'
+    headers:
+      Content-Type: application/json
+    requestBody: |-
+      {
+        "username": "{{.Config.defaultUsername}}",
+        "password": "{{.Config.defaultPassword}}"
+      }
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "token": "{{.Response.Data.token}}",
+        "user": {{toJSON .Response.Data.user}}
+      }
+  - name: auth_login
+    description: User login to get JWT token
+    method: POST
+    endpoint: '{{.Config.baseUrl}}/auth/login'
+    headers:
+      Content-Type: application/json
+    args:
+      - name: username
+        position: body
+        required: false
+        type: string
+        description: Username (uses default if not provided)
+        default: '{{.Config.defaultUsername}}'
+        items:
+          type: ''
+      - name: password
+        position: body
+        required: false
+        type: string
+        description: Password (uses default if not provided)
+        default: '{{.Config.defaultPassword}}'
+        items:
+          type: ''
+    requestBody: |-
+      {
+        "username": "{{if .Args.username}}{{.Args.username}}{{else}}{{.Config.defaultUsername}}{{end}}",
+        "password": "{{if .Args.password}}{{.Args.password}}{{else}}{{.Config.defaultPassword}}{{end}}"
+      }
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "token": "{{.Response.Data.token}}",
+        "user": {{toJSON .Response.Data.user}}
+      }
+  - name: auth_register
+    description: User registration
+    method: POST
+    endpoint: '{{.Config.baseUrl}}/auth/register'
+    headers:
+      Content-Type: application/json
+    args:
+      - name: username
+        position: body
+        required: true
+        type: string
+        description: Username
+        default: ''
+        items:
+          type: ''
+      - name: password
+        position: body
+        required: true
+        type: string
+        description: Password
+        default: ''
+        items:
+          type: ''
+      - name: email
+        position: body
+        required: true
+        type: string
+        description: Email address
+        default: ''
+        items:
+          type: ''
+    requestBody: |-
+      {
+        "username": "{{.Args.username}}",
+        "password": "{{.Args.password}}",
+        "email": "{{.Args.email}}"
+      }
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "message": "{{.Response.Data.message}}",
+        "user": {{toJSON .Response.Data.user}}
+      }
+  - name: auth_verify
+    description: Verify JWT token
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/auth/verify'
+    headers:
+      Authorization: Bearer {{.Args.token}}
+    args:
+      - name: token
+        position: header
+        required: true
+        type: string
+        description: JWT token
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "user": {{toJSON .Response.Data.user}}
+      }
+  - name: auth_change_password
+    description: Change user password
+    method: POST
+    endpoint: '{{.Config.baseUrl}}/auth/change-password'
+    headers:
+      Authorization: Bearer {{.Args.token}}
+      Content-Type: application/json
+    args:
+      - name: token
+        position: header
+        required: true
+        type: string
+        description: JWT token
+        default: ''
+        items:
+          type: ''
+      - name: currentPassword
+        position: body
+        required: true
+        type: string
+        description: Current password
+        default: ''
+        items:
+          type: ''
+      - name: newPassword
+        position: body
+        required: true
+        type: string
+        description: New password
+        default: ''
+        items:
+          type: ''
+    requestBody: |-
+      {
+        "currentPassword": "{{.Args.currentPassword}}",
+        "newPassword": "{{.Args.newPassword}}"
+      }
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "message": "{{.Response.Data.message}}"
+      }
+  - name: get_latest_data
+    description: Get latest cryptocurrency metrics data
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/data/latest'
+    headers:
+      Authorization: '{{if .Args.token}}Bearer {{.Args.token}}{{end}}'
+    args:
+      - name: token
+        position: header
+        required: false
+        type: string
+        description: JWT token (optional, use if API requires authentication)
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "date": "{{.Response.Data.date}}",
+        "previousDate": "{{.Response.Data.previousDate}}",
+        "totalCoins": {{.Response.Data.totalCoins}},
+        "coins": {{toJSON .Response.Data.coins}},
+        "liquidityOverview": {{toJSON .Response.Data.liquidityOverview}},
+        "trendingCoins": {{toJSON .Response.Data.trendingCoins}}
+      }
+  - name: get_historical_data
+    description: Get historical data for specific date
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/data/by-date/{{.Args.date}}'
+    headers:
+      Authorization: '{{if .Args.token}}Bearer {{.Args.token}}{{end}}'
+    args:
+      - name: date
+        position: path
+        required: true
+        type: string
+        description: Date (YYYY-MM-DD format)
+        default: ''
+        items:
+          type: ''
+      - name: token
+        position: header
+        required: false
+        type: string
+        description: JWT token (optional, use if API requires authentication)
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "date": "{{.Response.Data.date}}",
+        "previousDate": "{{.Response.Data.previousDate}}",
+        "totalCoins": {{.Response.Data.totalCoins}},
+        "coins": {{toJSON .Response.Data.coins}},
+        "liquidityOverview": {{toJSON .Response.Data.liquidityOverview}},
+        "trendingCoins": {{toJSON .Response.Data.trendingCoins}}
+      }
+  - name: get_dashboard_data
+    description: Get dashboard data
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/dashboard'
+    headers:
+      Authorization: '{{if .Args.token}}Bearer {{.Args.token}}{{end}}'
+    args:
+      - name: date
+        position: query
+        required: false
+        type: string
+        description: Optional date parameter (YYYY-MM-DD format)
+        default: ''
+        items:
+          type: ''
+      - name: token
+        position: header
+        required: false
+        type: string
+        description: JWT token (optional, use if API requires authentication)
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "data": {{toJSON .Response.Data.data}},
+        "date": "{{.Response.Data.date}}"
+      }
+  - name: get_coins
+    description: Get all coins list
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/coins'
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "coins": {{toJSON .Response.Data.coins}}
+      }
+  - name: get_coin_by_symbol
+    description: Get single coin information by symbol
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/coins/{{.Args.symbol}}'
+    args:
+      - name: symbol
+        position: path
+        required: true
+        type: string
+        description: Coin symbol (e.g., BTC, ETH)
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "coin": {{toJSON .Response.Data.coin}}
+      }
+  - name: get_coin_metrics
+    description: Get historical metrics for specific coin (requires authentication)
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/coins/{{.Args.symbol}}/metrics'
+    headers:
+      Authorization: Bearer {{.Args.token}}
+    args:
+      - name: symbol
+        position: path
+        required: true
+        type: string
+        description: Coin symbol (e.g., BTC, ETH)
+        default: ''
+        items:
+          type: ''
+      - name: token
+        position: header
+        required: true
+        type: string
+        description: JWT token from auth_login or auth_auto_login
+        default: ''
+        items:
+          type: ''
+      - name: startDate
+        position: query
+        required: false
+        type: string
+        description: Start date (YYYY-MM-DD)
+        default: ''
+        items:
+          type: ''
+      - name: endDate
+        position: query
+        required: false
+        type: string
+        description: End date (YYYY-MM-DD)
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: '{{toJSON .Response.Data}}'
+  - name: get_liquidity_data
+    description: Get all liquidity overview data
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/liquidity'
+    args:
+      - name: date
+        position: query
+        required: false
+        type: string
+        description: Optional date filter (YYYY-MM-DD)
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "data": {{toJSON .Response.Data.data}}
+      }
+  - name: get_liquidity_by_date
+    description: Get liquidity overview for specific date
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/liquidity/{{.Args.date}}'
+    args:
+      - name: date
+        position: path
+        required: true
+        type: string
+        description: Date (YYYY-MM-DD)
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "data": {{toJSON .Response.Data.data}}
+      }
+  - name: get_favorites
+    description: Get user favorite coins list
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/favorites'
+    headers:
+      Authorization: >-
+        {{if .Args.token}}Bearer
+        {{.Args.token}}{{else}}{{.Request.Headers.Authorization}}{{end}}
+    args:
+      - name: token
+        position: header
+        required: false
+        type: string
+        description: JWT token (optional, will use request header if not provided)
+        default: ''
+        items:
+          type: ''
+      - name: deviceId
+        position: query
+        required: false
+        type: string
+        description: Device ID (for non-logged users)
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "favorites": {{toJSON .Response.Data.favorites}}
+      }
+  - name: add_favorite
+    description: Add coin to favorites list
+    method: POST
+    endpoint: '{{.Config.baseUrl}}/favorites'
+    headers:
+      Authorization: >-
+        {{if .Args.token}}Bearer
+        {{.Args.token}}{{else}}{{.Request.Headers.Authorization}}{{end}}
+      Content-Type: application/json
+    args:
+      - name: token
+        position: header
+        required: false
+        type: string
+        description: JWT token (optional, will use request header if not provided)
+        default: ''
+        items:
+          type: ''
+      - name: symbol
+        position: body
+        required: true
+        type: string
+        description: Coin symbol
+        default: ''
+        items:
+          type: ''
+      - name: deviceId
+        position: body
+        required: false
+        type: string
+        description: Device ID (for non-logged users)
+        default: ''
+        items:
+          type: ''
+    requestBody: |-
+      {
+        "symbol": "{{.Args.symbol}}"{{if .Args.deviceId}},
+        "deviceId": "{{.Args.deviceId}}"{{end}}
+      }
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "message": "{{.Response.Data.message}}"
+      }
+  - name: remove_favorite
+    description: Remove coin from favorites list
+    method: DELETE
+    endpoint: '{{.Config.baseUrl}}/favorites/{{.Args.symbol}}'
+    headers:
+      Authorization: >-
+        {{if .Args.token}}Bearer
+        {{.Args.token}}{{else}}{{.Request.Headers.Authorization}}{{end}}
+    args:
+      - name: token
+        position: header
+        required: false
+        type: string
+        description: JWT token (optional, will use request header if not provided)
+        default: ''
+        items:
+          type: ''
+      - name: symbol
+        position: path
+        required: true
+        type: string
+        description: Coin symbol
+        default: ''
+        items:
+          type: ''
+      - name: deviceId
+        position: query
+        required: false
+        type: string
+        description: Device ID (for non-logged users)
+        default: ''
+        items:
+          type: ''
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "message": "{{.Response.Data.message}}"
+      }
+  - name: get_db_status
+    description: Get database status and statistics
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/debug/db-status'
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "coins": {{toJSON .Response.Data.coins}},
+        "totalCoins": {{.Response.Data.totalCoins}},
+        "totalMetrics": {{.Response.Data.totalMetrics}},
+        "dateRange": {{toJSON .Response.Data.dateRange}},
+        "latestData": {{toJSON .Response.Data.latestData}}
+      }
+  - name: get_date_range
+    description: Get date range in database
+    method: GET
+    endpoint: '{{.Config.baseUrl}}/data/debug/date-range'
+    requestBody: ''
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "dateRange": {{toJSON .Response.Data.dateRange}}
+      }
+prompts: []
+mcpServers: []
+createdAt: '2025-08-14T00:25:33.536018903Z'
+updatedAt: '2025-08-14T01:57:49.205647753Z'

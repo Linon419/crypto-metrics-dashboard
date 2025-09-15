@@ -698,6 +698,134 @@ function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitS
 }
 
 /**
+ * 简化的质量判断（用于历史数据）
+ * @param {Object} metric - 数据记录
+ * @returns {string} - 简化的质量描述
+ */
+function getSimplifiedQuality(metric) {
+  if (!metric.entry_exit_type || metric.entry_exit_type === 'neutral') {
+    return '观望';
+  }
+
+  if (metric.entry_exit_type === 'entry') {
+    // 简化的进场期质量判断
+    if (metric.explosion_index < 200) {
+      return '进场期 (爆破<200)';
+    } else {
+      return '进场期 (爆破≥200)';
+    }
+  }
+
+  if (metric.entry_exit_type === 'exit') {
+    // 简化的退场期质量判断
+    if (metric.explosion_index < 0) {
+      return '退场期 (爆破<0)';
+    } else {
+      return '退场期 (爆破≥0)';
+    }
+  }
+
+  return '历史数据';
+}
+
+/**
+ * 计算给定币种在特定日期的周期质量（用于历史数据）
+ * @param {number} coinId - 币种的ID
+ * @param {string} targetDate - 目标日期 (YYYY-MM-DD)
+ * @param {Array} historicalMetrics - 预先获取的历史数据
+ * @returns {Promise<string>} - 描述周期质量的字符串
+ */
+async function calculatePeriodQualityForDate(coinId, targetDate, historicalMetrics) {
+  try {
+    console.log(`[QualityCheck-Historical] CoinID ${coinId}: Calculating quality for date ${targetDate} with ${historicalMetrics.length} historical records.`);
+
+    if (historicalMetrics.length < 2) {
+      console.log(`[QualityCheck-Historical] CoinID ${coinId}: Insufficient historical data (${historicalMetrics.length} records). Returning '数据不足'.`);
+      return '数据不足';
+    }
+
+    // 找到目标日期的数据
+    const targetMetric = historicalMetrics.find(m => m.date === targetDate);
+    if (!targetMetric) {
+      console.log(`[QualityCheck-Historical] CoinID ${coinId}: No data found for target date ${targetDate}. Returning '数据不足'.`);
+      return '数据不足';
+    }
+
+    console.log(`[QualityCheck-Historical] CoinID ${coinId}: Target metric on ${targetDate} is type '${targetMetric.entry_exit_type}'.`);
+
+    // 进场期质量评估
+    if (targetMetric.entry_exit_type === 'entry') {
+      // 找到当前进场期的开始（从目标日期往前找，数据是按日期降序排列的）
+      let entryStartDateMetric = null;
+      for (let i = 0; i < historicalMetrics.length; i++) {
+        const metric = historicalMetrics[i];
+        if (metric.date > targetDate) continue; // 跳过目标日期之后的数据
+
+        if (metric.entry_exit_type === 'entry') {
+          // 检查是否是进场期的开始（下一条记录不是进场期或已到末尾）
+          const nextMetric = historicalMetrics[i + 1];
+          if (!nextMetric || nextMetric.entry_exit_type !== 'entry') {
+            entryStartDateMetric = metric;
+            break;
+          }
+        }
+      }
+
+      if (!entryStartDateMetric) {
+        console.log(`[QualityCheck-Historical] CoinID ${coinId}: Could not find start of 'entry' period for date ${targetDate}. Returning '数据不足'.`);
+        return '数据不足';
+      }
+
+      const entryStartOtcIndex = entryStartDateMetric.otc_index;
+      console.log(`[QualityCheck-Historical] CoinID ${coinId}: Entry period started on ${entryStartDateMetric.date} with OTC Index ${entryStartOtcIndex}.`);
+
+      if (!entryStartOtcIndex) return '数据不足';
+
+      // 使用完整的进场期质量评估算法
+      return evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId);
+    }
+
+    // 退场期质量评估
+    if (targetMetric.entry_exit_type === 'exit') {
+      // 找到当前退场期的开始（从目标日期往前找，数据是按日期降序排列的）
+      let exitStartDateMetric = null;
+      for (let i = 0; i < historicalMetrics.length; i++) {
+        const metric = historicalMetrics[i];
+        if (metric.date > targetDate) continue; // 跳过目标日期之后的数据
+
+        if (metric.entry_exit_type === 'exit') {
+          // 检查是否是退场期的开始（下一条记录不是退场期或已到末尾）
+          const nextMetric = historicalMetrics[i + 1];
+          if (!nextMetric || nextMetric.entry_exit_type !== 'exit') {
+            exitStartDateMetric = metric;
+            break;
+          }
+        }
+      }
+
+      if (!exitStartDateMetric) {
+        console.log(`[QualityCheck-Historical] CoinID ${coinId}: Could not find start of 'exit' period for date ${targetDate}. Returning '数据不足'.`);
+        return '数据不足';
+      }
+
+      const exitStartOtcIndex = exitStartDateMetric.otc_index;
+      console.log(`[QualityCheck-Historical] CoinID ${coinId}: Exit period started on ${exitStartDateMetric.date} with OTC Index ${exitStartOtcIndex}.`);
+
+      if (!exitStartOtcIndex) return '数据不足';
+
+      // 使用完整的退场期质量评估算法
+      return evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId);
+    }
+
+    console.log(`[QualityCheck-Historical] CoinID ${coinId}: Not in entry/exit period on ${targetDate}. Returning '观望'.`);
+    return '观望'; // 既不进场也不退场
+  } catch (error) {
+    console.error(`Error calculating historical period quality for coinId ${coinId} on ${targetDate}:`, error);
+    return '计算出错';
+  }
+}
+
+/**
  * 计算给定币种当前周期的质量
  * @param {number} coinId - 币种的ID
  * @returns {Promise<string>} - 描述周期质量的字符串
@@ -1038,6 +1166,154 @@ router.post('/import-database', async (req, res) => {
   }
 });
 
+
+// --- 路由：按日期获取数据 ---
+router.get('/by-date/:date', async (req, res) => {
+  try {
+    const { date } = req.params;
+    console.log(`[BY_DATE] Request received for date: ${date}`);
+
+    // 验证日期格式
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid date format. Expected YYYY-MM-DD'
+      });
+    }
+
+    // 获取指定日期的所有币种数据
+    const metricsForDate = await DailyMetric.findAll({
+      where: { date },
+      include: [{
+        model: Coin,
+        as: 'coin',
+        attributes: ['id', 'symbol', 'name', 'current_price', 'logo_url']
+      }],
+      order: [['coin_id', 'ASC']]
+    });
+
+    if (metricsForDate.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: `No data found for date ${date}`
+      });
+    }
+
+    // 获取前一天的数据用于对比
+    const previousDate = new Date(date);
+    previousDate.setDate(previousDate.getDate() - 1);
+    const previousDateStr = previousDate.toISOString().split('T')[0];
+
+    const previousMetrics = await DailyMetric.findAll({
+      where: { date: previousDateStr },
+      include: [{
+        model: Coin,
+        as: 'coin',
+        attributes: ['id', 'symbol']
+      }]
+    });
+
+    // 创建前一天数据的映射
+    const previousDataMap = {};
+    previousMetrics.forEach(metric => {
+      previousDataMap[metric.coin.symbol] = metric;
+    });
+
+    // 处理数据，添加变化百分比和完整质量判断
+    const processedCoins = await Promise.all(metricsForDate.map(async (metric) => {
+      const coin = metric.coin;
+      const previousData = previousDataMap[coin.symbol];
+
+      // 计算变化百分比
+      const otcChangePercent = previousData ?
+        calculateChangePercent(metric.otc_index, previousData.otc_index) : null;
+      const explosionChangePercent = previousData ?
+        calculateChangePercent(metric.explosion_index, previousData.explosion_index) : null;
+
+      // 计算完整的历史质量判断
+      let periodQuality = '数据不足';
+      try {
+        // 获取该币种截止到指定日期的历史数据
+        const historicalMetrics = await DailyMetric.findAll({
+          where: {
+            coin_id: coin.id,
+            date: { [Op.lte]: date } // 只使用指定日期及之前的数据
+          },
+          order: [['date', 'DESC']],
+          limit: 365, // 限制查询范围，提高性能
+          raw: true
+        });
+
+        if (historicalMetrics.length >= 2) {
+          // 使用完整的质量判断算法，但基于历史数据
+          periodQuality = await calculatePeriodQualityForDate(coin.id, date, historicalMetrics);
+        }
+      } catch (error) {
+        console.error(`[BY_DATE] Error calculating quality for coin ${coin.id}:`, error);
+        periodQuality = '计算出错';
+      }
+
+      return {
+        id: coin.id,
+        symbol: coin.symbol,
+        name: coin.name,
+        current_price: coin.current_price,
+        logo_url: coin.logo_url,
+        otcIndex: metric.otc_index,
+        explosionIndex: metric.explosion_index,
+        schellingPoint: metric.schelling_point,
+        entryExitType: metric.entry_exit_type,
+        entryExitDay: metric.entry_exit_day,
+        nearThreshold: metric.near_threshold,
+        date: metric.date,
+        timestamp: metric.timestamp,
+        timePrecision: metric.time_precision,
+        // 变化数据
+        previousDay: previousData ? {
+          otcIndex: previousData.otc_index,
+          explosionIndex: previousData.explosion_index,
+          date: previousData.date
+        } : null,
+        otcChangePercent,
+        explosionChangePercent,
+        // 完整的质量判断
+        period_quality: periodQuality
+      };
+    }));
+
+    // 获取流动性概况
+    const liquidityOverview = await LiquidityOverview.findOne({
+      where: { date }
+    });
+
+    // 获取热门币种
+    const trendingCoins = await TrendingCoin.findAll({
+      where: { date },
+      order: [['symbol', 'ASC']]
+    });
+
+    const response = {
+      success: true,
+      date,
+      previousDate: previousDateStr,
+      coins: processedCoins,
+      liquidityOverview,
+      trendingCoins,
+      totalCoins: processedCoins.length
+    };
+
+    console.log(`[BY_DATE] Successfully returned ${processedCoins.length} coins for date ${date}`);
+    res.json(response);
+
+  } catch (error) {
+    console.error('[BY_DATE] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching data for date',
+      details: error.message
+    });
+  }
+});
 
 // --- 调试路由 ---
 router.get('/debug/date-range', async (req, res) => {

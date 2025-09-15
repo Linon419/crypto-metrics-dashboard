@@ -241,6 +241,24 @@ export const submitRawData = async (rawData) => {
   }
 };
 
+// 按日期获取数据
+export const fetchDataByDate = async (date) => {
+  try {
+    console.log(`获取 ${date} 的数据...`);
+    const response = await callApiWithRetry(() => api.get(`/data/by-date/${date}`));
+
+    if (response.data && response.data.success) {
+      console.log(`成功获取 ${date} 的数据，包含 ${response.data.totalCoins} 个币种`);
+      return response.data;
+    } else {
+      throw new Error(response.data?.error || '获取数据失败');
+    }
+  } catch (error) {
+    console.error(`获取 ${date} 数据失败:`, error.displayMessage || error.message);
+    throw new Error(error.displayMessage || `获取 ${date} 数据失败`);
+  }
+};
+
 export const fetchLatestMetrics = async (forceRefresh = false) => {
   const now = Date.now();
   if (!forceRefresh && dataCache.latestMetrics && (now - dataCache.lastFetchTime < 5 * 60 * 1000)) {

@@ -1,0 +1,245 @@
+name: "crypto-metrics-api"
+description: "Crypto Metrics Dashboard as an MCP Server"
+allowedTools:
+  - "auth_login"
+  - "auth_register"
+  - "auth_verify"
+  - "get_latest_data"
+  - "get_historical_data"
+  - "get_dashboard_data"
+  - "get_coins"
+  - "get_coin_by_symbol"
+  - "get_coin_metrics"
+  - "get_liquidity_data"
+  - "get_liquidity_by_date"
+  - "get_db_status"
+  - "get_date_range"
+config:
+  baseUrl: "http://localhost:3001/api"
+
+tools:
+  # 认证
+  - name: "auth_login"
+    description: "用户登录获取JWT令牌"
+    method: "POST"
+    endpoint: "{{.Config.baseUrl}}/auth/login"
+    headers:
+      Content-Type: "application/json"
+    args:
+      - name: "username"
+        position: "body"
+        required: true
+        type: "string"
+      - name: "password"
+        position: "body"
+        required: true
+        type: "string"
+    requestBody: |-
+      {
+        "username": "{{.Args.username}}",
+        "password": "{{.Args.password}}"
+      }
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "token": "{{.Response.Data.token}}",
+        "user": {{toJSON .Response.Data.user}}
+      }
+
+  - name: "auth_register"
+    description: "用户注册"
+    method: "POST"
+    endpoint: "{{.Config.baseUrl}}/auth/register"
+    headers:
+      Content-Type: "application/json"
+    args:
+      - name: "username"
+        position: "body"
+        required: true
+        type: "string"
+      - name: "password"
+        position: "body"
+        required: true
+        type: "string"
+      - name: "email"
+        position: "body"
+        required: true
+        type: "string"
+    requestBody: |-
+      {
+        "username": "{{.Args.username}}",
+        "password": "{{.Args.password}}",
+        "email": "{{.Args.email}}"
+      }
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "message": "{{.Response.Data.message}}",
+        "user": {{toJSON .Response.Data.user}}
+      }
+
+  - name: "auth_verify"
+    description: "验证JWT令牌（从请求头透传 Authorization）"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/auth/verify"
+    headers:
+      Authorization: "{{.Request.Headers.Authorization}}"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "user": {{toJSON .Response.Data.user}}
+      }
+
+  # 数据
+  - name: "get_latest_data"
+    description: "获取最新的指标数据（包含变化百分比和质量判断）"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/data/latest"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "date": "{{.Response.Data.date}}",
+        "previousDate": "{{.Response.Data.previousDate}}",
+        "totalCoins": {{.Response.Data.totalCoins}},
+        "coins": {{toJSON .Response.Data.coins}},
+        "liquidityOverview": {{toJSON .Response.Data.liquidityOverview}},
+        "trendingCoins": {{toJSON .Response.Data.trendingCoins}}
+      }
+
+  - name: "get_historical_data"
+    description: "按日期获取历史数据"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/data/by-date/{{.Args.date}}"
+    args:
+      - name: "date"
+        position: "path"
+        required: true
+        type: "string"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "date": "{{.Response.Data.date}}",
+        "previousDate": "{{.Response.Data.previousDate}}",
+        "totalCoins": {{.Response.Data.totalCoins}},
+        "coins": {{toJSON .Response.Data.coins}},
+        "liquidityOverview": {{toJSON .Response.Data.liquidityOverview}},
+        "trendingCoins": {{toJSON .Response.Data.trendingCoins}}
+      }
+
+  - name: "get_dashboard_data"
+    description: "获取仪表盘数据（可选 date 查询参数）"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/dashboard"
+    args:
+      - name: "date"
+        position: "query"
+        required: false
+        type: "string"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "data": {{toJSON .Response.Data.data}},
+        "date": "{{.Response.Data.date}}"
+      }
+
+  # 币种
+  - name: "get_coins"
+    description: "获取所有币种列表"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/coins"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "coins": {{toJSON .Response.Data.coins}}
+      }
+
+  - name: "get_coin_by_symbol"
+    description: "根据符号获取单个币种"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/coins/{{.Args.symbol}}"
+    args:
+      - name: "symbol"
+        position: "path"
+        required: true
+        type: "string"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "coin": {{toJSON .Response.Data.coin}}
+      }
+
+  - name: "get_coin_metrics"
+    description: "获取指定币种的历史指标数据（可选时间范围）"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/coins/{{.Args.symbol}}/metrics"
+    args:
+      - name: "symbol"
+        position: "path"
+        required: true
+        type: "string"
+      - name: "startDate"
+        position: "query"
+        required: false
+        type: "string"
+      - name: "endDate"
+        position: "query"
+        required: false
+        type: "string"
+    responseBody: |-
+      {{ toJSON .Response.Data }}
+
+  # 流动性
+  - name: "get_liquidity_data"
+    description: "获取所有流动性概览数据（可选 date 过滤）"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/liquidity"
+    args:
+      - name: "date"
+        position: "query"
+        required: false
+        type: "string"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "data": {{toJSON .Response.Data}}
+      }
+
+  - name: "get_liquidity_by_date"
+    description: "获取指定日期的流动性概览"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/liquidity/{{.Args.date}}"
+    args:
+      - name: "date"
+        position: "path"
+        required: true
+        type: "string"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "data": {{toJSON .Response.Data}}
+      }
+
+  # 调试
+  - name: "get_db_status"
+    description: "获取数据库状态和统计信息"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/debug/db-status"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "coins": {{toJSON .Response.Data.coins}},
+        "totalCoins": {{.Response.Data.totalCoins}},
+        "totalMetrics": {{.Response.Data.totalMetrics}},
+        "dateRange": {{toJSON .Response.Data.dateRange}},
+        "latestData": {{toJSON .Response.Data.latestData}}
+      }
+
+  - name: "get_date_range"
+    description: "获取数据库中的日期范围"
+    method: "GET"
+    endpoint: "{{.Config.baseUrl}}/data/debug/date-range"
+    responseBody: |-
+      {
+        "success": {{.Response.Data.success}},
+        "dateRange": {{toJSON .Response.Data.dateRange}}
+      }

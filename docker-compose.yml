@@ -1,27 +1,28 @@
-version: '3.8'
+version: '3.3'
 
 services:
   crypto-dashboard:
-    build: .
+    image: ghcr.io/linon419/crypto-metrics-dashboard:main
+    container_name: crypto-dashboard
+    restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "3080:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - API_PUBLIC_HOST=http://localhost:3001
+      - OPENAI_MODEL=gpt-5-mini
+      - DB_STORAGE=/data/db/database.sqlite
+      - JWT_SECRET=your-secret-key-change-this-in-production
+      - API_PUBLIC_HOST=http://168.138.207.11:3080
       # Telegram Bot配置
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - API_BASE_URL=http://localhost:3001/api
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
-      # 数据库路径
-      - DB_PATH=/data/dashboard.db
       - TZ=Asia/Shanghai
     volumes:
-      - ./data:/data
+      - /root/crypto-dashboard/data:/data/db
       - ./telegram-bot/data:/app/telegram-bot/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/test"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+
+volumes:
+  sqlite-data:
+  data-volume:

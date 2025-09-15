@@ -363,31 +363,59 @@ async function checkDataUpdates() {
                 const alreadyNotified = await hasNotificationSent(chatId, 'SYSTEM', 'data_update', currentDate);
                 
                 if (!alreadyNotified) {
-                    // 获取今天的重要变化
-                    const significantChanges = analyzeDataChanges(data.metrics);
+                    // 获取所有重要变化和通知
+                    const allNotifications = [];
                     
+                    // 1. 分析全市场重要变化
+                    const significantChanges = analyzeDataChanges(data.metrics);
                     if (significantChanges.length > 0) {
-                        const message = `
-📊 *Dashboard数据已更新*
-
-检测到以下重要变化：
-
-${significantChanges.map(change => 
-`• **${change.coin.name} (${change.coin.symbol})**
-   ${change.changeType}: ${change.description}
-   📊 场外指数：${change.coin.otc_index || 'N/A'}
-   💥 爆破指数：${change.coin.explosion_index || 'N/A'}`
-).join('\n\n')}
-
-⏰ 数据更新时间：${new Date().toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'})}
-                        `;
-
+                        allNotifications.push({
+                            type: 'market_changes',
+                            title: '📊 市场重要变化',
+                            content: significantChanges
+                        });
+                    }
+                    
+                    // 2. 检查收藏币种状态
+                    const favoriteAlerts = await checkUserFavoriteAlerts(chatId, data.metrics);
+                    if (favoriteAlerts.length > 0) {
+                        allNotifications.push({
+                            type: 'favorite_alerts',
+                            title: '⭐ 收藏币种提醒',
+                            content: favoriteAlerts
+                        });
+                    }
+                    
+                    // 3. 检查优质进场期机会
+                    const qualityOpportunities = await analyzeQualityOpportunities(data.metrics, chatId, currentDate);
+                    if (qualityOpportunities.length > 0) {
+                        allNotifications.push({
+                            type: 'quality_opportunities',
+                            title: '🌟 优质机会发现',
+                            content: qualityOpportunities
+                        });
+                    }
+                    
+                    if (allNotifications.length > 0) {
+                        const message = formatComprehensiveNotification(allNotifications);
+                        
                         try {
                             await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
                             await recordNotification(chatId, 'SYSTEM', 'data_update', currentDate);
-                            console.log(`Data update notification sent to ${chatId}`);
+                            
+                            // 为进场期前3天的币种记录特殊的通知历史
+                            const qualityOpps = allNotifications.find(n => n.type === 'quality_opportunities');
+                            if (qualityOpps) {
+                                for (const opp of qualityOpps.content) {
+                                    if (opp.isEarlyEntry && opp.notificationKey) {
+                                        await recordNotification(chatId, opp.coin.symbol, opp.notificationKey, currentDate);
+                                    }
+                                }
+                            }
+                            
+                            console.log(`Comprehensive notification sent to ${chatId} with ${allNotifications.length} types`);
                         } catch (error) {
-                            console.error(`Failed to send data update notification to ${chatId}:`, error);
+                            console.error(`Failed to send comprehensive notification to ${chatId}:`, error);
                         }
                     }
                 }
@@ -444,6 +472,165 @@ function analyzeDataChanges(metrics) {
     return significantChanges.slice(0, 5); // 最多显示5个重要变化
 }
 
+// 检查用户收藏币种的所有状态
+async function checkUserFavoriteAlerts(chatId, metrics) {
+    const alerts = [];
+    
+    try {
+        // 获取用户Dashboard的收藏列表
+        const userFavoriteCoins = await getUserFavoriteCoins(chatId);
+        
+        for (const favoriteSymbol of userFavoriteCoins) {
+            const coinData = metrics.find(m => m.coin.symbol === favoriteSymbol);
+            
+            if (!coinData) continue;
+            
+            // 检查爆破指数跌破200
+            if (coinData.explosion_index < 200) {
+                alerts.push({
+                    coin: coinData.coin,
+                    alertType: '⚠️ 爆破指数跌破200',
+                    description: `爆破指数：${coinData.explosion_index}`,
+                    priority: 'high'
+                });
+            }
+            
+            // 检查退场期
+            if (coinData.entry_exit_type === 'exit') {
+                alerts.push({
+                    coin: coinData.coin,
+                    alertType: '📉 进入退场期',
+                    description: `退场期第${coinData.entry_exit_day}天`,
+                    priority: 'high'
+                });
+            }
+            
+            // 检查逼近期
+            if (coinData.near_threshold || 
+                (coinData.entry_exit_type === 'neutral' && coinData.explosion_index > 0 && coinData.explosion_index < 100)) {
+                alerts.push({
+                    coin: coinData.coin,
+                    alertType: '🎯 进入逼近期',
+                    description: '逼近关键阈值',
+                    priority: 'medium'
+                });
+            }
+        }
+    } catch (error) {
+        console.error(`Error checking favorite alerts for user ${chatId}:`, error);
+    }
+    
+    return alerts.slice(0, 3); // 最多显示3个收藏提醒
+}
+
+// 分析优质机会
+async function analyzeQualityOpportunities(metrics, chatId, currentDate) {
+    const opportunities = [];
+    
+    // 优质进场期机会 - 分为两类处理
+    const qualityEntryCoins = metrics.filter(metric => 
+        metric.entry_exit_type === 'entry' && 
+        (metric.period_quality === '高质量进场' || metric.period_quality?.includes('高质量')) &&
+        metric.entry_exit_day >= 1 && metric.entry_exit_day <= 7
+    );
+    
+    for (const coin of qualityEntryCoins) {
+        // 对于前3天的进场期，使用特殊的去重逻辑（每天都可以通知）
+        if (coin.entry_exit_day <= 3) {
+            const notificationKey = `quality_entry_day_${coin.entry_exit_day}`;
+            const alreadySent = await hasNotificationSent(chatId, coin.coin.symbol, notificationKey, currentDate);
+            
+            if (!alreadySent) {
+                opportunities.push({
+                    coin: coin.coin,
+                    opportunityType: '🌟 高质量进场期初期',
+                    description: `第${coin.entry_exit_day}天 - ${coin.period_quality}`,
+                    indices: {
+                        explosion: coin.explosion_index,
+                        otc: coin.otc_index
+                    },
+                    notificationKey: notificationKey,
+                    isEarlyEntry: true
+                });
+            }
+        } else {
+            // 4-7天的进场期，使用普通逻辑（避免重复）
+            opportunities.push({
+                coin: coin.coin,
+                opportunityType: '🌟 高质量进场期',
+                description: `第${coin.entry_exit_day}天 - ${coin.period_quality}`,
+                indices: {
+                    explosion: coin.explosion_index,
+                    otc: coin.otc_index
+                },
+                isEarlyEntry: false
+            });
+        }
+    }
+    
+    // 爆破指数由负转正
+    const explosionTurnPositiveCoins = metrics.filter(metric => 
+        metric.explosion_index > 0 && 
+        metric.explosion_index_change_percent && 
+        metric.explosion_index_change_percent > 0
+        // 移除额外限制：只要当前为正且有正向变化就通知
+    );
+    
+    explosionTurnPositiveCoins.forEach(coin => {
+        opportunities.push({
+            coin: coin.coin,
+            opportunityType: '🚀 爆破指数转正',
+            description: `+${coin.explosion_index_change_percent.toFixed(1)}% 转正`,
+            indices: {
+                explosion: coin.explosion_index,
+                otc: coin.otc_index
+            },
+            isEarlyEntry: false
+        });
+    });
+    
+    return opportunities.slice(0, 5); // 增加到最多显示5个机会
+}
+
+// 格式化综合通知消息
+function formatComprehensiveNotification(notifications) {
+    let message = `📱 *实时数据更新*\n\n`;
+    
+    notifications.forEach((notification, index) => {
+        message += `${notification.title}\n`;
+        
+        if (notification.type === 'market_changes') {
+            notification.content.forEach(change => {
+                message += `• **${change.coin.name} (${change.coin.symbol})**\n`;
+                message += `   ${change.changeType}: ${change.description}\n`;
+                message += `   📊 场外：${change.coin.otc_index || 'N/A'} | 💥 爆破：${change.coin.explosion_index || 'N/A'}\n`;
+            });
+        } else if (notification.type === 'favorite_alerts') {
+            notification.content.forEach(alert => {
+                message += `• **${alert.coin.name} (${alert.coin.symbol})**\n`;
+                message += `   ${alert.alertType}: ${alert.description}\n`;
+            });
+        } else if (notification.type === 'quality_opportunities') {
+            notification.content.forEach(opp => {
+                message += `• **${opp.coin.name} (${opp.coin.symbol})**\n`;
+                message += `   ${opp.opportunityType}: ${opp.description}\n`;
+                if (opp.isEarlyEntry) {
+                    message += `   🔥 *进场期黄金时间* - 持续关注\n`;
+                }
+                message += `   📊 场外：${opp.indices.otc || 'N/A'} | 💥 爆破：${opp.indices.explosion || 'N/A'}\n`;
+            });
+        }
+        
+        if (index < notifications.length - 1) {
+            message += '\n';
+        }
+    });
+    
+    message += `\n⏰ ${new Date().toLocaleString('zh-CN', {timeZone: 'Australia/Sydney'})}`;
+    
+    return message;
+}
+
 // 删除原有的checkExitAlerts函数，功能已合并到checkFavoriteCoinsAlerts中
 
 // 辅助函数：判断是否应该发送优质进场期通知
@@ -471,34 +658,18 @@ function getTypeDisplay(type) {
 function initializeScheduler() {
     console.log('Initializing scheduler...');
 
-    // 每天早上8:00轮询所有币种的高质量进场期机会
-    cron.schedule('0 8 * * *', async () => {
-        console.log('Running daily all coins quality entry polling');
-        await checkAllCoinsQualityEntry();
-    }, {
-        timezone: "Asia/Shanghai"
-    });
-
-    // 每天晚上6:00轮询用户收藏币种的爆破指数和退场期状态
-    cron.schedule('0 18 * * *', async () => {
-        console.log('Running daily favorite coins alerts check');
-        await checkFavoriteCoinsAlerts();
-    }, {
-        timezone: "Asia/Shanghai"
-    });
+    // 移除固定时间的定时通知，只保留实时数据更新检测
 
     // 下午2点到晚上8点，每30分钟检查一次数据更新
     cron.schedule('*/30 14-20 * * *', async () => {
         console.log('Running data update check');
         await checkDataUpdates();
     }, {
-        timezone: "Asia/Shanghai"
+        timezone: "Australia/Sydney"
     });
 
     console.log('Scheduler initialized with the following jobs:');
-    console.log('- Daily at 8:00 AM: All coins quality entry polling');
-    console.log('- Daily at 6:00 PM: Favorite coins explosion & exit alerts');
-    console.log('- Every 30 minutes (2:00 PM - 8:00 PM): Data update checks');
+    console.log('- Every 30 minutes (2:00 PM - 8:00 PM): Real-time data update checks with comprehensive monitoring');
 }
 
 // 立即执行一次检查（用于测试）

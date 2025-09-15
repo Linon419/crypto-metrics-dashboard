@@ -19,7 +19,11 @@ import { fetchCoinMetrics } from '../services/api';
 const { Title, Text } = Typography;
 const { Option } = Select;
 
-function CoinDetailChart({ coin, onRefresh }) {
+function CoinDetailChart({ coin, onRefresh, selectedDate }) {
+  console.log('[CoinDetailChart] Component rendered with props:', {
+    coinSymbol: coin?.symbol,
+    selectedDate: selectedDate ? selectedDate.format('YYYY-MM-DD') : 'null'
+  });
   const [metrics, setMetrics] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -161,7 +165,43 @@ function CoinDetailChart({ coin, onRefresh }) {
       }
     }
   }, [coin]);
-  
+
+  // 处理选中日期变化，过滤显示数据
+  useEffect(() => {
+    console.log('[CoinDetailChart] Date filter effect triggered:', {
+      selectedDate: selectedDate ? selectedDate.format('YYYY-MM-DD') : 'null',
+      metricsLength: metrics.length,
+      coinSymbol: coin?.symbol
+    });
+
+    if (selectedDate && metrics.length > 0) {
+      const selectedDateStr = selectedDate.format('YYYY-MM-DD');
+      const filteredMetrics = metrics.filter(metric => {
+        return metric.date <= selectedDateStr;
+      });
+
+      console.log('[CoinDetailChart] Filtered metrics:', {
+        originalLength: metrics.length,
+        filteredLength: filteredMetrics.length,
+        selectedDate: selectedDateStr,
+        firstDate: metrics[0]?.date,
+        lastDate: metrics[metrics.length - 1]?.date
+      });
+
+      if (filteredMetrics.length > 0) {
+        setDisplayData(filteredMetrics);
+      } else {
+        // 如果没有数据在选中日期之前，显示所有数据
+        console.log('[CoinDetailChart] No data before selected date, showing all data');
+        setDisplayData(metrics);
+      }
+    } else {
+      // 如果没有选中日期，显示所有数据
+      console.log('[CoinDetailChart] No selected date or no metrics, showing all data');
+      setDisplayData(metrics);
+    }
+  }, [selectedDate, metrics]);
+
   // 加载币种历史指标数据
   useEffect(() => {
     const loadMetricsData = async () => {
@@ -174,38 +214,48 @@ function CoinDetailChart({ coin, onRefresh }) {
       setError(null);
       
       try {
-        // 计算日期范围 - 基于选择的时间范围
-        const endDate = new Date();
+        // 计算日期范围 - 如果有选中日期，使用选中日期作为结束日期
+        const endDate = selectedDate ? selectedDate.toDate() : new Date();
         let startDate = new Date();
         
         switch(timeRange) {
-          case '1W': 
+          case '1W':
+            startDate.setTime(endDate.getTime());
             startDate.setDate(endDate.getDate() - 7);
             break;
           case '1M':
+            startDate.setTime(endDate.getTime());
             startDate.setDate(endDate.getDate() - 30);
             break;
           case '3M':
+            startDate.setTime(endDate.getTime());
             startDate.setDate(endDate.getDate() - 90);
             break;
           case '6M':
+            startDate.setTime(endDate.getTime());
             startDate.setDate(endDate.getDate() - 180);
             break;
           case '1Y':
+            startDate.setTime(endDate.getTime());
             startDate.setDate(endDate.getDate() - 365);
             break;
           case 'ALL':
             startDate = new Date(2023, 0, 1); // 从2023年开始
             break;
           default:
+            startDate.setTime(endDate.getTime());
             startDate.setDate(endDate.getDate() - 30);
         }
         
         // 将日期转换为 YYYY-MM-DD 格式
         const formattedStartDate = startDate.toISOString().split('T')[0];
         const formattedEndDate = endDate.toISOString().split('T')[0];
-        
-        console.log(`获取 ${coin.symbol} 从 ${formattedStartDate} 到 ${formattedEndDate} 的指标数据`);
+
+        console.log(`[CoinDetailChart] 获取 ${coin.symbol} 从 ${formattedStartDate} 到 ${formattedEndDate} 的指标数据`, {
+          selectedDate: selectedDate ? selectedDate.format('YYYY-MM-DD') : 'null',
+          timeRange,
+          endDateUsed: formattedEndDate
+        });
         
         // 获取数据
         const data = await fetchCoinMetrics(coin.symbol, {
@@ -270,7 +320,7 @@ function CoinDetailChart({ coin, onRefresh }) {
     };
     
     loadMetricsData();
-  }, [coin?.symbol, timeRange]); // 仅在coin.symbol或timeRange变化时重新加载
+  }, [coin?.symbol, timeRange, selectedDate]); // 在coin.symbol、timeRange或selectedDate变化时重新加载
   
   // 创建模拟数据函数 - 当API无法获取数据时使用
   const createMockData = (coin, startDate, endDate) => {
@@ -407,12 +457,15 @@ function CoinDetailChart({ coin, onRefresh }) {
       latestData.otcIndex === coin.otcIndex;
     
     if (!isConsistent) {
-      console.error('数据不一致!', {
-        '图表爆破指数': latestData.blastIndex,
-        '卡片爆破指数': coin.explosionIndex,
-        '图表场外指数': latestData.otcIndex,
-        '卡片场外指数': coin.otcIndex
-      });
+      // 数据不一致的调试信息（仅在开发环境显示）
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('数据不一致检测:', {
+          '图表爆破指数': latestData.blastIndex,
+          '卡片爆破指数': coin.explosionIndex,
+          '图表场外指数': latestData.otcIndex,
+          '卡片场外指数': coin.otcIndex
+        });
+      }
     }
     
     return (

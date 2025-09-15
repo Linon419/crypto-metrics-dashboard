@@ -105,6 +105,7 @@ safelyLoadRoutes('./routes/dashboard', '/api/dashboard');
 safelyLoadRoutes('./routes/liquidity', '/api/liquidity');
 safelyLoadRoutes('./routes/favorites', '/api/favorites'); // 添加收藏路由
 safelyLoadRoutes('./routes/debug', '/api/debug');
+safelyLoadRoutes('./routes/docs', '/api/docs'); // API文档路由
 
  // 3. 静态文件服务和 SPA 回退 (生产环境)
  if (process.env.NODE_ENV === 'production') {
