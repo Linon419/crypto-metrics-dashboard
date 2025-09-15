@@ -77,12 +77,16 @@ db.serialize(() => {
 
 console.log('Crypto Metrics Telegram Bot started successfully!');
 
-// 初始化定时任务
-const { initializeScheduler, runImmediateCheck } = require('./scheduler');
-initializeScheduler();
-
 // 导入用户认证模块
 const UserAuth = require('./user-auth');
+
+// 初始化用户认证模块的数据库连接
+UserAuth.setDatabase(db);
+
+// 初始化定时任务
+const { initializeDependencies, initializeScheduler, runImmediateCheck } = require('./scheduler');
+initializeDependencies(bot, db);
+initializeScheduler();
 
 // 获取用户的API数据的辅助函数
 async function getUserLatestData(chatId) {

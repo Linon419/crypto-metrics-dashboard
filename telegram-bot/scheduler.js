@@ -1,5 +1,4 @@
 const cron = require('node-cron');
-const { bot, db } = require('./bot');
 const axios = require('axios');
 require('dotenv').config();
 
@@ -7,6 +6,17 @@ const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3001/api';
 
 // 导入用户认证模块
 const UserAuth = require('./user-auth');
+
+// 全局变量存储引用
+let bot = null;
+let db = null;
+
+// 初始化函数
+function initializeDependencies(botInstance, dbInstance) {
+    bot = botInstance;
+    db = dbInstance;
+    UserAuth.setDatabase(dbInstance);
+}
 
 // 获取用户数据的辅助函数
 async function getUserLatestData(chatId) {
@@ -314,6 +324,7 @@ async function runImmediateCheck() {
 }
 
 module.exports = {
+    initializeDependencies,
     initializeScheduler,
     runImmediateCheck,
     checkAllCoinsQualityEntry,

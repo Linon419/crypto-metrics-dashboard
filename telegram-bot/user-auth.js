@@ -1,6 +1,5 @@
 const axios = require('axios');
 const crypto = require('crypto');
-const { db } = require('./bot');
 require('dotenv').config();
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3001/api';
@@ -10,6 +9,11 @@ const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32);
 const IV_LENGTH = 16;
 
 class UserAuth {
+    // 设置数据库连接
+    static setDatabase(database) {
+        this.db = database;
+    }
+
     // 加密密码
     static encrypt(text) {
         const iv = crypto.randomBytes(IV_LENGTH);
@@ -35,7 +39,7 @@ class UserAuth {
         return new Promise((resolve, reject) => {
             const passwordHash = this.encrypt(password);
             
-            db.run(`INSERT OR REPLACE INTO user_credentials 
+            this.db.run(`INSERT OR REPLACE INTO user_credentials 
                     (chat_id, dashboard_username, dashboard_password_hash, updated_at) 
                     VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
                 [chatId, username, passwordHash],
@@ -50,7 +54,7 @@ class UserAuth {
     // 获取用户凭据
     static getUserCredentials(chatId) {
         return new Promise((resolve, reject) => {
-            db.get(`SELECT dashboard_username, dashboard_password_hash, jwt_token, token_expires_at 
+            this.db.get(`SELECT dashboard_username, dashboard_password_hash, jwt_token, token_expires_at 
                     FROM user_credentials WHERE chat_id = ?`,
                 [chatId],
                 (err, row) => {
@@ -77,7 +81,7 @@ class UserAuth {
     // 更新JWT token
     static updateUserToken(chatId, token, expiresAt) {
         return new Promise((resolve, reject) => {
-            db.run(`UPDATE user_credentials 
+            this.db.run(`UPDATE user_credentials 
                     SET jwt_token = ?, token_expires_at = ?, updated_at = CURRENT_TIMESTAMP 
                     WHERE chat_id = ?`,
                 [token, expiresAt, chatId],
@@ -92,7 +96,7 @@ class UserAuth {
     // 清除用户凭据
     static clearUserCredentials(chatId) {
         return new Promise((resolve, reject) => {
-            db.run(`DELETE FROM user_credentials WHERE chat_id = ?`,
+            this.db.run(`DELETE FROM user_credentials WHERE chat_id = ?`,
                 [chatId],
                 function(err) {
                     if (err) reject(err);
