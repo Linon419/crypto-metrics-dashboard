@@ -59,14 +59,7 @@ function getAllSubscribedUsers() {
     });
 }
 
-function getUserFavorites(chatId) {
-    return new Promise((resolve, reject) => {
-        db.all(`SELECT coin_symbol FROM user_favorites WHERE chat_id = ?`, [chatId], (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows.map(row => row.coin_symbol));
-        });
-    });
-}
+// 本地收藏功能已移除，现在使用Dashboard API
 
 function hasNotificationSent(chatId, coinSymbol, notificationType, date) {
     return new Promise((resolve, reject) => {

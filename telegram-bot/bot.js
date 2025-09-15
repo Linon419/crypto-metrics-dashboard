@@ -146,15 +146,6 @@ function addUser(chatId, userInfo) {
     });
 }
 
-function getUserFavorites(chatId) {
-    return new Promise((resolve, reject) => {
-        db.all(`SELECT coin_symbol FROM user_favorites WHERE chat_id = ?`, [chatId], (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows.map(row => row.coin_symbol));
-        });
-    });
-}
-
 // 本地收藏功能已移除，现在直接使用Dashboard API
 
 function hasNotificationSent(chatId, coinSymbol, notificationType, date) {
@@ -826,16 +817,29 @@ bot.onText(/\/status/, async (msg) => {
     try {
         await addUser(chatId, msg.from);
         
-        const [favorites, subscribedUsers] = await Promise.all([
-            getUserFavorites(chatId),
-            getAllSubscribedUsers()
-        ]);
+        // 检查用户是否已认证
+        const isAuthenticated = await isUserAuthenticated(chatId);
+        if (!isAuthenticated) {
+            await requireAuthentication(chatId, '查看状态');
+            return;
+        }
         
+        // 获取订阅状态和Dashboard收藏
+        const subscribedUsers = await getAllSubscribedUsers();
         const isSubscribed = subscribedUsers.includes(chatId);
         
+        let favorites = [];
+        try {
+            favorites = await UserAuth.makeUserAuthenticatedRequest(chatId, 'get', '/favorites');
+        } catch (apiError) {
+            console.error('Error fetching favorites for status:', apiError);
+            // 如果获取收藏失败，继续显示其他信息
+        }
+        
         let message = `📊 *您的状态*\n\n`;
+        message += `🔑 认证状态：✅ 已认证\n`;
         message += `🔔 通知订阅：${isSubscribed ? '✅ 已开启' : '❌ 已关闭'}\n`;
-        message += `⭐ 收藏币种：${favorites.length} 个\n`;
+        message += `⭐ Dashboard收藏：${favorites.length || 0} 个\n`;
         
         if (favorites.length > 0) {
             message += `\n📋 收藏列表：\n`;
@@ -843,6 +847,11 @@ bot.onText(/\/status/, async (msg) => {
                 message += `• ${symbol}\n`;
             });
         }
+        
+        message += `\n💡 提示：\n`;
+        message += `• 收藏数据来自您的Dashboard账户\n`;
+        message += `• 监控提醒基于Dashboard收藏列表\n`;
+        message += `• 使用 /subscribe 开启通知`;
         
         await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
         
