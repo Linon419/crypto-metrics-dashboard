@@ -116,7 +116,17 @@ async function checkAllCoinsQualityEntry() {
                     metric.entry_exit_day >= 1 && metric.entry_exit_day <= 7 // 进场期初期
                 );
 
-                console.log(`Found ${qualityEarlyEntryCoins.length} quality early entry coins for user ${chatId}`);
+                // 找到爆破指数由负转正的币种
+                const explosionTurnPositiveCoins = data.metrics.filter(metric => 
+                    metric.explosion_index > 0 && 
+                    metric.explosion_index_change_percent && 
+                    metric.explosion_index_change_percent > 0 &&
+                    // 需要确保之前是负数，现在是正数（简化判断：变化幅度大且现在为正）
+                    metric.explosion_index <= 50 && // 刚转正，通常不会太高
+                    metric.explosion_index_change_percent > 20 // 显著的正向变化
+                );
+
+                console.log(`Found ${qualityEarlyEntryCoins.length} quality early entry coins and ${explosionTurnPositiveCoins.length} explosion turn positive coins for user ${chatId}`);
 
                 for (const coinData of qualityEarlyEntryCoins) {
                     const coinSymbol = coinData.coin.symbol;
@@ -144,6 +154,37 @@ async function checkAllCoinsQualityEntry() {
                             console.log(`Quality early entry notification sent to ${chatId} for ${coinSymbol}`);
                         } catch (error) {
                             console.error(`Failed to send quality early entry notification to ${chatId}:`, error);
+                        }
+                    }
+                }
+
+                // 处理爆破指数由负转正的币种通知
+                for (const coinData of explosionTurnPositiveCoins) {
+                    const coinSymbol = coinData.coin.symbol;
+                    
+                    // 检查是否已经在今天发送过通知
+                    const alreadySent = await hasNotificationSent(chatId, coinSymbol, 'explosion_turn_positive', currentDate);
+                    
+                    if (!alreadySent) {
+                        const message = `
+🚀 *爆破指数由负转正*
+
+**${coinData.coin.name} (${coinSymbol})**
+💥 爆破指数：${coinData.explosion_index || 'N/A'} (📈 转正)
+📊 爆破变化：+${coinData.explosion_index_change_percent?.toFixed(2)}%
+📈 当前状态：${getTypeDisplay(coinData.entry_exit_type)}${coinData.entry_exit_day ? `第${coinData.entry_exit_day}天` : ''}
+🎯 场外指数：${coinData.otc_index || 'N/A'}
+⭐ 质量评估：${coinData.period_quality || '待评估'}
+
+🔥 爆破指数从负数转为正数，市场情绪回暖！
+                        `;
+                        
+                        try {
+                            await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                            await recordNotification(chatId, coinSymbol, 'explosion_turn_positive', currentDate);
+                            console.log(`Explosion turn positive notification sent to ${chatId} for ${coinSymbol}`);
+                        } catch (error) {
+                            console.error(`Failed to send explosion turn positive notification to ${chatId}:`, error);
                         }
                     }
                 }
