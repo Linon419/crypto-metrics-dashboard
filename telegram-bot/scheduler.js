@@ -293,6 +293,35 @@ async function checkFavoriteCoinsAlerts() {
                             }
                         }
                     }
+
+                    // 3. 检查进入逼近期
+                    if (coinData.near_threshold || 
+                        (coinData.entry_exit_type === 'neutral' && coinData.explosion_index > 0 && coinData.explosion_index < 100)) {
+                        const alreadySentNear = await hasNotificationSent(chatId, favoriteSymbol, 'favorite_near_threshold', currentDate);
+                        
+                        if (!alreadySentNear) {
+                            const message = `
+⚠️ *收藏币种进入逼近期*
+
+**${coinData.coin.name} (${favoriteSymbol})**
+🎯 当前状态：逼近关键阈值
+💥 爆破指数：${coinData.explosion_index || 'N/A'}
+📊 场外指数：${coinData.otc_index || 'N/A'}
+⭐ 质量评估：${coinData.period_quality || '待评估'}
+🎯 谢林点：${coinData.schelling_point || 'N/A'}
+
+💡 币种正接近重要阈值，可能即将突破或回调！
+                            `;
+                            
+                            try {
+                                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                                await recordNotification(chatId, favoriteSymbol, 'favorite_near_threshold', currentDate);
+                                console.log(`Favorite near threshold alert sent to ${chatId} for ${favoriteSymbol}`);
+                            } catch (error) {
+                                console.error(`Failed to send favorite near threshold alert to ${chatId}:`, error);
+                            }
+                        }
+                    }
                 }
             } catch (userError) {
                 console.error(`Error processing favorite alerts for user ${chatId}:`, userError);
@@ -301,6 +330,118 @@ async function checkFavoriteCoinsAlerts() {
     } catch (error) {
         console.error('Error in favorite coins alerts check:', error);
     }
+}
+
+// 检查数据更新并推送通知
+async function checkDataUpdates() {
+    console.log('Checking for dashboard data updates...');
+    
+    try {
+        const subscribedUsers = await getAllSubscribedUsers();
+        console.log(`Checking data updates for ${subscribedUsers.length} subscribed users`);
+
+        for (const chatId of subscribedUsers) {
+            // 检查用户是否已认证
+            const isAuthenticated = await isUserAuthenticated(chatId);
+            if (!isAuthenticated) {
+                console.log(`User ${chatId} not authenticated, skipping data update check`);
+                continue;
+            }
+
+            try {
+                const data = await getUserLatestData(chatId);
+                if (!data || !data.success) {
+                    console.log(`No latest data available for user ${chatId}`);
+                    continue;
+                }
+
+                // 检查数据更新时间（假设API返回数据有更新时间字段）
+                const currentDate = new Date().toISOString().slice(0, 10);
+                const updateKey = `data_update_${currentDate}`;
+                
+                // 检查是否已经发送过今天的数据更新通知
+                const alreadyNotified = await hasNotificationSent(chatId, 'SYSTEM', 'data_update', currentDate);
+                
+                if (!alreadyNotified) {
+                    // 获取今天的重要变化
+                    const significantChanges = analyzeDataChanges(data.metrics);
+                    
+                    if (significantChanges.length > 0) {
+                        const message = `
+📊 *Dashboard数据已更新*
+
+检测到以下重要变化：
+
+${significantChanges.map(change => 
+`• **${change.coin.name} (${change.coin.symbol})**
+   ${change.changeType}: ${change.description}
+   📊 场外指数：${change.coin.otc_index || 'N/A'}
+   💥 爆破指数：${change.coin.explosion_index || 'N/A'}`
+).join('\n\n')}
+
+⏰ 数据更新时间：${new Date().toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'})}
+                        `;
+
+                        try {
+                            await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                            await recordNotification(chatId, 'SYSTEM', 'data_update', currentDate);
+                            console.log(`Data update notification sent to ${chatId}`);
+                        } catch (error) {
+                            console.error(`Failed to send data update notification to ${chatId}:`, error);
+                        }
+                    }
+                }
+            } catch (userError) {
+                console.error(`Error checking data updates for user ${chatId}:`, userError);
+            }
+        }
+    } catch (error) {
+        console.error('Error in data update check:', error);
+    }
+}
+
+// 分析数据变化
+function analyzeDataChanges(metrics) {
+    const significantChanges = [];
+    
+    metrics.forEach(metric => {
+        // 检查爆破指数显著变化 (>50%变化)
+        if (metric.explosion_index_change_percent && Math.abs(metric.explosion_index_change_percent) > 50) {
+            significantChanges.push({
+                coin: metric.coin,
+                changeType: '💥 爆破指数大幅变化',
+                description: `${metric.explosion_index_change_percent > 0 ? '+' : ''}${metric.explosion_index_change_percent.toFixed(1)}%`
+            });
+        }
+        
+        // 检查场外指数显著变化 (>30%变化)
+        if (metric.otc_index_change_percent && Math.abs(metric.otc_index_change_percent) > 30) {
+            significantChanges.push({
+                coin: metric.coin,
+                changeType: '📊 场外指数大幅变化',
+                description: `${metric.otc_index_change_percent > 0 ? '+' : ''}${metric.otc_index_change_percent.toFixed(1)}%`
+            });
+        }
+        
+        // 检查进退场状态变化
+        if (metric.entry_exit_type === 'entry' && metric.entry_exit_day === 1) {
+            significantChanges.push({
+                coin: metric.coin,
+                changeType: '📈 新进入进场期',
+                description: `质量评估：${metric.period_quality || '待评估'}`
+            });
+        }
+        
+        if (metric.entry_exit_type === 'exit' && metric.entry_exit_day === 1) {
+            significantChanges.push({
+                coin: metric.coin,
+                changeType: '📉 新进入退场期',
+                description: `质量评估：${metric.period_quality || '待评估'}`
+            });
+        }
+    });
+    
+    return significantChanges.slice(0, 5); // 最多显示5个重要变化
 }
 
 // 删除原有的checkExitAlerts函数，功能已合并到checkFavoriteCoinsAlerts中
@@ -346,9 +487,18 @@ function initializeScheduler() {
         timezone: "Asia/Shanghai"
     });
 
+    // 下午2点到晚上8点，每30分钟检查一次数据更新
+    cron.schedule('*/30 14-20 * * *', async () => {
+        console.log('Running data update check');
+        await checkDataUpdates();
+    }, {
+        timezone: "Asia/Shanghai"
+    });
+
     console.log('Scheduler initialized with the following jobs:');
     console.log('- Daily at 8:00 AM: All coins quality entry polling');
     console.log('- Daily at 6:00 PM: Favorite coins explosion & exit alerts');
+    console.log('- Every 30 minutes (2:00 PM - 8:00 PM): Data update checks');
 }
 
 // 立即执行一次检查（用于测试）
@@ -364,5 +514,6 @@ module.exports = {
     initializeScheduler,
     runImmediateCheck,
     checkAllCoinsQualityEntry,
-    checkFavoriteCoinsAlerts
+    checkFavoriteCoinsAlerts,
+    checkDataUpdates
 };
