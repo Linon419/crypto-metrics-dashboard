@@ -132,25 +132,7 @@ function getUserFavorites(chatId) {
     });
 }
 
-function addUserFavorite(chatId, coinSymbol) {
-    return new Promise((resolve, reject) => {
-        db.run(`INSERT OR IGNORE INTO user_favorites (chat_id, coin_symbol) VALUES (?, ?)`,
-            [chatId, coinSymbol.toUpperCase()], function(err) {
-                if (err) reject(err);
-                else resolve(this.changes > 0);
-            });
-    });
-}
-
-function removeUserFavorite(chatId, coinSymbol) {
-    return new Promise((resolve, reject) => {
-        db.run(`DELETE FROM user_favorites WHERE chat_id = ? AND coin_symbol = ?`,
-            [chatId, coinSymbol.toUpperCase()], function(err) {
-                if (err) reject(err);
-                else resolve(this.changes > 0);
-            });
-    });
-}
+// 本地收藏功能已移除，现在直接使用Dashboard API
 
 function hasNotificationSent(chatId, coinSymbol, notificationType, date) {
     return new Promise((resolve, reject) => {
@@ -266,9 +248,9 @@ bot.onText(/\/start/, async (msg) => {
 /auth - 设置Dashboard账户认证
 /check <币种> - 查询单个币种状态
 /latest - 获取最新数据概览
-/favorite <币种> - 添加到收藏
-/unfavorite <币种> - 从收藏移除
-/myfavorites - 查看我的收藏
+/favorite <币种> - 添加到Dashboard收藏
+/unfavorite <币种> - 从Dashboard收藏移除
+/myfavorites - 查看Dashboard收藏
 /subscribe - 订阅自动通知
 /unsubscribe - 取消自动通知
         `;
@@ -624,12 +606,20 @@ bot.onText(/\/favorite (.+)/, async (msg, match) => {
             return;
         }
 
-        const added = await addUserFavorite(chatId, coinSymbol);
-        
-        if (added) {
-            await bot.sendMessage(chatId, `✅ 已将 ${coinSymbol} 添加到收藏列表！`);
-        } else {
-            await bot.sendMessage(chatId, `📌 ${coinSymbol} 已在您的收藏列表中。`);
+        // 调用Dashboard API添加收藏
+        try {
+            const response = await UserAuth.makeUserAuthenticatedRequest(chatId, 'post', '/favorites', {
+                symbol: coinSymbol
+            });
+            
+            if (response.message === 'Favorite added') {
+                await bot.sendMessage(chatId, `✅ 已将 ${coinSymbol} 添加到Dashboard收藏列表！`);
+            } else {
+                await bot.sendMessage(chatId, `📌 ${coinSymbol} 已在您的Dashboard收藏列表中。`);
+            }
+        } catch (apiError) {
+            console.error('Dashboard API error:', apiError);
+            await bot.sendMessage(chatId, '❌ 添加收藏失败，请检查网络连接或稍后重试。');
         }
         
     } catch (error) {
@@ -652,12 +642,17 @@ bot.onText(/\/unfavorite (.+)/, async (msg, match) => {
             return;
         }
         
-        const removed = await removeUserFavorite(chatId, coinSymbol);
-        
-        if (removed) {
-            await bot.sendMessage(chatId, `✅ 已将 ${coinSymbol} 从收藏列表移除。`);
-        } else {
-            await bot.sendMessage(chatId, `❌ ${coinSymbol} 不在您的收藏列表中。`);
+        // 调用Dashboard API删除收藏
+        try {
+            await UserAuth.makeUserAuthenticatedRequest(chatId, 'delete', `/favorites/${coinSymbol}`);
+            await bot.sendMessage(chatId, `✅ 已将 ${coinSymbol} 从Dashboard收藏列表移除。`);
+        } catch (apiError) {
+            if (apiError.response?.status === 404) {
+                await bot.sendMessage(chatId, `❌ ${coinSymbol} 不在您的Dashboard收藏列表中。`);
+            } else {
+                console.error('Dashboard API error:', apiError);
+                await bot.sendMessage(chatId, '❌ 移除收藏失败，请检查网络连接或稍后重试。');
+            }
         }
         
     } catch (error) {
@@ -679,14 +674,22 @@ bot.onText(/\/myfavorites/, async (msg) => {
             return;
         }
         
-        const favorites = await getUserFavorites(chatId);
+        // 获取Dashboard收藏列表
+        let favorites;
+        try {
+            favorites = await UserAuth.makeUserAuthenticatedRequest(chatId, 'get', '/favorites');
+        } catch (apiError) {
+            console.error('Dashboard API error:', apiError);
+            await bot.sendMessage(chatId, '❌ 获取收藏列表失败，请检查网络连接或稍后重试。');
+            return;
+        }
         
-        if (favorites.length === 0) {
-            await bot.sendMessage(chatId, '📭 您的收藏列表为空。\n\n使用 /favorite <币种> 添加收藏。');
+        if (!favorites || favorites.length === 0) {
+            await bot.sendMessage(chatId, '📭 您的Dashboard收藏列表为空。\n\n使用 /favorite <币种> 添加收藏。');
             return;
         }
 
-        let message = `📋 *您的收藏列表* (${favorites.length} 个币种):\n\n`;
+        let message = `📋 *您的Dashboard收藏列表* (${favorites.length} 个币种):\n\n`;
         
         // 获取最新数据以显示收藏币种的当前状态
         const data = await getUserLatestData(chatId);
