@@ -4,7 +4,7 @@ import { Form, Input, Button, Card, Typography, Alert, Space } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { register as registerApi } from '../services/api';
+import { register as registerApi, getSystemSettings } from '../services/api';
 import { registerStart, registerSuccess, registerFailure, clearError } from '../redux/slices/authSlice';
 
 const { Title, Text } = Typography;
@@ -14,6 +14,8 @@ function Register() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { loading, error, isAuthenticated } = useSelector(state => state.auth);
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
+  const [settingsLoading, setSettingsLoading] = useState(true);
   
   // Redirect if already authenticated
   useEffect(() => {
@@ -21,6 +23,24 @@ function Register() {
       navigate('/dashboard');
     }
   }, [isAuthenticated, navigate]);
+
+  // Check if registration is enabled
+  useEffect(() => {
+    const checkRegistrationStatus = async () => {
+      try {
+        const response = await getSystemSettings();
+        setRegistrationEnabled(response.settings?.registrationEnabled ?? true);
+      } catch (error) {
+        console.error('获取注册状态失败:', error);
+        // 默认允许注册，避免因API错误导致无法注册
+        setRegistrationEnabled(true);
+      } finally {
+        setSettingsLoading(false);
+      }
+    };
+
+    checkRegistrationStatus();
+  }, []);
   
   // Clear error when component unmounts
   useEffect(() => {
@@ -54,6 +74,48 @@ function Register() {
     }
   };
   
+  // 如果正在加载设置，显示加载状态
+  if (settingsLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen bg-gray-100">
+        <Card className="w-full max-w-md">
+          <div className="text-center p-8">
+            <Title level={2}>加密货币指标看板</Title>
+            <Text type="secondary">正在检查注册状态...</Text>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // 如果注册被禁用，显示提示信息
+  if (!registrationEnabled) {
+    return (
+      <div className="flex justify-center items-center min-h-screen bg-gray-100">
+        <Card className="w-full max-w-md">
+          <div className="text-center mb-6">
+            <Title level={2}>加密货币指标看板</Title>
+            <Text type="secondary">用户注册</Text>
+          </div>
+          
+          <Alert
+            message="注册功能已关闭"
+            description="系统管理员已关闭新用户注册功能，如需账号请联系管理员。"
+            type="warning"
+            showIcon
+            className="mb-4"
+          />
+          
+          <div className="text-center">
+            <Button type="primary" onClick={() => navigate('/login')}>
+              返回登录
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="flex justify-center items-center min-h-screen bg-gray-100">
       <Card className="w-full max-w-md">

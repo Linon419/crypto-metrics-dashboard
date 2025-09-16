@@ -861,3 +861,93 @@ function createMockHistoricalData(symbol = 'UNKNOWN') {
   return mockHistory;
 }
 // --- 结束备用数据函数 ---
+
+// --- 8. 用户管理 API 调用 ---
+// 获取所有用户列表
+export const getAllUsers = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/admin/users'));
+    return response.data;
+  } catch (error) {
+    console.error('[getAllUsers] 获取用户列表失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+// 创建新用户
+export const createUser = async (userData) => {
+  try {
+    const response = await callApiWithRetry(() => api.post('/admin/users', userData));
+    return response.data;
+  } catch (error) {
+    console.error('[createUser] 创建用户失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+// 更新用户信息
+export const updateUser = async (userId, userData) => {
+  try {
+    const response = await callApiWithRetry(() => api.put(`/admin/users/${userId}`, userData));
+    return response.data;
+  } catch (error) {
+    console.error('[updateUser] 更新用户失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+// 删除用户
+export const deleteUser = async (userId) => {
+  try {
+    const response = await callApiWithRetry(() => api.delete(`/admin/users/${userId}`));
+    return response.data;
+  } catch (error) {
+    console.error('[deleteUser] 删除用户失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+// 封禁用户
+export const banUser = async (userId) => {
+  try {
+    const response = await callApiWithRetry(() => api.post(`/admin/users/${userId}/ban`));
+    return response.data;
+  } catch (error) {
+    console.error('[banUser] 封禁用户失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+// 解封用户
+export const unbanUser = async (userId) => {
+  try {
+    const response = await callApiWithRetry(() => api.post(`/admin/users/${userId}/unban`));
+    return response.data;
+  } catch (error) {
+    console.error('[unbanUser] 解封用户失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+// 获取系统设置
+export const getSystemSettings = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/admin/settings'));
+    return response.data;
+  } catch (error) {
+    console.error('[getSystemSettings] 获取系统设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+// 更新系统设置
+export const updateSystemSettings = async (settings) => {
+  try {
+    const response = await callApiWithRetry(() => api.put('/admin/settings', settings));
+    return response.data;
+  } catch (error) {
+    console.error('[updateSystemSettings] 更新系统设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+// --- 结束用户管理 API 调用 ---

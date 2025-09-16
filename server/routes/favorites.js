@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { UserFavorite } = require('../models');
-const authMiddleware = require('../middleware/auth');
+const { verifyToken: authMiddleware } = require('../middleware/auth');
 
 // 获取收藏列表 - 只使用用户ID
 router.get('/', authMiddleware, async (req, res) => {

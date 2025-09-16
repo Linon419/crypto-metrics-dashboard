@@ -25,7 +25,8 @@ app.use(checkFirstRun);
 // 认证中间件 (延迟加载，避免路径错误)
 let authMiddleware;
 try {
-  authMiddleware = require('./middleware/auth');
+  const authModule = require('./middleware/auth');
+  authMiddleware = authModule.verifyToken || authModule; // 兼容旧格式
 } catch (error) {
   console.error('Failed to load auth middleware:', error);
   // 提供一个简易的中间件替代
@@ -106,6 +107,7 @@ safelyLoadRoutes('./routes/liquidity', '/api/liquidity');
 safelyLoadRoutes('./routes/favorites', '/api/favorites'); // 添加收藏路由
 safelyLoadRoutes('./routes/debug', '/api/debug');
 safelyLoadRoutes('./routes/docs', '/api/docs'); // API文档路由
+safelyLoadRoutes('./routes/admin', '/api/admin'); // 管理员路由
 
  // 3. 静态文件服务和 SPA 回退 (生产环境)
  if (process.env.NODE_ENV === 'production') {

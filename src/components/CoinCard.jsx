@@ -54,7 +54,8 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     schellingPoint = 0,
     otcIndexChangePercent,
     explosionIndexChangePercent,
-    period_quality
+    period_quality,
+    nearThreshold = false
   } = coin || {};
 
   // Safe number conversion
@@ -104,6 +105,18 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     );
   };
 
+  // Render near threshold tag
+  const renderNearThresholdTag = () => {
+    if (!nearThreshold) return null;
+    return (
+      <Tooltip title="正在逼近关键阈值">
+        <Tag color="warning" className="ml-1 border-0" style={{ fontSize: '12px', backgroundColor: '#faad14', color: '#fff' }}>
+          逼近
+        </Tag>
+      </Tooltip>
+    );
+  };
+
 
 
   const handleFavoriteClick = (e) => {
@@ -147,11 +160,12 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
             <Text 
               strong 
               className={`truncate ${isMobile ? 'text-sm' : ''}`} 
-              style={{ maxWidth: 'calc(100% - 40px)' }}
+              style={{ maxWidth: 'calc(100% - 80px)' }}
             >
               {symbol}
             </Text>
             {renderEntryExitTag()}
+            {renderNearThresholdTag()}
           </div>
           
           {/* Highlight explosion index */}

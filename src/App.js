@@ -9,6 +9,8 @@ import Dashboard from './components/Dashboard';
 import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedRoute from './components/ProtectedRoute';
+import AdminRoute from './components/AdminRoute';
+import UserManagement from './components/UserManagement';
 import { useSelector } from 'react-redux';
 import './styles/mobile.css';
 
@@ -16,7 +18,7 @@ const { Header, Content, Footer } = Layout;
 
 // 导航组件，只在用户已登录时显示
 const NavigationMenu = () => {
-  const { isAuthenticated } = useSelector(state => state.auth);
+  const { isAuthenticated, user } = useSelector(state => state.auth);
   
   // 如果用户未登录，不显示导航栏
   if (!isAuthenticated) {
@@ -29,10 +31,18 @@ const NavigationMenu = () => {
         <Menu.Item key="1">
           <Link to="/">首页</Link>
         </Menu.Item>
-        <Menu.Item key="2">
-          <Link to="/input">数据输入</Link>
-        </Menu.Item>
-        <Menu.Item key="3">
+        {/* 只有管理员才能看到管理菜单 */}
+        {user?.role === 'admin' && (
+          <Menu.Item key="2">
+            <Link to="/input">数据输入</Link>
+          </Menu.Item>
+        )}
+        {user?.role === 'admin' && (
+          <Menu.Item key="3">
+            <Link to="/users">用户管理</Link>
+          </Menu.Item>
+        )}
+        <Menu.Item key="4">
           <Link to="/dashboard">数据看板</Link>
         </Menu.Item>
       </Menu>
@@ -71,7 +81,17 @@ const AppContent = () => {
             
             <Route path="/input" element={
               <ProtectedRoute>
-                <DataInputForm />
+                <AdminRoute>
+                  <DataInputForm />
+                </AdminRoute>
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/users" element={
+              <ProtectedRoute>
+                <AdminRoute>
+                  <UserManagement />
+                </AdminRoute>
               </ProtectedRoute>
             } />
             

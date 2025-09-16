@@ -9,9 +9,20 @@ const { Op } = require('sequelize');
 // Secret key for JWT
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-should-be-in-env-file';
 
+// 导入系统设置管理
+const { getSystemSettings } = require('../utils/settings');
+
 // Register a new user
 router.post('/register', async (req, res) => {
   try {
+    // 检查注册是否开启
+    const settings = getSystemSettings();
+    if (!settings.registrationEnabled) {
+      return res.status(403).json({ 
+        error: '注册功能已关闭，请联系管理员' 
+      });
+    }
+    
     const { username, password, email } = req.body;
     
     // Check if user already exists

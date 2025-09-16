@@ -39,4 +39,22 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-module.exports = authMiddleware;
+// 管理员权限检查中间件
+const requireAdmin = (req, res, next) => {
+  // 检查用户是否已认证
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  
+  // 检查用户是否为管理员
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  
+  next();
+};
+
+module.exports = {
+  verifyToken: authMiddleware,
+  requireAdmin: requireAdmin
+};
