@@ -53,7 +53,8 @@ function OtcIndexTable({ coins, loading = false }) {
     explosionIndexChangePercent: coin.explosionIndexChangePercent,
     otcIndexChangePercent: coin.otcIndexChangePercent,
     period_quality: coin.period_quality,
-    momentumIndicators: coin.momentumIndicators || []
+    momentumIndicators: coin.momentumIndicators || [],
+    nearThreshold: coin.nearThreshold || false
   }));
 
   // Sort data based on current sort settings
@@ -136,6 +137,17 @@ function OtcIndexTable({ coins, loading = false }) {
             >
               {record.entryExitType === 'entry' ? '进' : '退'}{record.entryExitDay}
             </Tag>
+          )}
+          {record.nearThreshold && (
+            <Tooltip title="正在逼近关键阈值">
+              <Tag 
+                color="warning" 
+                className="ml-1" 
+                style={{ fontSize: '12px', backgroundColor: '#faad14', color: '#fff' }}
+              >
+                逼近
+              </Tag>
+            </Tooltip>
           )}
         </div>
       )
@@ -457,6 +469,17 @@ function OtcIndexTable({ coins, loading = false }) {
                   {coin.entryExitType === 'entry' ? '进' : '退'}{coin.entryExitDay}
                 </Tag>
               )}
+              {coin.nearThreshold && (
+                <Tooltip title="正在逼近关键阈值">
+                  <Tag 
+                    color="warning" 
+                    className="ml-1" 
+                    style={{ fontSize: '12px', backgroundColor: '#faad14', color: '#fff' }}
+                  >
+                    逼近
+                  </Tag>
+                </Tooltip>
+              )}
               {coin.momentumIndicators && coin.momentumIndicators.length > 0 && (
                 <div className="ml-2">
                   {renderMomentumIndicators(coin.momentumIndicators, true)}
@@ -623,6 +646,10 @@ function OtcIndexTable({ coins, loading = false }) {
               <Tag color="error" className="text-xs">跌破200</Tag>
               <Text className="ml-1">爆破指数跌破200</Text>
             </div>
+            <div className="flex items-center">
+              <Tag color="warning" className="text-xs" style={{ backgroundColor: '#faad14', color: '#fff' }}>逼近</Tag>
+              <Text className="ml-1">正在逼近关键阈值</Text>
+            </div>
           </div>
         </div>
       ) : (
@@ -669,6 +696,10 @@ function OtcIndexTable({ coins, loading = false }) {
             <div>
               <Tag color="error" className="text-xs">跌破200</Tag>
               <Text className="ml-1">爆破指数跌破200</Text>
+            </div>
+            <div>
+              <Tag color="warning" className="text-xs" style={{ backgroundColor: '#faad14', color: '#fff' }}>逼近</Tag>
+              <Text className="ml-1">正在逼近关键阈值</Text>
             </div>
           </div>
         </>
