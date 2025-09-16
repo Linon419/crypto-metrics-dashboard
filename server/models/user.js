@@ -21,6 +21,11 @@ module.exports = (sequelize, DataTypes) => {
         validate: {
           isEmail: true
         }
+      },
+      status: {
+        type: DataTypes.STRING,
+        defaultValue: 'active',
+        allowNull: false
       }
     }, {
       timestamps: true
