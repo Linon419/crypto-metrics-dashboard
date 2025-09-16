@@ -4,7 +4,15 @@
       "Bash(chmod:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(npm start)",
+      "Bash(pkill:*)",
+      "Bash(taskkill:*)",
+      "Bash(npm install:*)",
+      "Bash(sqlite3:*)",
+      "Bash(node:*)",
+      "Bash(PORT=3002 npm start)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

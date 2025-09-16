@@ -65,7 +65,7 @@
   },
   "devDependencies": {
     "autoprefixer": "^10.4.21",
-    "postcss": "^8.5.3",
-    "concurrently": "^7.6.0"
+    "concurrently": "^7.6.0",
+    "postcss": "^8.5.3"
   }
 }

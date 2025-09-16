@@ -3,7 +3,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
-const User = require('../models/user');
+const { User } = require('../models');
 const { verifyToken, requireAdmin } = require('../middleware/auth');
 const { getSystemSettings, updateSystemSettings } = require('../utils/settings');
 
