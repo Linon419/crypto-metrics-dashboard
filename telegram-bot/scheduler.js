@@ -396,6 +396,16 @@ async function checkDataUpdates() {
                         });
                     }
                     
+                    // 4. 检查动能指标
+                    const momentumAlerts = await analyzeMomentumIndicators(data.metrics, chatId, currentDate);
+                    if (momentumAlerts.length > 0) {
+                        allNotifications.push({
+                            type: 'momentum_alerts',
+                            title: '⚡ 动能信号',
+                            content: momentumAlerts
+                        });
+                    }
+                    
                     if (allNotifications.length > 0) {
                         const message = formatComprehensiveNotification(allNotifications);
                         
@@ -409,6 +419,16 @@ async function checkDataUpdates() {
                                 for (const opp of qualityOpps.content) {
                                     if (opp.isEarlyEntry && opp.notificationKey) {
                                         await recordNotification(chatId, opp.coin.symbol, opp.notificationKey, currentDate);
+                                    }
+                                }
+                            }
+                            
+                            // 记录动能指标通知
+                            const momentumAlerts = allNotifications.find(n => n.type === 'momentum_alerts');
+                            if (momentumAlerts) {
+                                for (const alert of momentumAlerts.content) {
+                                    if (alert.notificationKey) {
+                                        await recordNotification(chatId, alert.coin.symbol, alert.notificationKey, currentDate);
                                     }
                                 }
                             }
@@ -523,6 +543,144 @@ async function checkUserFavoriteAlerts(chatId, metrics) {
     return alerts.slice(0, 3); // 最多显示3个收藏提醒
 }
 
+// 检查动能指标并发送通知
+async function checkMomentumIndicators() {
+    console.log('Checking momentum indicators for all subscribed users...');
+    
+    try {
+        const subscribedUsers = await getAllSubscribedUsers();
+        const now = new Date();
+        const currentDate = now.toISOString().slice(0, 10); // YYYY-MM-DD format
+        
+        console.log(`Checking momentum indicators for ${subscribedUsers.length} subscribed users`);
+
+        for (const chatId of subscribedUsers) {
+            // 检查用户是否已认证
+            const isAuthenticated = await isUserAuthenticated(chatId);
+            if (!isAuthenticated) {
+                console.log(`User ${chatId} not authenticated, skipping momentum indicators`);
+                continue;
+            }
+
+            try {
+                const data = await getUserLatestData(chatId);
+                if (!data || !data.success) {
+                    console.log(`No data available for user ${chatId}`);
+                    continue;
+                }
+
+                // 查找有动能指标的币种
+                const coinsWithMomentum = data.metrics.filter(metric => 
+                    metric.momentumIndicators && 
+                    Array.isArray(metric.momentumIndicators) && 
+                    metric.momentumIndicators.length > 0
+                );
+
+                console.log(`Found ${coinsWithMomentum.length} coins with momentum indicators for user ${chatId}`);
+
+                for (const coinData of coinsWithMomentum) {
+                    const coinSymbol = coinData.coin.symbol;
+                    const momentumIndicators = coinData.momentumIndicators;
+                    
+                    // 为每个特殊动能指标检查是否需要发送通知
+                    for (const indicator of momentumIndicators) {
+                        const notificationKey = `momentum_${indicator}`;
+                        const alreadySent = await hasNotificationSent(chatId, coinSymbol, notificationKey, currentDate);
+                        
+                        if (!alreadySent) {
+                            const message = formatMomentumNotification(coinData, indicator);
+                            
+                            try {
+                                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                                await recordNotification(chatId, coinSymbol, notificationKey, currentDate);
+                                console.log(`Momentum ${indicator} notification sent to ${chatId} for ${coinSymbol}`);
+                            } catch (error) {
+                                console.error(`Failed to send momentum ${indicator} notification to ${chatId}:`, error);
+                            }
+                        }
+                    }
+                }
+            } catch (userError) {
+                console.error(`Error processing momentum indicators for user ${chatId}:`, userError);
+            }
+        }
+    } catch (error) {
+        console.error('Error in momentum indicators check:', error);
+    }
+}
+
+// 格式化动能指标通知消息
+function formatMomentumNotification(coinData, indicator) {
+    const coin = coinData.coin;
+    
+    // 动能指标的含义和颜色配置
+    const indicatorConfig = {
+        '$': { 
+            title: '🌟 向上动能强劲', 
+            description: '该币种此时有较大的向上动能，可以重点关注',
+            priority: 'high'
+        },
+        '※': { 
+            title: '🚀 高速油门期', 
+            description: '爆破指数高于200，处于高速油门期',
+            priority: 'high'
+        },
+        '‼': { 
+            title: '⚠️ 短期撤出信号', 
+            description: '爆破指数从200以上跌至200以下，短期可撤出落袋为安的信号',
+            priority: 'high'
+        },
+        '↑': { 
+            title: '📈 连续上涨通道', 
+            description: '爆破指数连续2-3天持续上涨，最灵敏的走出阴跌行情进入上升通道指标',
+            priority: 'medium'
+        },
+        'w': { 
+            title: '🤔 巨头犹豫期', 
+            description: '在退场天数后标注，表示场外巨头准备撤场但可能有犹豫的特殊情况',
+            priority: 'medium'
+        }
+    };
+    
+    const config = indicatorConfig[indicator] || { 
+        title: `📊 动能信号 ${indicator}`, 
+        description: '检测到特殊动能信号',
+        priority: 'medium'
+    };
+    
+    let message = `${config.title}\n\n`;
+    message += `**${coin.name} (${coin.symbol})**\n\n`;
+    message += `🎯 **动能信号**: ${indicator}\n`;
+    message += `💡 **含义**: ${config.description}\n\n`;
+    message += `📊 **当前数据**:\n`;
+    message += `• 场外指数：${coinData.otc_index || 'N/A'}\n`;
+    message += `• 爆破指数：${coinData.explosion_index || 'N/A'}\n`;
+    message += `• 谢林点：${coinData.schelling_point || 'N/A'}\n`;
+    
+    if (coinData.entry_exit_type && coinData.entry_exit_type !== 'neutral') {
+        message += `• 状态：${getTypeDisplay(coinData.entry_exit_type)}第${coinData.entry_exit_day}天\n`;
+    }
+    
+    if (coinData.period_quality) {
+        message += `• 质量评估：${coinData.period_quality}\n`;
+    }
+    
+    // 根据不同指标添加特定建议
+    if (indicator === '$') {
+        message += `\n💎 **建议**: 重点关注，具备较强向上动能\n`;
+    } else if (indicator === '※') {
+        message += `\n🚀 **建议**: 高速油门期，注意风险控制\n`;
+    } else if (indicator === '‼') {
+        message += `\n⚠️ **建议**: 短期撤出信号，考虑落袋为安\n`;
+    } else if (indicator === '↑') {
+        message += `\n📈 **建议**: 连续上涨，可关注上升通道机会\n`;
+    } else if (indicator === 'w') {
+        message += `\n🤔 **建议**: 巨头犹豫期，密切观察动向\n`;
+    }
+    
+    return message;
+}
+
 // 分析优质机会
 async function analyzeQualityOpportunities(metrics, chatId, currentDate) {
     const opportunities = [];
@@ -592,6 +750,54 @@ async function analyzeQualityOpportunities(metrics, chatId, currentDate) {
     return opportunities.slice(0, 5); // 增加到最多显示5个机会
 }
 
+// 分析动能指标
+async function analyzeMomentumIndicators(metrics, chatId, currentDate) {
+    const alerts = [];
+    
+    // 查找有动能指标的币种
+    const coinsWithMomentum = metrics.filter(metric => 
+        metric.momentumIndicators && 
+        Array.isArray(metric.momentumIndicators) && 
+        metric.momentumIndicators.length > 0
+    );
+    
+    for (const coin of coinsWithMomentum) {
+        for (const indicator of coin.momentumIndicators) {
+            const notificationKey = `momentum_${indicator}`;
+            const alreadySent = await hasNotificationSent(chatId, coin.coin.symbol, notificationKey, currentDate);
+            
+            if (!alreadySent) {
+                const indicatorConfig = {
+                    '$': { title: '🌟 向上动能强劲', priority: 'high' },
+                    '※': { title: '🚀 高速油门期', priority: 'high' },
+                    '‼': { title: '⚠️ 短期撤出信号', priority: 'high' },
+                    '↑': { title: '📈 连续上涨通道', priority: 'medium' },
+                    'w': { title: '🤔 巨头犹豫期', priority: 'medium' }
+                };
+                
+                const config = indicatorConfig[indicator] || { 
+                    title: `📊 动能信号 ${indicator}`, 
+                    priority: 'medium'
+                };
+                
+                alerts.push({
+                    coin: coin.coin,
+                    indicator: indicator,
+                    title: config.title,
+                    priority: config.priority,
+                    indices: {
+                        explosion: coin.explosion_index,
+                        otc: coin.otc_index
+                    },
+                    notificationKey: notificationKey
+                });
+            }
+        }
+    }
+    
+    return alerts.slice(0, 3); // 最多显示3个动能信号
+}
+
 // 格式化综合通知消息
 function formatComprehensiveNotification(notifications) {
     let message = `📱 *实时数据更新*\n\n`;
@@ -618,6 +824,12 @@ function formatComprehensiveNotification(notifications) {
                     message += `   🔥 *进场期黄金时间* - 持续关注\n`;
                 }
                 message += `   📊 场外：${opp.indices.otc || 'N/A'} | 💥 爆破：${opp.indices.explosion || 'N/A'}\n`;
+            });
+        } else if (notification.type === 'momentum_alerts') {
+            notification.content.forEach(alert => {
+                message += `• **${alert.coin.name} (${alert.coin.symbol})**\n`;
+                message += `   ${alert.title}: ${alert.indicator}\n`;
+                message += `   📊 场外：${alert.indices.otc || 'N/A'} | 💥 爆破：${alert.indices.explosion || 'N/A'}\n`;
             });
         }
         
@@ -677,6 +889,7 @@ async function runImmediateCheck() {
     console.log('Running immediate check...');
     await checkAllCoinsQualityEntry();
     await checkFavoriteCoinsAlerts();
+    await checkMomentumIndicators();
     console.log('Immediate check completed');
 }
 
@@ -686,5 +899,6 @@ module.exports = {
     runImmediateCheck,
     checkAllCoinsQualityEntry,
     checkFavoriteCoinsAlerts,
-    checkDataUpdates
+    checkDataUpdates,
+    checkMomentumIndicators
 };

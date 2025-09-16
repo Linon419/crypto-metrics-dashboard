@@ -52,7 +52,8 @@ function OtcIndexTable({ coins, loading = false }) {
     previousDayData: coin.previousDayData || coin.previous_day_data,
     explosionIndexChangePercent: coin.explosionIndexChangePercent,
     otcIndexChangePercent: coin.otcIndexChangePercent,
-    period_quality: coin.period_quality
+    period_quality: coin.period_quality,
+    momentumIndicators: coin.momentumIndicators || []
   }));
 
   // Sort data based on current sort settings
@@ -80,6 +81,43 @@ function OtcIndexTable({ coins, loading = false }) {
   };
 
 
+  // Render momentum indicators helper function
+  const renderMomentumIndicators = (momentumIndicators, isMobile = false) => {
+    if (!momentumIndicators || momentumIndicators.length === 0) return null;
+    
+    const indicatorConfig = {
+      '$': { color: '#52c41a', tooltip: '向上动能强劲，重点关注' },
+      '※': { color: '#ff4d4f', tooltip: '高速油门期，爆破指数>200' },
+      '‼': { color: '#faad14', tooltip: '短期撤出信号，爆破跌破200' },
+      '↑': { color: '#1890ff', tooltip: '连续上涨，进入上升通道' },
+      'w': { color: '#722ed1', tooltip: '巨头犹豫，退场期特殊情况' }
+    };
+    
+    return (
+      <div className="flex items-center flex-wrap">
+        {momentumIndicators.map((symbol, index) => {
+          const config = indicatorConfig[symbol];
+          if (!config) return null;
+          
+          return (
+            <Tooltip key={`${symbol}-${index}`} title={config.tooltip}>
+              <span 
+                className={`inline-block px-1 ${isMobile ? 'text-xs' : 'text-sm'} font-bold rounded mr-1 mb-1`}
+                style={{ 
+                  color: config.color,
+                  backgroundColor: `${config.color}15`,
+                  border: `1px solid ${config.color}50`
+                }}
+              >
+                {symbol}
+              </span>
+            </Tooltip>
+          );
+        })}
+      </div>
+    );
+  };
+
   // Table columns
   const columns = [
     {
@@ -101,6 +139,13 @@ function OtcIndexTable({ coins, loading = false }) {
           )}
         </div>
       )
+    },
+    {
+      title: '动能指标',
+      dataIndex: 'momentumIndicators',
+      key: 'momentumIndicators',
+      width: 120,
+      render: (indicators) => renderMomentumIndicators(indicators)
     },
     {
       title: '场外指数',
@@ -412,6 +457,11 @@ function OtcIndexTable({ coins, loading = false }) {
                   {coin.entryExitType === 'entry' ? '进' : '退'}{coin.entryExitDay}
                 </Tag>
               )}
+              {coin.momentumIndicators && coin.momentumIndicators.length > 0 && (
+                <div className="ml-2">
+                  {renderMomentumIndicators(coin.momentumIndicators, true)}
+                </div>
+              )}
             </div>
 
             {suggestionColor ? (
@@ -593,7 +643,7 @@ function OtcIndexTable({ coins, loading = false }) {
             className="overflow-x-auto"
             loading={loading}
             onChange={handleChange}
-            scroll={{ x: 650 }}
+            scroll={{ x: 770 }}
           />
 
           {/* Legend for desktop */}

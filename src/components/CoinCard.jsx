@@ -55,7 +55,8 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     otcIndexChangePercent,
     explosionIndexChangePercent,
     period_quality,
-    nearThreshold = false
+    nearThreshold = false,
+    momentumIndicators = []
   } = coin || {};
 
   // Safe number conversion
@@ -117,6 +118,43 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     );
   };
 
+  // Render momentum indicators
+  const renderMomentumIndicators = () => {
+    if (!momentumIndicators || momentumIndicators.length === 0) return null;
+    
+    const indicatorConfig = {
+      '$': { color: '#52c41a', tooltip: '向上动能强劲，重点关注' },
+      '※': { color: '#ff4d4f', tooltip: '高速油门期，爆破指数>200' },
+      '‼': { color: '#faad14', tooltip: '短期撤出信号，爆破跌破200' },
+      '↑': { color: '#1890ff', tooltip: '连续上涨，进入上升通道' },
+      'w': { color: '#722ed1', tooltip: '巨头犹豫，退场期特殊情况' }
+    };
+    
+    return (
+      <div className="flex items-center ml-1">
+        {momentumIndicators.map((symbol, index) => {
+          const config = indicatorConfig[symbol];
+          if (!config) return null;
+          
+          return (
+            <Tooltip key={`${symbol}-${index}`} title={config.tooltip}>
+              <span 
+                className="inline-block px-1 text-sm font-bold rounded mr-1"
+                style={{ 
+                  color: config.color,
+                  backgroundColor: `${config.color}15`,
+                  border: `1px solid ${config.color}50`
+                }}
+              >
+                {symbol}
+              </span>
+            </Tooltip>
+          );
+        })}
+      </div>
+    );
+  };
+
 
 
   const handleFavoriteClick = (e) => {
@@ -166,6 +204,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
             </Text>
             {renderEntryExitTag()}
             {renderNearThresholdTag()}
+            {renderMomentumIndicators()}
           </div>
           
           {/* Highlight explosion index */}

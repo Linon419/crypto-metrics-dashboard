@@ -32,6 +32,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false
     },
+    momentum_indicators: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'JSON array of momentum indicator symbols: $, ※, ‼, ↑, w'
+    },
     timestamp: {
       type: DataTypes.DATE,
       allowNull: true,

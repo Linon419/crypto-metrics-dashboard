@@ -136,7 +136,8 @@ async function storeProcessedData(data) {
           schelling_point: typeof coinData.schellingPoint === 'number' ? coinData.schellingPoint : null,
           entry_exit_type: coinData.entryExitType || 'neutral',
           entry_exit_day: typeof coinData.entryExitDay === 'number' ? coinData.entryExitDay : 0,
-          near_threshold: !!coinData.nearThreshold
+          near_threshold: !!coinData.nearThreshold,
+          momentum_indicators: coinData.momentumIndicators ? JSON.stringify(coinData.momentumIndicators) : null
         };
         // console.log('[STORE_DATA] Metric payload:', JSON.stringify(metricPayload, null, 2));
 
@@ -1265,6 +1266,7 @@ router.get('/by-date/:date', async (req, res) => {
         entryExitType: metric.entry_exit_type,
         entryExitDay: metric.entry_exit_day,
         nearThreshold: metric.near_threshold,
+        momentumIndicators: metric.momentum_indicators ? JSON.parse(metric.momentum_indicators) : [],
         date: metric.date,
         timestamp: metric.timestamp,
         timePrecision: metric.time_precision,
