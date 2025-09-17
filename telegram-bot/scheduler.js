@@ -458,7 +458,11 @@ function analyzeDataChanges(metrics) {
             significantChanges.push({
                 coin: metric.coin,
                 changeType: '💥 爆破指数大幅变化',
-                description: `${metric.explosion_index_change_percent > 0 ? '+' : ''}${metric.explosion_index_change_percent.toFixed(1)}%`
+                description: `${metric.explosion_index_change_percent > 0 ? '+' : ''}${metric.explosion_index_change_percent.toFixed(1)}%`,
+                currentData: {
+                    otc_index: metric.otc_index,
+                    explosion_index: metric.explosion_index
+                }
             });
         }
         
@@ -467,7 +471,11 @@ function analyzeDataChanges(metrics) {
             significantChanges.push({
                 coin: metric.coin,
                 changeType: '📊 场外指数大幅变化',
-                description: `${metric.otc_index_change_percent > 0 ? '+' : ''}${metric.otc_index_change_percent.toFixed(1)}%`
+                description: `${metric.otc_index_change_percent > 0 ? '+' : ''}${metric.otc_index_change_percent.toFixed(1)}%`,
+                currentData: {
+                    otc_index: metric.otc_index,
+                    explosion_index: metric.explosion_index
+                }
             });
         }
         
@@ -476,7 +484,11 @@ function analyzeDataChanges(metrics) {
             significantChanges.push({
                 coin: metric.coin,
                 changeType: '📈 新进入进场期',
-                description: `质量评估：${metric.period_quality || '待评估'}`
+                description: `质量评估：${metric.period_quality || '待评估'}`,
+                currentData: {
+                    otc_index: metric.otc_index,
+                    explosion_index: metric.explosion_index
+                }
             });
         }
         
@@ -484,7 +496,11 @@ function analyzeDataChanges(metrics) {
             significantChanges.push({
                 coin: metric.coin,
                 changeType: '📉 新进入退场期',
-                description: `质量评估：${metric.period_quality || '待评估'}`
+                description: `质量评估：${metric.period_quality || '待评估'}`,
+                currentData: {
+                    otc_index: metric.otc_index,
+                    explosion_index: metric.explosion_index
+                }
             });
         }
     });
@@ -809,7 +825,7 @@ function formatComprehensiveNotification(notifications) {
             notification.content.forEach(change => {
                 message += `• **${change.coin.name} (${change.coin.symbol})**\n`;
                 message += `   ${change.changeType}: ${change.description}\n`;
-                message += `   📊 场外：${change.coin.otc_index || 'N/A'} | 💥 爆破：${change.coin.explosion_index || 'N/A'}\n`;
+                message += `   📊 场外：${change.currentData?.otc_index || 'N/A'} | 💥 爆破：${change.currentData?.explosion_index || 'N/A'}\n`;
             });
         } else if (notification.type === 'favorite_alerts') {
             notification.content.forEach(alert => {

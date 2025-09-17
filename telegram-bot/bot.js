@@ -83,6 +83,7 @@ async function setupBotMenu() {
             { command: 'help', description: '❓ 查看帮助' },
             { command: 'auth', description: '🔑 设置账户认证' },
             { command: 'latest', description: '📊 市场概览 (支持按钮分页)' },
+            { command: 'otctable', description: '📋 场外数据表 (支持分页和排序)' },
             { command: 'check', description: '🔍 查询币种 (例: /check BTC)' },
             { command: 'favorite', description: '⭐ 添加收藏 (例: /favorite ETH)' },
             { command: 'unfavorite', description: '❌ 取消收藏 (例: /unfavorite BTC)' },
@@ -315,6 +316,7 @@ bot.onText(/\/help/, async (msg) => {
 例：/check BTC
 
 /latest - 获取最新市场概览
+/otctable - 查看场外数据表（支持分页和排序）
 /status - 查看当前订阅状态
 
 🔹 *收藏管理：*
@@ -530,6 +532,164 @@ bot.onText(/\/check (.+)/, async (msg, match) => {
     }
 });
 
+// 生成场外数据表的函数
+async function generateOtcTableData(chatId, page = 1, sortBy = 'otc_index', order = 'desc') {
+    const pageSize = 10; // 每页显示10个币种
+
+    const data = await getUserLatestData(chatId);
+    if (!data || !data.success) {
+        throw new Error('无法获取数据');
+    }
+
+    // 获取所有币种数据
+    const metrics = data.metrics || [];
+
+    // 排序函数
+    const sortedMetrics = [...metrics].sort((a, b) => {
+        let aValue, bValue;
+
+        switch (sortBy) {
+            case 'otc_index':
+                aValue = parseFloat(a.otc_index) || 0;
+                bValue = parseFloat(b.otc_index) || 0;
+                break;
+            case 'explosion_index':
+                aValue = parseFloat(a.explosion_index) || 0;
+                bValue = parseFloat(b.explosion_index) || 0;
+                break;
+            case 'schelling_point':
+                aValue = parseFloat(a.schelling_point) || 0;
+                bValue = parseFloat(b.schelling_point) || 0;
+                break;
+            case 'symbol':
+                aValue = a.coin.symbol;
+                bValue = b.coin.symbol;
+                return order === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+            default:
+                aValue = parseFloat(a.otc_index) || 0;
+                bValue = parseFloat(b.otc_index) || 0;
+        }
+
+        return order === 'asc' ? aValue - bValue : bValue - aValue;
+    });
+
+    // 分页计算
+    const totalPages = Math.ceil(sortedMetrics.length / pageSize);
+    const startIndex = (page - 1) * pageSize;
+    const currentPageCoins = sortedMetrics.slice(startIndex, startIndex + pageSize);
+
+    // 构建消息
+    const sortLabels = {
+        'otc_index': '场外指数',
+        'explosion_index': '爆破指数',
+        'schelling_point': '谢林点',
+        'symbol': '币种符号'
+    };
+
+    const orderLabel = order === 'asc' ? '升序' : '降序';
+
+    let message = `📋 *场外数据表* (${data.date})\n`;
+    message += `排序：${sortLabels[sortBy]} ${orderLabel} | 第${page}/${totalPages}页\n\n`;
+
+    if (currentPageCoins.length > 0) {
+        currentPageCoins.forEach((coin, index) => {
+            const num = startIndex + index + 1;
+            const status = getStatusEmoji(coin);
+
+            // 动能指标处理
+            let momentumText = '';
+            if (coin.momentumIndicators && coin.momentumIndicators.length > 0) {
+                const indicators = coin.momentumIndicators.join('');
+                momentumText = ` [${indicators}]`;
+            }
+
+            // 逼近阈值标记
+            const nearThreshold = coin.near_threshold ? ' ⚠️逼近' : '';
+
+            // 进退场状态
+            let periodInfo = '';
+            if (coin.entry_exit_type !== 'neutral') {
+                const typeDisplay = coin.entry_exit_type === 'entry' ? '进' : '退';
+                periodInfo = ` ${typeDisplay}${coin.entry_exit_day}`;
+            }
+
+            message += `${num}. ${status}**${coin.coin.symbol}**${momentumText}${nearThreshold}${periodInfo}\n`;
+            message += `   📊 场外: ${coin.otc_index || 'N/A'}`;
+
+            // 显示场外指数变化
+            if (coin.otc_index_change_percent !== null && coin.otc_index_change_percent !== undefined) {
+                const changeSymbol = coin.otc_index_change_percent >= 0 ? '↗️' : '↘️';
+                message += ` ${changeSymbol}${coin.otc_index_change_percent.toFixed(1)}%`;
+            }
+
+            message += `\n   💥 爆破: ${coin.explosion_index || 'N/A'}`;
+
+            // 显示爆破指数变化
+            if (coin.explosion_index_change_percent !== null && coin.explosion_index_change_percent !== undefined) {
+                const changeSymbol = coin.explosion_index_change_percent >= 0 ? '↗️' : '↘️';
+                message += ` ${changeSymbol}${coin.explosion_index_change_percent.toFixed(1)}%`;
+            }
+
+            message += `\n   🎯 谢林: ${formatSchellingPoint(coin.schelling_point)}`;
+            message += `\n   ⭐ ${coin.period_quality || '观望'}\n\n`;
+        });
+    } else {
+        message += '❌ 没有数据\n\n';
+    }
+
+    message += '💡 使用按钮切换排序和分页\n';
+    message += '🔍 使用 /check <币种> 查看详细信息';
+
+    // 创建按钮
+    const keyboard = [];
+
+    // 排序按钮
+    const sortButtons = [
+        { text: '场外指数', callback_data: `otc_sort_otc_index_${order}_1` },
+        { text: '爆破指数', callback_data: `otc_sort_explosion_index_${order}_1` },
+        { text: '谢林点', callback_data: `otc_sort_schelling_point_${order}_1` }
+    ];
+    keyboard.push(sortButtons);
+
+    // 排序顺序按钮
+    const orderButton = order === 'desc' ?
+        { text: '🔄 切换为升序', callback_data: `otc_sort_${sortBy}_asc_1` } :
+        { text: '🔄 切换为降序', callback_data: `otc_sort_${sortBy}_desc_1` };
+    keyboard.push([orderButton]);
+
+    // 分页按钮
+    if (totalPages > 1) {
+        const pageButtons = [];
+        if (page > 1) {
+            pageButtons.push({ text: '⬅️ 上一页', callback_data: `otc_page_${sortBy}_${order}_${page - 1}` });
+        }
+        pageButtons.push({ text: `${page}/${totalPages}`, callback_data: 'otc_current' });
+        if (page < totalPages) {
+            pageButtons.push({ text: '下一页 ➡️', callback_data: `otc_page_${sortBy}_${order}_${page + 1}` });
+        }
+        keyboard.push(pageButtons);
+    }
+
+    return { message, keyboard };
+}
+
+// 格式化谢林点显示
+function formatSchellingPoint(value) {
+    if (!value || value === 'N/A') return 'N/A';
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) return 'N/A';
+
+    if (numValue > 1000) {
+        return numValue.toLocaleString();
+    } else if (numValue < 1) {
+        return numValue.toFixed(3);
+    } else if (numValue < 10) {
+        return numValue.toFixed(2);
+    } else {
+        return numValue.toFixed(0);
+    }
+}
+
 // 生成latest数据的可重用函数
 async function generateLatestData(chatId, page = 1) {
     const pageSize = 8; // 每页显示8个币种
@@ -642,6 +802,39 @@ bot.onText(/\/latest(?:\s+(\d+))?/, async (msg, match) => {
             await bot.sendMessage(chatId, '❌ 认证已过期，请重新认证：/reauth');
         } else {
             await bot.sendMessage(chatId, '❌ 获取数据时出现错误，请稍后重试。');
+        }
+    }
+});
+
+// 场外数据表命令
+bot.onText(/\/otctable/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+        await addUser(chatId, msg.from);
+
+        // 检查用户是否已认证
+        const isAuthenticated = await isUserAuthenticated(chatId);
+        if (!isAuthenticated) {
+            await requireAuthentication(chatId, '查看场外数据表');
+            return;
+        }
+
+        const { message, keyboard } = await generateOtcTableData(chatId);
+
+        const options = {
+            parse_mode: 'Markdown',
+            reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
+        };
+
+        await bot.sendMessage(chatId, message, options);
+
+    } catch (error) {
+        console.error('Error in /otctable command:', error);
+        if (error.response?.status === 401) {
+            await bot.sendMessage(chatId, '❌ 认证已过期，请重新认证：/reauth');
+        } else {
+            await bot.sendMessage(chatId, '❌ 获取场外数据表时出现错误，请稍后重试。');
         }
     }
 });
@@ -1074,8 +1267,8 @@ bot.on('callback_query', async (callbackQuery) => {
 
             // 生成新页面数据
             const { message, keyboard } = await generateLatestData(chatId, page);
-            
-            const options = { 
+
+            const options = {
                 parse_mode: 'Markdown',
                 reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
             };
@@ -1089,6 +1282,73 @@ bot.on('callback_query', async (callbackQuery) => {
 
             // 回答callback query
             await bot.answerCallbackQuery(callbackQuery.id, { text: `已切换到第${page}页` });
+        }
+        // 处理场外数据表按钮
+        else if (data.startsWith('otc_')) {
+            // 检查用户是否已认证
+            const isAuthenticated = await isUserAuthenticated(chatId);
+            if (!isAuthenticated) {
+                await bot.answerCallbackQuery(callbackQuery.id, { text: '请先认证账户' });
+                return;
+            }
+
+            if (data === 'otc_current') {
+                await bot.answerCallbackQuery(callbackQuery.id, { text: '当前页面' });
+                return;
+            }
+
+            let sortBy = 'otc_index';
+            let order = 'desc';
+            let page = 1;
+
+            if (data.startsWith('otc_sort_')) {
+                // 格式: otc_sort_{sortBy}_{order}_{page}
+                const parts = data.split('_');
+                if (parts.length >= 5) {
+                    sortBy = parts[2];
+                    order = parts[3];
+                    page = parseInt(parts[4]) || 1;
+                }
+            } else if (data.startsWith('otc_page_')) {
+                // 格式: otc_page_{sortBy}_{order}_{page}
+                const parts = data.split('_');
+                if (parts.length >= 5) {
+                    sortBy = parts[2];
+                    order = parts[3];
+                    page = parseInt(parts[4]) || 1;
+                }
+            }
+
+            // 生成新数据
+            const { message, keyboard } = await generateOtcTableData(chatId, page, sortBy, order);
+
+            const options = {
+                parse_mode: 'Markdown',
+                reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
+            };
+
+            // 编辑原消息
+            await bot.editMessageText(message, {
+                chat_id: chatId,
+                message_id: messageId,
+                ...options
+            });
+
+            // 回答callback query
+            const sortLabels = {
+                'otc_index': '场外指数',
+                'explosion_index': '爆破指数',
+                'schelling_point': '谢林点'
+            };
+            const orderLabel = order === 'asc' ? '升序' : '降序';
+
+            if (data.startsWith('otc_sort_')) {
+                await bot.answerCallbackQuery(callbackQuery.id, {
+                    text: `已切换为${sortLabels[sortBy]}${orderLabel}排序`
+                });
+            } else {
+                await bot.answerCallbackQuery(callbackQuery.id, { text: `已切换到第${page}页` });
+            }
         }
     } catch (error) {
         console.error('Error handling callback query:', error);
