@@ -11,6 +11,60 @@ const UserAuth = require('./user-auth');
 let bot = null;
 let db = null;
 
+// 存储上次检查的数据快照
+const lastDataSnapshot = new Map();
+
+// 创建数据快照用于比较
+function createDataSnapshot(data) {
+    return {
+        date: data.date,
+        totalCoins: data.metrics.length,
+        coins: data.metrics.map(metric => ({
+            symbol: metric.coin.symbol,
+            otc_index: metric.otc_index,
+            explosion_index: metric.explosion_index,
+            entry_exit_type: metric.entry_exit_type,
+            entry_exit_day: metric.entry_exit_day,
+            period_quality: metric.period_quality,
+            near_threshold: metric.near_threshold,
+            momentumIndicators: metric.momentumIndicators
+        }))
+    };
+}
+
+// 检查数据是否有变化
+function hasDataChanged(lastSnapshot, currentSnapshot) {
+    // 如果数据日期不同，说明有更新
+    if (lastSnapshot.date !== currentSnapshot.date) {
+        return true;
+    }
+
+    // 如果币种数量不同
+    if (lastSnapshot.totalCoins !== currentSnapshot.totalCoins) {
+        return true;
+    }
+
+    // 检查关键指标变化
+    for (let i = 0; i < currentSnapshot.coins.length; i++) {
+        const current = currentSnapshot.coins[i];
+        const last = lastSnapshot.coins.find(c => c.symbol === current.symbol);
+
+        if (!last) continue;
+
+        // 检查关键变化
+        if (Math.abs((current.otc_index || 0) - (last.otc_index || 0)) > 50 ||
+            Math.abs((current.explosion_index || 0) - (last.explosion_index || 0)) > 20 ||
+            current.entry_exit_type !== last.entry_exit_type ||
+            current.period_quality !== last.period_quality ||
+            current.near_threshold !== last.near_threshold ||
+            JSON.stringify(current.momentumIndicators) !== JSON.stringify(last.momentumIndicators)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // 初始化函数
 function initializeDependencies(botInstance, dbInstance) {
     bot = botInstance;
@@ -295,10 +349,10 @@ async function checkFavoriteCoinsAlerts() {
                     }
 
                     // 3. 检查进入逼近期
-                    if (coinData.near_threshold || 
+                    if (coinData.near_threshold ||
                         (coinData.entry_exit_type === 'neutral' && coinData.explosion_index > 0 && coinData.explosion_index < 100)) {
                         const alreadySentNear = await hasNotificationSent(chatId, favoriteSymbol, 'favorite_near_threshold', currentDate);
-                        
+
                         if (!alreadySentNear) {
                             const message = `
 ⚠️ *收藏币种进入逼近期*
@@ -312,13 +366,41 @@ async function checkFavoriteCoinsAlerts() {
 
 💡 币种正接近重要阈值，可能即将突破或回调！
                             `;
-                            
+
                             try {
                                 await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
                                 await recordNotification(chatId, favoriteSymbol, 'favorite_near_threshold', currentDate);
                                 console.log(`Favorite near threshold alert sent to ${chatId} for ${favoriteSymbol}`);
                             } catch (error) {
                                 console.error(`Failed to send favorite near threshold alert to ${chatId}:`, error);
+                            }
+                        }
+                    }
+
+                    // 4. 检查场外指数异常上升
+                    if (coinData.otc_index_change_percent && coinData.otc_index_change_percent > 30) {
+                        const alreadySentOtcRise = await hasNotificationSent(chatId, favoriteSymbol, 'favorite_otc_rise', currentDate);
+
+                        if (!alreadySentOtcRise) {
+                            const message = `
+🔥 *收藏币种场外指数异常上升*
+
+**${coinData.coin.name} (${favoriteSymbol})**
+📊 场外指数：${coinData.otc_index || 'N/A'} (📈 +${coinData.otc_index_change_percent.toFixed(1)}%)
+💥 爆破指数：${coinData.explosion_index || 'N/A'}
+📈 当前状态：${getTypeDisplay(coinData.entry_exit_type)}${coinData.entry_exit_day ? `第${coinData.entry_exit_day}天` : ''}
+⭐ 质量评估：${coinData.period_quality || '待评估'}
+🎯 谢林点：${coinData.schelling_point || 'N/A'}
+
+🚀 场外资金流入显著增加，市场热度上升！
+                            `;
+
+                            try {
+                                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                                await recordNotification(chatId, favoriteSymbol, 'favorite_otc_rise', currentDate);
+                                console.log(`Favorite OTC rise alert sent to ${chatId} for ${favoriteSymbol}`);
+                            } catch (error) {
+                                console.error(`Failed to send favorite OTC rise alert to ${chatId}:`, error);
                             }
                         }
                     }
@@ -355,89 +437,102 @@ async function checkDataUpdates() {
                     continue;
                 }
 
-                // 检查数据更新时间（假设API返回数据有更新时间字段）
-                const currentDate = new Date().toISOString().slice(0, 10);
-                const updateKey = `data_update_${currentDate}`;
-                
-                // 检查是否已经发送过今天的数据更新通知
-                const alreadyNotified = await hasNotificationSent(chatId, 'SYSTEM', 'data_update', currentDate);
-                
-                if (!alreadyNotified) {
-                    // 获取所有重要变化和通知
-                    const allNotifications = [];
-                    
-                    // 1. 分析全市场重要变化
-                    const significantChanges = analyzeDataChanges(data.metrics);
-                    if (significantChanges.length > 0) {
-                        allNotifications.push({
-                            type: 'market_changes',
-                            title: '📊 市场重要变化',
-                            content: significantChanges
-                        });
-                    }
-                    
-                    // 2. 检查收藏币种状态
-                    const favoriteAlerts = await checkUserFavoriteAlerts(chatId, data.metrics);
-                    if (favoriteAlerts.length > 0) {
-                        allNotifications.push({
-                            type: 'favorite_alerts',
-                            title: '⭐ 收藏币种提醒',
-                            content: favoriteAlerts
-                        });
-                    }
-                    
-                    // 3. 检查优质进场期机会
-                    const qualityOpportunities = await analyzeQualityOpportunities(data.metrics, chatId, currentDate);
-                    if (qualityOpportunities.length > 0) {
-                        allNotifications.push({
-                            type: 'quality_opportunities',
-                            title: '🌟 优质机会发现',
-                            content: qualityOpportunities
-                        });
-                    }
-                    
-                    // 4. 检查动能指标
-                    const momentumAlerts = await analyzeMomentumIndicators(data.metrics, chatId, currentDate);
-                    if (momentumAlerts.length > 0) {
-                        allNotifications.push({
-                            type: 'momentum_alerts',
-                            title: '⚡ 动能信号',
-                            content: momentumAlerts
-                        });
-                    }
-                    
-                    if (allNotifications.length > 0) {
-                        const message = formatComprehensiveNotification(allNotifications);
-                        
-                        try {
-                            await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                            await recordNotification(chatId, 'SYSTEM', 'data_update', currentDate);
-                            
-                            // 为进场期前3天的币种记录特殊的通知历史
-                            const qualityOpps = allNotifications.find(n => n.type === 'quality_opportunities');
-                            if (qualityOpps) {
-                                for (const opp of qualityOpps.content) {
-                                    if (opp.isEarlyEntry && opp.notificationKey) {
-                                        await recordNotification(chatId, opp.coin.symbol, opp.notificationKey, currentDate);
+                // 检查是否有实际数据变化
+                const currentDataSnapshot = createDataSnapshot(data);
+                const lastSnapshot = lastDataSnapshot.get(chatId);
+
+                // 如果是第一次检查或者数据有变化，才进行通知检查
+                if (!lastSnapshot || hasDataChanged(lastSnapshot, currentDataSnapshot)) {
+                    console.log(`Data changes detected for user ${chatId}, checking notifications...`);
+
+                    // 更新数据快照
+                    lastDataSnapshot.set(chatId, currentDataSnapshot);
+
+                    const currentDate = new Date().toISOString().slice(0, 10);
+                    const currentTimestamp = Math.floor(Date.now() / 60000); // 分钟级时间戳
+
+                    // 使用更精确的去重机制
+                    const alreadyNotified = await hasNotificationSent(chatId, 'SYSTEM', `data_update_${currentTimestamp}`, currentDate);
+
+                    if (!alreadyNotified) {
+                        // 获取所有重要变化和通知
+                        const allNotifications = [];
+
+                        // 1. 分析全市场重要变化
+                        const significantChanges = analyzeDataChanges(data.metrics);
+                        if (significantChanges.length > 0) {
+                            allNotifications.push({
+                                type: 'market_changes',
+                                title: '📊 市场重要变化',
+                                content: significantChanges
+                            });
+                        }
+
+                        // 2. 检查收藏币种状态
+                        const favoriteAlerts = await checkUserFavoriteAlerts(chatId, data.metrics);
+                        if (favoriteAlerts.length > 0) {
+                            allNotifications.push({
+                                type: 'favorite_alerts',
+                                title: '⭐ 收藏币种提醒',
+                                content: favoriteAlerts
+                            });
+                        }
+
+                        // 3. 检查优质进场期机会
+                        const qualityOpportunities = await analyzeQualityOpportunities(data.metrics, chatId, currentDate);
+                        if (qualityOpportunities.length > 0) {
+                            allNotifications.push({
+                                type: 'quality_opportunities',
+                                title: '🌟 优质机会发现',
+                                content: qualityOpportunities
+                            });
+                        }
+
+                        // 4. 检查动能指标
+                        const momentumAlerts = await analyzeMomentumIndicators(data.metrics, chatId, currentDate);
+                        if (momentumAlerts.length > 0) {
+                            allNotifications.push({
+                                type: 'momentum_alerts',
+                                title: '⚡ 动能信号',
+                                content: momentumAlerts
+                            });
+                        }
+
+                        if (allNotifications.length > 0) {
+                            const message = formatComprehensiveNotification(allNotifications);
+
+                            try {
+                                await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                                await recordNotification(chatId, 'SYSTEM', 'data_update', currentDate);
+
+                                // 为进场期前3天的币种记录特殊的通知历史
+                                const qualityOpps = allNotifications.find(n => n.type === 'quality_opportunities');
+                                if (qualityOpps) {
+                                    for (const opp of qualityOpps.content) {
+                                        if (opp.isEarlyEntry && opp.notificationKey) {
+                                            await recordNotification(chatId, opp.coin.symbol, opp.notificationKey, currentDate);
+                                        }
                                     }
                                 }
-                            }
-                            
-                            // 记录动能指标通知
-                            const momentumAlerts = allNotifications.find(n => n.type === 'momentum_alerts');
-                            if (momentumAlerts) {
-                                for (const alert of momentumAlerts.content) {
-                                    if (alert.notificationKey) {
-                                        await recordNotification(chatId, alert.coin.symbol, alert.notificationKey, currentDate);
+
+                                // 记录动能指标通知
+                                const momentumAlerts = allNotifications.find(n => n.type === 'momentum_alerts');
+                                if (momentumAlerts) {
+                                    for (const alert of momentumAlerts.content) {
+                                        if (alert.notificationKey) {
+                                            await recordNotification(chatId, alert.coin.symbol, alert.notificationKey, currentDate);
+                                        }
                                     }
                                 }
+
+                                console.log(`Comprehensive notification sent to ${chatId} with ${allNotifications.length} types`);
+                            } catch (error) {
+                                console.error(`Failed to send comprehensive notification to ${chatId}:`, error);
                             }
-                            
-                            console.log(`Comprehensive notification sent to ${chatId} with ${allNotifications.length} types`);
-                        } catch (error) {
-                            console.error(`Failed to send comprehensive notification to ${chatId}:`, error);
                         }
                     }
+                } else {
+                    console.log(`No data changes detected for user ${chatId}, skipping notifications`);
                 }
             } catch (userError) {
                 console.error(`Error checking data updates for user ${chatId}:`, userError);
@@ -468,9 +563,11 @@ function analyzeDataChanges(metrics) {
         
         // 检查场外指数显著变化 (>30%变化)
         if (metric.otc_index_change_percent && Math.abs(metric.otc_index_change_percent) > 30) {
+            const changeDirection = metric.otc_index_change_percent > 0 ? '上升' : '下降';
+            const emoji = metric.otc_index_change_percent > 0 ? '🔥' : '📉';
             significantChanges.push({
                 coin: metric.coin,
-                changeType: '📊 场外指数大幅变化',
+                changeType: `${emoji} 场外指数异常${changeDirection}`,
                 description: `${metric.otc_index_change_percent > 0 ? '+' : ''}${metric.otc_index_change_percent.toFixed(1)}%`,
                 currentData: {
                     otc_index: metric.otc_index,
@@ -542,13 +639,23 @@ async function checkUserFavoriteAlerts(chatId, metrics) {
             }
             
             // 检查逼近期
-            if (coinData.near_threshold || 
+            if (coinData.near_threshold ||
                 (coinData.entry_exit_type === 'neutral' && coinData.explosion_index > 0 && coinData.explosion_index < 100)) {
                 alerts.push({
                     coin: coinData.coin,
                     alertType: '🎯 进入逼近期',
                     description: '逼近关键阈值',
                     priority: 'medium'
+                });
+            }
+
+            // 检查场外指数异常上升
+            if (coinData.otc_index_change_percent && coinData.otc_index_change_percent > 30) {
+                alerts.push({
+                    coin: coinData.coin,
+                    alertType: '🔥 场外指数异常上升',
+                    description: `场外指数：${coinData.otc_index} (+${coinData.otc_index_change_percent.toFixed(1)}%)`,
+                    priority: 'high'
                 });
             }
         }
@@ -817,45 +924,69 @@ async function analyzeMomentumIndicators(metrics, chatId, currentDate) {
 // 格式化综合通知消息
 function formatComprehensiveNotification(notifications) {
     let message = `📱 *实时数据更新*\n\n`;
-    
+
     notifications.forEach((notification, index) => {
         message += `${notification.title}\n`;
-        
+
         if (notification.type === 'market_changes') {
-            notification.content.forEach(change => {
-                message += `• **${change.coin.name} (${change.coin.symbol})**\n`;
-                message += `   ${change.changeType}: ${change.description}\n`;
-                message += `   📊 场外：${change.currentData?.otc_index || 'N/A'} | 💥 爆破：${change.currentData?.explosion_index || 'N/A'}\n`;
+            notification.content.forEach((change, i) => {
+                // 使用分隔线和更清晰的布局
+                message += `━━━━━━━━━━━━━━━━━━━━\n`;
+                message += `🪙 **${change.coin.symbol}** - ${change.coin.name}\n`;
+                message += `${change.changeType}\n`;
+                message += `${change.description}\n`;
+                message += `📊 场外: ${change.currentData?.otc_index || 'N/A'}\n`;
+                message += `💥 爆破: ${change.currentData?.explosion_index || 'N/A'}\n`;
+                if (i < notification.content.length - 1) {
+                    message += `\n`;
+                }
             });
         } else if (notification.type === 'favorite_alerts') {
-            notification.content.forEach(alert => {
-                message += `• **${alert.coin.name} (${alert.coin.symbol})**\n`;
-                message += `   ${alert.alertType}: ${alert.description}\n`;
+            notification.content.forEach((alert, i) => {
+                message += `━━━━━━━━━━━━━━━━━━━━\n`;
+                message += `⭐ **${alert.coin.symbol}** - ${alert.coin.name}\n`;
+                message += `${alert.alertType}\n`;
+                message += `${alert.description}\n`;
+                if (i < notification.content.length - 1) {
+                    message += `\n`;
+                }
             });
         } else if (notification.type === 'quality_opportunities') {
-            notification.content.forEach(opp => {
-                message += `• **${opp.coin.name} (${opp.coin.symbol})**\n`;
-                message += `   ${opp.opportunityType}: ${opp.description}\n`;
+            notification.content.forEach((opp, i) => {
+                message += `━━━━━━━━━━━━━━━━━━━━\n`;
+                message += `🌟 **${opp.coin.symbol}** - ${opp.coin.name}\n`;
+                message += `${opp.opportunityType}\n`;
+                message += `${opp.description}\n`;
                 if (opp.isEarlyEntry) {
-                    message += `   🔥 *进场期黄金时间* - 持续关注\n`;
+                    message += `🔥 *进场期黄金时间* - 持续关注\n`;
                 }
-                message += `   📊 场外：${opp.indices.otc || 'N/A'} | 💥 爆破：${opp.indices.explosion || 'N/A'}\n`;
+                message += `📊 场外: ${opp.indices.otc || 'N/A'}\n`;
+                message += `💥 爆破: ${opp.indices.explosion || 'N/A'}\n`;
+                if (i < notification.content.length - 1) {
+                    message += `\n`;
+                }
             });
         } else if (notification.type === 'momentum_alerts') {
-            notification.content.forEach(alert => {
-                message += `• **${alert.coin.name} (${alert.coin.symbol})**\n`;
-                message += `   ${alert.title}: ${alert.indicator}\n`;
-                message += `   📊 场外：${alert.indices.otc || 'N/A'} | 💥 爆破：${alert.indices.explosion || 'N/A'}\n`;
+            notification.content.forEach((alert, i) => {
+                message += `━━━━━━━━━━━━━━━━━━━━\n`;
+                message += `🚀 **${alert.coin.symbol}** - ${alert.coin.name}\n`;
+                message += `${alert.title}\n`;
+                message += `${alert.indicator}\n`;
+                message += `📊 场外: ${alert.indices.otc || 'N/A'}\n`;
+                message += `💥 爆破: ${alert.indices.explosion || 'N/A'}\n`;
+                if (i < notification.content.length - 1) {
+                    message += `\n`;
+                }
             });
         }
-        
+
         if (index < notifications.length - 1) {
-            message += '\n';
+            message += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
         }
     });
-    
+
     message += `\n⏰ ${new Date().toLocaleString('zh-CN', {timeZone: 'Australia/Sydney'})}`;
-    
+
     return message;
 }
 
@@ -886,18 +1017,34 @@ function getTypeDisplay(type) {
 function initializeScheduler() {
     console.log('Initializing scheduler...');
 
-    // 移除固定时间的定时通知，只保留实时数据更新检测
-
-    // 下午2点到晚上8点，每30分钟检查一次数据更新
-    cron.schedule('*/30 14-20 * * *', async () => {
-        console.log('Running data update check');
+    // 1. 高频数据检测 - 每5分钟检查一次（全天24小时）
+    cron.schedule('*/5 * * * *', async () => {
+        console.log('Running frequent data update check');
         await checkDataUpdates();
     }, {
         timezone: "Australia/Sydney"
     });
 
+    // 2. 核心时段加强检测 - 下午2点到晚上8点，每2分钟检查一次
+    cron.schedule('*/2 14-20 * * *', async () => {
+        console.log('Running intensive data update check (core hours)');
+        await checkDataUpdates();
+    }, {
+        timezone: "Australia/Sydney"
+    });
+
+    // 3. 收藏币种特别关注 - 每分钟检查收藏币种的关键变化
+    cron.schedule('* 14-20 * * *', async () => {
+        console.log('Running favorite coins alerts check');
+        await checkFavoriteCoinsAlerts();
+    }, {
+        timezone: "Australia/Sydney"
+    });
+
     console.log('Scheduler initialized with the following jobs:');
-    console.log('- Every 30 minutes (2:00 PM - 8:00 PM): Real-time data update checks with comprehensive monitoring');
+    console.log('- Every 5 minutes (24/7): Regular data update checks');
+    console.log('- Every 2 minutes (2:00 PM - 8:00 PM): Intensive monitoring during core hours');
+    console.log('- Every 1 minute (2:00 PM - 8:00 PM): Critical favorite coins alerts');
 }
 
 // 立即执行一次检查（用于测试）
