@@ -238,12 +238,24 @@ async function storeProcessedData(data) {
   }
 }
 
-// --- 辅助函数：获取前一天日期字符串 ---
-function getPreviousDateString(dateString) {
-  const date = new Date(dateString);
-  if (isNaN(date.getTime())) return null; // 无效日期处理
-  date.setDate(date.getDate() - 1);
-  return date.toISOString().split('T')[0];
+// --- 辅助函数：获取前一个有数据的日期字符串 ---
+async function getPreviousDateWithData(currentDate) {
+  try {
+    // 查找小于当前日期的最近一条数据的日期
+    const previousMetric = await DailyMetric.findOne({
+      where: {
+        date: { [Op.lt]: currentDate }
+      },
+      attributes: ['date'],
+      order: [['date', 'DESC']],
+      raw: true
+    });
+
+    return previousMetric ? previousMetric.date : null;
+  } catch (error) {
+    console.error('[GET_PREVIOUS_DATE] Error finding previous date:', error);
+    return null;
+  }
 }
 
 // --- 路由：获取最新数据 (增强版，包含前一天对比和百分比变化) ---
@@ -263,8 +275,8 @@ router.get('/latest', async (req, res) => {
     }
 
     const latestDate = latestMetricDateEntry.date;
-    const previousDate = getPreviousDateString(latestDate);
-    console.log(`[LATEST_DATA] Latest date: ${latestDate}, Previous date: ${previousDate}`);
+    const previousDate = await getPreviousDateWithData(latestDate);
+    console.log(`[LATEST_DATA] Latest date: ${latestDate}, Previous date with data: ${previousDate}`);
 
     const commonIncludeCoin = {
       model: Coin,
@@ -1200,19 +1212,20 @@ router.get('/by-date/:date', async (req, res) => {
       });
     }
 
-    // 获取前一天的数据用于对比
-    const previousDate = new Date(date);
-    previousDate.setDate(previousDate.getDate() - 1);
-    const previousDateStr = previousDate.toISOString().split('T')[0];
+    // 获取前一个有数据的日期用于对比
+    const previousDateStr = await getPreviousDateWithData(date);
 
-    const previousMetrics = await DailyMetric.findAll({
-      where: { date: previousDateStr },
-      include: [{
-        model: Coin,
-        as: 'coin',
-        attributes: ['id', 'symbol']
-      }]
-    });
+    let previousMetrics = [];
+    if (previousDateStr) {
+      previousMetrics = await DailyMetric.findAll({
+        where: { date: previousDateStr },
+        include: [{
+          model: Coin,
+          as: 'coin',
+          attributes: ['id', 'symbol']
+        }]
+      });
+    }
 
     // 创建前一天数据的映射
     const previousDataMap = {};
