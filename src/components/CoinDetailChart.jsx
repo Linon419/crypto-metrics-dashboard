@@ -6,14 +6,15 @@ import {
   ReferenceArea, ReferenceLine, Legend, ComposedChart
 } from 'recharts';
 import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty, Radio, Tag, Tooltip as AntTooltip } from 'antd';
-import { 
-  ZoomInOutlined, 
-  ZoomOutOutlined, 
-  UndoOutlined, 
-  ReloadOutlined, 
+import {
+  ZoomInOutlined,
+  ZoomOutOutlined,
+  UndoOutlined,
+  ReloadOutlined,
   InfoCircleOutlined,
   LineChartOutlined
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { fetchCoinMetrics } from '../services/api';
 
 const { Title, Text } = Typography;
@@ -215,41 +216,36 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
       
       try {
         // 计算日期范围 - 如果有选中日期，使用选中日期作为结束日期
-        const endDate = selectedDate ? selectedDate.toDate() : new Date();
-        let startDate = new Date();
-        
+        // 使用 dayjs 而不是 Date 对象来避免时区问题
+        const endDateDayjs = selectedDate || dayjs();
+        let startDateDayjs;
+
         switch(timeRange) {
           case '1W':
-            startDate.setTime(endDate.getTime());
-            startDate.setDate(endDate.getDate() - 7);
+            startDateDayjs = endDateDayjs.subtract(7, 'day');
             break;
           case '1M':
-            startDate.setTime(endDate.getTime());
-            startDate.setDate(endDate.getDate() - 30);
+            startDateDayjs = endDateDayjs.subtract(30, 'day');
             break;
           case '3M':
-            startDate.setTime(endDate.getTime());
-            startDate.setDate(endDate.getDate() - 90);
+            startDateDayjs = endDateDayjs.subtract(90, 'day');
             break;
           case '6M':
-            startDate.setTime(endDate.getTime());
-            startDate.setDate(endDate.getDate() - 180);
+            startDateDayjs = endDateDayjs.subtract(180, 'day');
             break;
           case '1Y':
-            startDate.setTime(endDate.getTime());
-            startDate.setDate(endDate.getDate() - 365);
+            startDateDayjs = endDateDayjs.subtract(365, 'day');
             break;
           case 'ALL':
-            startDate = new Date(2023, 0, 1); // 从2023年开始
+            startDateDayjs = dayjs('2023-01-01'); // 从2023年开始
             break;
           default:
-            startDate.setTime(endDate.getTime());
-            startDate.setDate(endDate.getDate() - 30);
+            startDateDayjs = endDateDayjs.subtract(30, 'day');
         }
-        
-        // 将日期转换为 YYYY-MM-DD 格式
-        const formattedStartDate = startDate.toISOString().split('T')[0];
-        const formattedEndDate = endDate.toISOString().split('T')[0];
+
+        // 将日期转换为 YYYY-MM-DD 格式（避免时区问题）
+        const formattedStartDate = startDateDayjs.format('YYYY-MM-DD');
+        const formattedEndDate = endDateDayjs.format('YYYY-MM-DD');
 
         console.log(`[CoinDetailChart] 获取 ${coin.symbol} 从 ${formattedStartDate} 到 ${formattedEndDate} 的指标数据`, {
           selectedDate: selectedDate ? selectedDate.format('YYYY-MM-DD') : 'null',
@@ -266,7 +262,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
         if (!Array.isArray(data) || data.length === 0) {
           // 如果没有数据返回，创建一些模拟数据供显示
           console.log(`没有找到 ${coin.symbol} 的历史数据，创建模拟数据`);
-          const mockData = createMockData(coin, startDate, endDate);
+          const mockData = createMockData(coin, startDateDayjs.toDate(), endDateDayjs.toDate());
           setMetrics(mockData);
           setDisplayData(mockData);
         } else {

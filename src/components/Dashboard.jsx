@@ -86,12 +86,13 @@ function Dashboard() {
   }, []);
 
   // Load data
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError(null);
 
     try {
-      const result = await fetchLatestMetrics(); // This already contains previousDayData
+      console.log('[Dashboard] Loading data, forceRefresh:', forceRefresh);
+      const result = await fetchLatestMetrics(forceRefresh); // This already contains previousDayData
       // console.log("[DASHBOARD - fetchLatestMetrics result]", JSON.stringify(result, null, 2));
 
 
@@ -105,8 +106,10 @@ function Dashboard() {
         }
 
         if (result.date) {
+          console.log('[Dashboard] Setting date from API:', result.date);
           setLatestDateStr(result.date);
           setSelectedDate(dayjs(result.date));
+          console.log('[Dashboard] Selected date set to:', dayjs(result.date).format('YYYY-MM-DD'));
         }
 
         if (result.liquidity) {
@@ -279,7 +282,8 @@ function Dashboard() {
 
   // Refresh data manually
   const handleRefresh = () => {
-    loadData();
+    console.log('[Dashboard] Force refreshing all data...');
+    loadData(true); // 强制刷新，绕过缓存
     refreshFavorites();
   };
 
