@@ -151,14 +151,23 @@ async function processRawData(rawText) {
     const prompt = customPrompt ? customPrompt.replace('{{processedText}}', processedText) : getDefaultPrompt(processedText);
 
     console.log('============ API请求开始 ============');
+    const apiStartTime = Date.now();
+
     // 调用OpenAI API
     const openaiClient = getOpenAIClient();
     const model = process.env.OPENAI_MODEL || "gpt-4o"; // 默认使用gpt-4o
     const systemPrompt = process.env.OPENAI_SYSTEM_PROMPT || "你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。";
 
     console.log('使用的模型:', model);
+    console.log('数据大小:', rawText.length, '字符');
 
-    const response = await openaiClient.chat.completions.create({
+    // 设置OpenAI API调用超时（4分钟）
+    const timeoutMs = 240000; // 4分钟超时
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`OpenAI API 调用超时（${timeoutMs/1000}秒）`)), timeoutMs);
+    });
+
+    const apiPromise = openaiClient.chat.completions.create({
       model: model,
       messages: [
         {
@@ -170,10 +179,17 @@ async function processRawData(rawText) {
           content: prompt
         }
       ],
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
+      timeout: timeoutMs // OpenAI SDK 的内置超时设置
     });
-    
+
+    const response = await Promise.race([apiPromise, timeoutPromise]);
+
+    const apiEndTime = Date.now();
+    const apiDuration = ((apiEndTime - apiStartTime) / 1000).toFixed(2);
+
     console.log('============ API响应 ============');
+    console.log(`⏱️ OpenAI API 调用耗时: ${apiDuration} 秒`);
     console.log(JSON.stringify(response.choices[0].message, null, 2));
     
     const responseContent = response.choices[0].message.content;

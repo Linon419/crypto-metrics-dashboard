@@ -25,10 +25,14 @@ router.post('/input', async (req, res) => {
   }
 
   console.log(`[DATA_INPUT] Received raw data input request, length: ${rawData.length}`);
+  const requestStartTime = Date.now();
 
   try {
     console.log('[DATA_INPUT] Calling OpenAI to process data...');
+    const openaiStartTime = Date.now();
     const processedData = await openaiService.processRawData(rawData);
+    const openaiEndTime = Date.now();
+    console.log(`[DATA_INPUT] ⏱️ OpenAI处理总耗时: ${((openaiEndTime - openaiStartTime) / 1000).toFixed(2)} 秒`);
     console.log('[DATA_INPUT] OpenAI processing complete. Validating data structure...');
 
     if (!processedData || typeof processedData !== 'object' || !processedData.date || !Array.isArray(processedData.coins)) {
@@ -41,8 +45,14 @@ router.post('/input', async (req, res) => {
     }
 
     console.log('[DATA_INPUT] Storing processed data into database...');
+    const dbStartTime = Date.now();
     const result = await storeProcessedData(processedData);
+    const dbEndTime = Date.now();
+    console.log(`[DATA_INPUT] ⏱️ 数据库存储耗时: ${((dbEndTime - dbStartTime) / 1000).toFixed(2)} 秒`);
     console.log('[DATA_INPUT] Data storage complete.');
+
+    const totalEndTime = Date.now();
+    console.log(`[DATA_INPUT] ⏱️ 总请求处理耗时: ${((totalEndTime - requestStartTime) / 1000).toFixed(2)} 秒`);
 
     res.json({
       success: true,
