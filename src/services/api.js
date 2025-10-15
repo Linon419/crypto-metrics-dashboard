@@ -214,7 +214,7 @@ export const submitRawData = async (rawData) => {
     // 但如果拦截器（如token）也需要，则需要确保它们也被应用
     // 为了简单起见，如果baseURL是相同的，可以考虑使用全局api实例并覆盖特定配置
     const response = await callApiWithRetry(
-      () => api.post('/data/input', { rawData }, { timeout: 120000 }), // 使用全局api，覆盖超时
+      () => api.post('/data/input', { rawData }, { timeout: 300000 }), // 5分钟超时，处理大量数据
       3,
       3000
     );

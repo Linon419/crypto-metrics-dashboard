@@ -126,8 +126,24 @@ function DataInputForm({ onSuccess }) {
       setTimePrecision('day');
       if (onSuccess) onSuccess();
     } catch (error) {
-      setDebugInfo('提交失败: ' + (error.message || '未知错误'));
-      message.error('数据处理失败: ' + (error.message || '未知错误'));
+      // 收集完整的错误信息
+      const errorDetails = {
+        message: error.message || '未知错误',
+        displayMessage: error.displayMessage,
+        response: error.response ? {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data
+        } : null,
+        stack: error.stack,
+        name: error.name,
+        code: error.code
+      };
+
+      const debugMessage = JSON.stringify(errorDetails, null, 2);
+      console.error('完整错误信息:', errorDetails);
+      setDebugInfo(debugMessage);
+      message.error('数据处理失败: ' + (error.displayMessage || error.message || '未知错误'));
     } finally {
       setLoading(false);
     }
@@ -148,8 +164,24 @@ function DataInputForm({ onSuccess }) {
       message.success('数据处理成功!');
       if (onSuccess) onSuccess();
     } catch (error) {
-      setDebugInfo('直接提交失败: ' + (error.message || '未知错误'));
-      message.error('直接提交失败: ' + (error.message || '未知错误'));
+      // 收集完整的错误信息
+      const errorDetails = {
+        message: error.message || '未知错误',
+        displayMessage: error.displayMessage,
+        response: error.response ? {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data
+        } : null,
+        stack: error.stack,
+        name: error.name,
+        code: error.code
+      };
+
+      const debugMessage = JSON.stringify(errorDetails, null, 2);
+      console.error('完整错误信息:', errorDetails);
+      setDebugInfo(debugMessage);
+      message.error('直接提交失败: ' + (error.displayMessage || error.message || '未知错误'));
     } finally {
       setLoading(false);
     }
@@ -660,13 +692,26 @@ Btc 场外指数1627场外进场期第26天
       </div>
       
       {debugInfo && (
-        <Alert 
-          message="调试信息" 
-          description={debugInfo} 
-          type="info" 
-          style={{ marginTop: '20px' }} 
-          showIcon 
-          closable 
+        <Alert
+          message="调试信息"
+          description={
+            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+              <pre style={{
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                fontSize: '12px',
+                margin: 0,
+                fontFamily: 'Monaco, Consolas, "Courier New", monospace'
+              }}>
+                {debugInfo}
+              </pre>
+            </div>
+          }
+          type={debugInfo.includes('成功') ? 'success' : debugInfo.includes('失败') || debugInfo.includes('错误') ? 'error' : 'info'}
+          style={{ marginTop: '20px' }}
+          showIcon
+          closable
+          onClose={() => setDebugInfo('')}
         />
       )}
       
