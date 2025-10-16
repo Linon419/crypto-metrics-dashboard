@@ -143,7 +143,29 @@ function DataInputForm({ onSuccess }) {
       const debugMessage = JSON.stringify(errorDetails, null, 2);
       console.error('完整错误信息:', errorDetails);
       setDebugInfo(debugMessage);
-      message.error('数据处理失败: ' + (error.displayMessage || error.message || '未知错误'));
+
+      // 根据错误类型提供更有针对性的提示
+      let userMessage = '数据处理失败: ';
+      const responseData = error.response?.data;
+
+      if (responseData?.details) {
+        // 如果有详细错误信息
+        const details = responseData.details;
+        userMessage += `${details.message || '未知错误'}`;
+
+        if (details.stage) {
+          userMessage += `\n阶段: ${details.stage}`;
+        }
+        if (details.suggestion) {
+          userMessage += `\n建议: ${details.suggestion}`;
+        }
+      } else if (responseData?.rawError) {
+        userMessage += responseData.rawError;
+      } else {
+        userMessage += error.displayMessage || error.message || '未知错误';
+      }
+
+      message.error(userMessage, 10); // 显示10秒
     } finally {
       setLoading(false);
     }
@@ -181,7 +203,29 @@ function DataInputForm({ onSuccess }) {
       const debugMessage = JSON.stringify(errorDetails, null, 2);
       console.error('完整错误信息:', errorDetails);
       setDebugInfo(debugMessage);
-      message.error('直接提交失败: ' + (error.displayMessage || error.message || '未知错误'));
+
+      // 根据错误类型提供更有针对性的提示
+      let userMessage = '直接提交失败: ';
+      const responseData = error.response?.data;
+
+      if (responseData?.details) {
+        // 如果有详细错误信息
+        const details = responseData.details;
+        userMessage += `${details.message || '未知错误'}`;
+
+        if (details.stage) {
+          userMessage += `\n阶段: ${details.stage}`;
+        }
+        if (details.suggestion) {
+          userMessage += `\n建议: ${details.suggestion}`;
+        }
+      } else if (responseData?.rawError) {
+        userMessage += responseData.rawError;
+      } else {
+        userMessage += error.displayMessage || error.message || '未知错误';
+      }
+
+      message.error(userMessage, 10); // 显示10秒
     } finally {
       setLoading(false);
     }

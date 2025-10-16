@@ -179,8 +179,9 @@ async function processRawData(rawText) {
           content: prompt
         }
       ],
-      response_format: { type: "json_object" },
-      timeout: timeoutMs // OpenAI SDK 的内置超时设置
+      response_format: { type: "json_object" }
+      // 注意: timeout 参数已移除,因为OpenAI API不接受此参数
+      // 我们使用 Promise.race 来实现超时控制
     });
 
     const response = await Promise.race([apiPromise, timeoutPromise]);

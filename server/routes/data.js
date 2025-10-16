@@ -67,10 +67,40 @@ router.post('/input', async (req, res) => {
 
   } catch (processingError) {
     console.error('[DATA_INPUT] Error during data processing or storage:', processingError);
+    console.error('[DATA_INPUT] Error stack:', processingError.stack);
+
+    // 提供更详细的错误信息
+    let errorDetails = {
+      message: processingError.message,
+      type: processingError.name || 'Unknown Error',
+      timestamp: new Date().toISOString()
+    };
+
+    // 如果是OpenAI API错误
+    if (processingError.message && processingError.message.includes('OpenAI')) {
+      errorDetails.stage = 'OpenAI API Processing';
+      errorDetails.suggestion = '请检查OpenAI API配置和网络连接';
+    }
+    // 如果是数据库错误
+    else if (processingError.name === 'SequelizeError' || processingError.message.includes('database')) {
+      errorDetails.stage = 'Database Storage';
+      errorDetails.suggestion = '请检查数据库连接和表结构';
+    }
+    // 如果是数据验证错误
+    else if (processingError.message.includes('Invalid') || processingError.message.includes('validation')) {
+      errorDetails.stage = 'Data Validation';
+      errorDetails.suggestion = '请检查输入数据格式';
+    }
+    else {
+      errorDetails.stage = 'Unknown';
+      errorDetails.suggestion = '请查看详细日志信息';
+    }
+
     res.status(500).json({
       success: false,
       error: 'Error processing or storing data',
-      details: processingError.message,
+      details: errorDetails,
+      rawError: processingError.message,
       stack: process.env.NODE_ENV !== 'production' ? processingError.stack : undefined
     });
   }
@@ -244,7 +274,18 @@ async function storeProcessedData(data) {
   } catch (error) {
     await transaction.rollback();
     console.error('[STORE_DATA] Transaction rolled back due to error:', error);
-    throw error; // 重新抛出错误，让上层处理
+    console.error('[STORE_DATA] Error name:', error.name);
+    console.error('[STORE_DATA] Error message:', error.message);
+    console.error('[STORE_DATA] Error stack:', error.stack);
+
+    // 提供更详细的错误上下文
+    if (error.name === 'SequelizeValidationError') {
+      console.error('[STORE_DATA] Validation errors:', error.errors);
+    } else if (error.name === 'SequelizeDatabaseError') {
+      console.error('[STORE_DATA] Database error details:', error.parent);
+    }
+
+    throw error; // 重新抛出错误,让上层处理
   }
 }
 

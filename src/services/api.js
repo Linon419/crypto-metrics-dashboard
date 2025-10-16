@@ -236,8 +236,16 @@ export const submitRawData = async (rawData) => {
     return response.data;
   } catch (error) {
     console.error('提交数据最终失败:', error.displayMessage || error.message);
-    // 抛出错误，让调用者处理UI提示
-    throw new Error(error.displayMessage || '提交数据时发生未知错误');
+    console.error('完整错误对象:', error);
+
+    // 保留原始错误对象的response属性
+    const enhancedError = new Error(error.displayMessage || error.message || '提交数据时发生未知错误');
+    enhancedError.response = error.response;
+    enhancedError.displayMessage = error.displayMessage;
+    enhancedError.name = error.name || 'Error';
+
+    // 抛出增强的错误对象
+    throw enhancedError;
   }
 };
 
