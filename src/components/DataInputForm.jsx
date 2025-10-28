@@ -30,6 +30,7 @@ function DataInputForm({ onSuccess }) {
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
   const [timePrecision, setTimePrecision] = useState('day');
+  const [selectedModel, setSelectedModel] = useState('gpt-5-mini'); // 默认使用gpt-5-mini
   const [jsonPreview, setJsonPreview] = useState(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const fileInputRef = useRef(null);
@@ -117,7 +118,8 @@ function DataInputForm({ onSuccess }) {
       const processedData = preprocessData(values.rawData);
       setDebugInfo('数据预处理完成，准备提交...');
       console.log('提交数据 (单个表单):', processedData);
-      const result = await submitRawData(processedData);
+      console.log('使用AI模型:', selectedModel);
+      const result = await submitRawData(processedData, selectedModel);
       setDebugInfo('提交成功，结果: ' + JSON.stringify(result).substring(0, 100) + '...');
       message.success('数据处理成功!');
       form.resetFields();
@@ -181,7 +183,8 @@ function DataInputForm({ onSuccess }) {
     setLoading(true);
     try {
       const processedData = preprocessData(rawData);
-      const result = await submitRawData(processedData);
+      console.log('使用AI模型:', selectedModel);
+      const result = await submitRawData(processedData, selectedModel);
       setDebugInfo('直接提交成功，结果: ' + JSON.stringify(result).substring(0, 100) + '...');
       message.success('数据处理成功!');
       if (onSuccess) onSuccess();
@@ -644,7 +647,51 @@ if (jsonData.metadata && (jsonData.allCoinsInfo || jsonData.coins) && (jsonData.
           选择时间后，提交时将以此时间为准。支持日、小时、分钟三种精度级别。如果文本中第一行是时间格式，则会被替换。
         </Text>
       </div>
-      
+
+      <div className="mb-6">
+        <Title level={5}><InfoCircleOutlined className="mr-2" />选择AI解析模型</Title>
+
+        <div className="mb-3">
+          <Text strong className="mr-2">解析模型:</Text>
+          <Select
+            value={selectedModel}
+            onChange={setSelectedModel}
+            style={{ width: 200 }}
+            size="small"
+          >
+            <Option value="gpt-5-nano">GPT-5 Nano</Option>
+            <Option value="gpt-5-mini">GPT-5 Mini</Option>
+            <Option value="gpt-5-chat-latest">GPT-5 Chat Latest</Option>
+            <Option value="gpt-4o-mini">GPT-4o Mini</Option>
+            <Option value="gpt-4o">GPT-4o</Option>
+            <Option value="gpt-4.1-mini">GPT-4.1 Mini</Option>
+            <Option value="o1-mini">O1 Mini</Option>
+            <Option value="o3-mini">O3 Mini</Option>
+            <Option value="o4-mini">O4 Mini</Option>
+          </Select>
+          <Text type="secondary" className="ml-2">
+            选择用于解析数据的AI模型
+          </Text>
+        </div>
+
+        <Alert
+          message={
+            <div>
+              <InfoCircleOutlined className="mr-1" />
+              当前选择: <Text strong>{selectedModel}</Text>
+            </div>
+          }
+          type="info"
+          showIcon
+          className="mb-2"
+        />
+
+        <Text type="secondary" className="mt-2 block">
+          <InfoCircleOutlined className="mr-1" />
+          不同的模型有不同的性能和准确度。默认使用GPT-5 Mini，也可根据需要选择其他模型。
+        </Text>
+      </div>
+
       <Form form={form} onFinish={handleSubmit} layout="vertical">
         <Form.Item 
           name="rawData" 

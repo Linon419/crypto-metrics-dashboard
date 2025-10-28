@@ -204,7 +204,7 @@ async function callApiWithRetry(apiCall, maxRetries = 3, initialRetryDelay = 200
 
 
 // --- 6. 数据提交和获取 API 调用 ---
-export const submitRawData = async (rawData) => {
+export const submitRawData = async (rawData, model = null) => {
   if (!rawData || typeof rawData !== 'string') {
     // 这种客户端验证错误不应该重试
     throw new Error('原始数据必须是字符串且不能为空');
@@ -213,8 +213,13 @@ export const submitRawData = async (rawData) => {
     // 对于大数据量提交，使用独立的 Axios 实例配置（如果需要不同的超时或特定头）
     // 但如果拦截器（如token）也需要，则需要确保它们也被应用
     // 为了简单起见，如果baseURL是相同的，可以考虑使用全局api实例并覆盖特定配置
+    const requestBody = { rawData };
+    if (model) {
+      requestBody.model = model;
+      console.log('[API] 使用指定的AI模型:', model);
+    }
     const response = await callApiWithRetry(
-      () => api.post('/data/input', { rawData }, { timeout: 300000 }), // 5分钟超时，处理大量数据
+      () => api.post('/data/input', requestBody, { timeout: 420000 }), // 7分钟超时，处理大量数据（留出比服务器更多的缓冲时间）
       3,
       3000
     );

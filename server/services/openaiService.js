@@ -28,124 +28,171 @@ function getOpenAIClient() {
  * @returns {string} - 完整的提示文本
  */
 function getDefaultPrompt(processedText) {
-  return `
-你是一个加密货币数据处理专家。请将以下非结构化数据转换为规范的JSON格式。
+  return `你是一个加密货币数据解析专家。你的任务是将非结构化的加密货币数据转换为规范的JSON格式。
 
-数据示例:
+**当前日期**: ${new Date().toISOString().split('T')[0]} (YYYY-MM-DD)
+
+## 输入数据
 \`\`\`
 ${processedText}
 \`\`\`
 
-关于时间格式的特别说明：
-1. 输入支持多种时间精度格式：
-   - 日精度：如"5.9"表示5月9日，或"2024.5.9"表示2024年5月9日
-   - 小时精度：如"5.9 14"表示5月9日14时，或"2024.5.9 14"表示2024年5月9日14时
-   - 分钟精度：如"5.9 14:30"表示5月9日14时30分，或"2024.5.9 14:30"表示2024年5月9日14时30分
-2. 年份处理：
-   - 可以省略年份，系统会智能推断年份
-   - 支持完整年份：2024.5.9
-   - 支持简化年份：24.5.9（表示2024年）
-3. **重要：输出格式要求**
-   - 请将解析后的时间转换为标准ISO格式输出
-   - 日精度：输出为 "YYYY-MM-DD" 格式
-   - 小时精度：输出为 "YYYY-MM-DD HH:00" 格式
-   - 分钟精度：输出为 "YYYY-MM-DD HH:MM" 格式
-4. 始终使用美式日期顺序解析：年.月.日 或 月.日
+## 核心解析规则
 
-仅返回有效的JSON格式，不要包含其他文本或解释。
+### 1. 时间格式解析与输出
 
-动能标识符号识别规则
+#### 输入格式支持
+- **日精度**：\`5.9\` 或 \`2024.5.9\`
+- **小时精度**：\`5.9 14\` 或 \`2024.5.9 14\`
+- **分钟精度**：\`5.9 14:30\` 或 \`2024.5.9 14:30\`
 
-$: 该币种此时有较大的向上动能，可以重点关注（以前使用*，现已改为$）
-※: 爆破指数高于200，处于高速油门期
-‼: 爆破指数从200以上跌至200以下，短期可撤出落袋为安的信号
-↑: 爆破指数连续2-3天持续上涨，最灵敏的走出阴跌行情进入上升通道指标
-w: 在退场天数后标注，表示场外巨头准备撤场但可能有犹豫的特殊情况
+#### 年份处理逻辑
+- **省略年份时**：使用当前年份（从上方"当前日期"获取）
+- **完整年份**：\`2024.5.9\` → 按指定年份解析
+- **简化年份**：\`24.5.9\` → 解析为 \`2024.5.9\`（前两位补20）
 
-**重要**：请仔细识别原始数据中这些特殊符号，但需要区分币种名称和动能指标：
+#### 输出格式要求（ISO标准）
+- 日精度 → \`YYYY-MM-DD\`
+- 小时精度 → \`YYYY-MM-DD HH:00\`
+- 分钟精度 → \`YYYY-MM-DD HH:MM\`
 
-动能指标识别规则：
-- ✅ **应该识别**：出现在数值后面的符号，如"爆破指数490$"、"场外指数1200※"
-- ✅ **应该识别**：单独出现在币种数据行中的符号，如"BTC ↑ 场外指数1500"  
-- ❌ **不要识别**：币种名称前缀的符号，如"$Trump"、"$DOGE"中的$是币种名称一部分
-- ❌ **不要识别**：作为币种符号开头的符号，这些通常是代币的标准命名
+#### 日期顺序
+始终使用美式顺序：**年.月.日** 或 **月.日**
 
-识别顺序：
-1. 先确定币种名称（包括其前缀符号）
-2. 再查找该币种数据中数值后面或独立出现的动能符号
-3. 确保动能符号不是币种名称的组成部分
+---
 
-请按照以下格式输出JSON:
+### 2. 动能指标识别规则
+
+#### 指标符号定义
+| 符号 | 含义 |
+|------|------|
+| \`$\` | 较大向上动能，重点关注 |
+| \`※\` | 爆破指数>200，高速油门期 |
+| \`‼\` | 爆破指数从>200跌至<200，短期撤出信号 |
+| \`↑\` | 爆破指数连续2-3天上涨，进入上升通道 |
+| \`w\` | 场外巨头撤场犹豫信号 |
+
+#### 识别决策树
+
+**✅ 应识别为动能指标**：
+- 数值后紧跟的符号：\`爆破指数490$\`、\`场外指数1200※\`
+- 独立出现在数据行中：\`BTC ↑ 场外指数1500\`
+
+**❌ 不应识别为动能指标**：
+- 币种名称前缀：\`$Trump\`、\`$DOGE\` 中的 \`$\` 是名称组成部分
+- 币种标准命名的一部分
+
+#### 识别流程（按顺序执行）
+1. **先识别币种名称**（包括其前缀符号）
+2. **再查找动能符号**（数值后或独立出现的符号）
+3. **验证排除**（确保符号不属于币种名称）
+
+---
+
+### 3. 币种符号标准化
+
+| 原始名称 | 标准符号 |
+|----------|----------|
+| 标准币种 | 大写（BTC, ETH, SOL） |
+| 美股纳指OTC | NASDAQ |
+| 币市流动性 | LIQUIDITY |
+| 期权波动率/比特币Vega交易 | VEGA |
+| Trump / $Trump | TRUMP |
+| 黄金OTC | GOLD |
+| 地产/水泥 | ESTATE |
+| 布伦特原油 | OIL |
+
+---
+
+### 4. 进退场类型识别
+
+| 原文描述 | entryExitType值 |
+|----------|-----------------|
+| 进场期 | "entry" |
+| 退场期 | "exit" |
+| 未明确说明 | "neutral" |
+
+---
+
+## 输出格式（JSON Schema）
+
 {
-  "date": "YYYY-MM-DD HH:MM", // 标准ISO格式，根据精度调整（日精度省略时间部分）
+  "date": "YYYY-MM-DD HH:MM",
   "coins": [
     {
       "symbol": "BTC",
       "otcIndex": 1756,
-      "entryExitType": "entry", // "entry"表示进场，"exit"表示退场
+      "entryExitType": "entry",
       "entryExitDay": 25,
       "explosionIndex": 196,
       "schellingPoint": 96900,
-      "nearThreshold": false, // 如果原文包含"逼近"则为true
-      "momentumIndicators": ["$", "※"] // 根据上述动能标识规则识别的符号数组，如果没有符合条件的可以为空数组[]
-    },
-    // 其他币种...
+      "nearThreshold": false,
+      "momentumIndicators": ["$", "※"]
+    }
   ],
   "liquidity": {
-    "btcFundChange": 0.2, // 单位：亿美元
+    "btcFundChange": 0.2,
     "ethFundChange": -1.7,
     "solFundChange": 0.8,
     "totalMarketFundChange": 0.5,
-    "comments": "..." // 提取流动性概况中的文字描述，，不要吞字
+    "comments": "..."
   },
-  "dailyReminder": "..." // 每日提醒部分的文字
+  "dailyReminder": "..."
 }
 
+**字段说明**：
+- date: 根据输入精度调整格式
+- symbol: 标准化大写符号
+- otcIndex: 场外指数（数值）
+- entryExitType: "entry" | "exit" | "neutral"
+- entryExitDay: 进/退场天数（数值）
+- explosionIndex: 爆破指数（数值）
+- schellingPoint: 谢林点位（数值）
+- nearThreshold: 是否逼近阈值（布尔值）
+- momentumIndicators: 动能指标数组，无则为[]
+- liquidity.btcFundChange: 单位亿美元
+- liquidity.comments: 原文描述，保持完整不遗漏
+- dailyReminder: 每日提醒原文
 
-对于币种识别：
-1. 标准币种符号应大写(BTC, ETH等)
-2. 非标准命名应尽量规范为通用符号
-3. 美股纳指 OTC == NASDAQ
-4. 币市流动性 == LIQUIDITY
-5. 期权波动率（比特币Vega交易）== VEGA
-6. Trump == TRUMP
-7. $Trump == TRUMP (币种名称，$是名称的一部分，不是动能指标)
-8. 黄金OTC == GOLD
-9. 地产 水泥  == ESTATE
-10. 布伦特原油 == OIL
+---
 
-**注意**：某些币种名称本身包含特殊符号（如$Trump），这些符号是币种标识的一部分，不应被识别为动能指标。
+## 输出要求
 
-对于进退场期识别：
-1. "进场期"对应entryExitType="entry"
-2. "退场期"对应entryExitType="exit"
-3. 如果没有明确指出进退场，则默认为"neutral"
+1. **仅返回有效JSON**，无其他文本或解释
+2. **保证JSON可解析**，注意逗号、引号、括号匹配
+3. **数值类型正确**：数字用number，文本用string，布尔值用boolean
+4. **数组处理**：momentumIndicators即使为空也返回[]而非null
 
-时间精度示例：
-- 日精度输入："5.9" → 输出date: "2025-05-09"
-- 日精度带年份："2024.5.9" → 输出date: "2024-05-09"
-- 小时精度输入："5.9 14" → 输出date: "2025-05-09 14:00"
-- 小时精度带年份："2024.5.9 14" → 输出date: "2024-05-09 14:00"
-- 分钟精度输入："5.9 14:30" → 输出date: "2025-05-09 14:30"
-- 分钟精度带年份："2024.5.9 14:30" → 输出date: "2024-05-09 14:30"
+---
 
-仅返回有效的JSON格式，不要包含其他文本或解释。
-`;
+## 时间格式输出示例（假设当前年份为2025）
+
+| 输入 | 输出 |
+|------|------|
+| \`5.9\` | \`"2025-05-09"\` |
+| \`2024.5.9\` | \`"2024-05-09"\` |
+| \`5.9 14\` | \`"2025-05-09 14:00"\` |
+| \`2024.5.9 14\` | \`"2024-05-09 14:00"\` |
+| \`5.9 14:30\` | \`"2025-05-09 14:30"\` |
+| \`2024.5.9 14:30\` | \`"2024-05-09 14:30"\` |
+| \`24.5.9\` | \`"2024-05-09"\` |
+
+开始解析数据。`;
 }
-
 /**
  * 处理原始加密货币指标数据
  * @param {string} rawText - 原始文本数据
+ * @param {string} [customModel] - 可选的自定义AI模型名称
  * @returns {Promise<Object>} - 处理后的结构化JSON数据
  */
-async function processRawData(rawText) {
+async function processRawData(rawText, customModel = null) {
   try {
     console.log('============ 原始输入数据 ============');
     console.log(rawText);
-    
+
     // 预处理日期 - 在发送到AI前先修复常见格式问题
     const processedText = preprocessDateFormat(rawText);
-    
+
     // 构建提示 - 从环境变量获取或使用默认值
     const customPrompt = process.env.OPENAI_PROMPT;
     const prompt = customPrompt ? customPrompt.replace('{{processedText}}', processedText) : getDefaultPrompt(processedText);
@@ -155,14 +202,22 @@ async function processRawData(rawText) {
 
     // 调用OpenAI API
     const openaiClient = getOpenAIClient();
-    const model = process.env.OPENAI_MODEL || "gpt-4o"; // 默认使用gpt-4o
+    // 优先使用传入的模型，其次使用环境变量，最后使用默认值
+    const model = customModel || process.env.OPENAI_MODEL || "gpt-4o";
     const systemPrompt = process.env.OPENAI_SYSTEM_PROMPT || "你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。";
 
     console.log('使用的模型:', model);
+    if (customModel) {
+      console.log('模型来源: 用户选择');
+    } else if (process.env.OPENAI_MODEL) {
+      console.log('模型来源: 环境变量');
+    } else {
+      console.log('模型来源: 默认配置');
+    }
     console.log('数据大小:', rawText.length, '字符');
 
-    // 设置OpenAI API调用超时（4分钟）
-    const timeoutMs = 240000; // 4分钟超时
+    // 设置OpenAI API调用超时（6分钟）
+    const timeoutMs = 360000; // 6分钟超时
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error(`OpenAI API 调用超时（${timeoutMs/1000}秒）`)), timeoutMs);
     });
