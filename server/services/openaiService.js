@@ -28,7 +28,7 @@ function getOpenAIClient() {
  * @returns {string} - 完整的提示文本
  */
 function getDefaultPrompt(processedText) {
-  return `你是一个加密货币数据解析专家。你的任务是将非结构化的加密货币数据转换为规范的JSON格式。
+  return `你是一个加密货币和美股数据解析专家。你的任务是将非结构化的加密货币/美股数据转换为规范的JSON格式。
 
 **当前日期**: ${new Date().toISOString().split('T')[0]} (YYYY-MM-DD)
 
@@ -101,6 +101,7 @@ ${processedText}
 | 黄金OTC | GOLD |
 | 地产/水泥 | ESTATE |
 | 布伦特原油 | OIL |
+| 美股个股 | 保持原样大写（HOOD, COIN, CIRCLE, TSLA, NVDA, AAPL, GOOG等） |
 
 ---
 
