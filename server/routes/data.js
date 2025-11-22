@@ -441,7 +441,90 @@ router.get('/latest', async (req, res) => {
 
 
 /**
- * 根据bodong文档第五章评估进场期质量
+ * 贝叶斯系统：分析最近N天的场外指数趋势（后验证据）
+ * @param {Array} historicalMetrics - 历史数据（按日期降序）
+ * @param {number} days - 分析最近几天（默认7天）
+ * @param {string} expectedDirection - 期望方向 'up'(进场期期望上升) 或 'down'(退场期期望下降)
+ * @returns {Object} - {trend: 趋势方向, confidence: 置信度, quality: 质量评估}
+ */
+function analyzeRecentTrend(historicalMetrics, days = 7, expectedDirection = 'up') {
+  // 取最近N天的数据（historicalMetrics[0]是最新的）
+  const recentData = historicalMetrics.slice(0, Math.min(days, historicalMetrics.length));
+
+  if (recentData.length < 3) {
+    return { trend: 'unknown', confidence: 0, quality: '数据不足' };
+  }
+
+  // 分析相邻两天的场外指数变化
+  let risingCount = 0;
+  let fallingCount = 0;
+  let totalChange = 0;
+
+  for (let i = 0; i < recentData.length - 1; i++) {
+    const today = recentData[i];        // 较新的日期
+    const yesterday = recentData[i + 1]; // 较旧的日期
+
+    const change = today.otc_index - yesterday.otc_index;
+    totalChange += change;
+
+    if (Math.abs(change) < yesterday.otc_index * 0.05) {
+      // 变化小于5%，算持平，不利于波动展开
+      continue;
+    } else if (change > 0) {
+      risingCount++;
+    } else {
+      fallingCount++;
+    }
+  }
+
+  // 计算整体变化百分比
+  const firstOtc = recentData[recentData.length - 1].otc_index;
+  const lastOtc = recentData[0].otc_index;
+  const totalChangePercent = ((lastOtc - firstOtc) / firstOtc) * 100;
+
+  // 判断趋势
+  let trend = 'volatile'; // 波动反复
+  if (risingCount > fallingCount * 1.5) {
+    trend = 'rising'; // 稳步上升
+  } else if (fallingCount > risingCount * 1.5) {
+    trend = 'falling'; // 稳步下降
+  }
+
+  // 计算置信度（0-1）
+  const dominantCount = Math.max(risingCount, fallingCount);
+  const totalMoves = risingCount + fallingCount;
+  const confidence = totalMoves > 0 ? dominantCount / totalMoves : 0;
+
+  // 根据期望方向评估质量
+  let quality = '待观察';
+  if (expectedDirection === 'up') {
+    // 进场期：期望场外指数上升（波动展开）
+    if (trend === 'rising' && confidence > 0.6 && totalChangePercent > 10) {
+      quality = '高质量进场';
+    } else if (trend === 'falling' || (trend === 'volatile' && totalChangePercent < 0)) {
+      quality = '低质量进场';
+    }
+  } else if (expectedDirection === 'down') {
+    // 退场期：期望场外指数下降（波动展开）
+    if (trend === 'falling' && confidence > 0.6 && totalChangePercent < -10) {
+      quality = '高质量退场';
+    } else if (trend === 'rising' || (trend === 'volatile' && totalChangePercent > 0)) {
+      quality = '低质量退场';
+    }
+  }
+
+  return {
+    trend,
+    confidence,
+    totalChangePercent,
+    risingCount,
+    fallingCount,
+    quality
+  };
+}
+
+/**
+ * 根据bodong文档第五章评估进场期质量（增加贝叶斯动态更新）
  * @param {Array} historicalMetrics - 历史数据
  * @param {Object} entryStartDateMetric - 进场期第一天数据
  * @param {number} entryStartOtcIndex - 进场期第一天场外指数
@@ -605,13 +688,30 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
 
     console.log(`[QualityCheck] CoinID ${coinId}: 上升次数: ${increasingCount}, 下降次数: ${decreasingCount}`);
 
-    // 根据趋势判断质量
+    // 先验判断：根据历史关键节点趋势
+    let priorQuality = '';
     if (increasingCount > decreasingCount) {
-      console.log(`[QualityCheck] CoinID ${coinId}: 稳步上升趋势 -> 高质量进场`);
-      return '高质量进场';
+      priorQuality = '高质量进场';
+      console.log(`[QualityCheck] CoinID ${coinId}: [先验] 稳步上升趋势 -> ${priorQuality}`);
     } else {
-      console.log(`[QualityCheck] CoinID ${coinId}: 蜿蜒反复，非稳步上升 -> 低质量进场`);
-      return '低质量进场';
+      priorQuality = '低质量进场';
+      console.log(`[QualityCheck] CoinID ${coinId}: [先验] 蜿蜒反复，非稳步上升 -> ${priorQuality}`);
+    }
+
+    // 贝叶斯更新：分析最近7天趋势（后验证据）
+    const recentTrend = analyzeRecentTrend(historicalMetrics, 7, 'up');
+    console.log(`[QualityCheck] CoinID ${coinId}: [后验] 最近7天趋势: ${recentTrend.trend}, 置信度: ${(recentTrend.confidence * 100).toFixed(1)}%, 变化: ${recentTrend.totalChangePercent.toFixed(1)}%`);
+    console.log(`[QualityCheck] CoinID ${coinId}: [后验] 上升${recentTrend.risingCount}天, 下降${recentTrend.fallingCount}天 -> ${recentTrend.quality}`);
+
+    // 贝叶斯决策：后验证据强时，更新先验判断
+    if (recentTrend.confidence > 0.65) {
+      // 后验证据置信度高，以后验为准
+      console.log(`[QualityCheck] CoinID ${coinId}: [贝叶斯更新] 后验证据强(置信度${(recentTrend.confidence * 100).toFixed(1)}%)，更新判断: ${priorQuality} -> ${recentTrend.quality}`);
+      return recentTrend.quality;
+    } else {
+      // 后验证据不足，保持先验判断
+      console.log(`[QualityCheck] CoinID ${coinId}: [贝叶斯保持] 后验证据弱，保持先验判断: ${priorQuality}`);
+      return priorQuality;
     }
   }
 }
@@ -700,23 +800,44 @@ function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitS
       return '低质量退场';
     }
   } else {
-    // 已进入退场期且有后续转正数据，比较3与4、4与5等相邻节点
+    // 已进入退场期且有后续转正数据，比较2与3、3与4、4与5等相邻节点
     console.log(`[QualityCheck] CoinID ${coinId}: 已进入退场期，分析相邻节点趋势`);
 
-    // 构建完整的关键节点序列：退场期第一天 + 后续转正节点
+    // 构建完整的关键节点序列：退场期前最后一次转正（node2）+ 退场期第一天（node3）+ 后续转正节点（node4, node5...）
     const turnPositiveNodesBeforeExit = beforeExitNodes.length; // 退场期开始前的爆破负变正节点数量
     const exitStartNodeNum = turnPositiveNodesBeforeExit + 1; // 退场期第一天的节点编号
 
-    const keyNodes = [
-      { date: exitStartDateMetric.date, otc_index: exitStartOtcIndex, type: 'exit_start', nodeNum: exitStartNodeNum },
-      ...afterExitNodes.map((node, index) => ({
+    const keyNodes = [];
+
+    // 添加退场期开始前最后一次爆破负变正节点（node2）
+    if (beforeExitNodes.length > 0) {
+      const lastBeforeExitNode = beforeExitNodes[beforeExitNodes.length - 1];
+      keyNodes.push({
+        date: lastBeforeExitNode.date,
+        otc_index: lastBeforeExitNode.otc_index,
+        type: 'turn_positive_before_exit',
+        nodeNum: turnPositiveNodesBeforeExit
+      });
+    }
+
+    // 添加退场期第一天（node3）
+    keyNodes.push({
+      date: exitStartDateMetric.date,
+      otc_index: exitStartOtcIndex,
+      type: 'exit_start',
+      nodeNum: exitStartNodeNum
+    });
+
+    // 添加退场期后的转正节点（node4, node5...）
+    afterExitNodes.forEach((node, index) => {
+      keyNodes.push({
         ...node,
         type: 'turn_positive',
         nodeNum: exitStartNodeNum + 1 + index
-      }))
-    ];
+      });
+    });
 
-    // 分析相邻节点间的场外指数变化
+    // 分析相邻节点间的场外指数变化（比较2与3、3与4、4与5...）
     let decreasingCount = 0;
     let increasingCount = 0;
 
@@ -724,12 +845,12 @@ function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitS
       const currentNode = keyNodes[i];
       const nextNode = keyNodes[i + 1];
 
-      // 生成节点名称
-      const currentNodeName = currentNode.nodeNum === exitStartNodeNum ?
+      // 生成节点名称（正确识别节点类型）
+      const currentNodeName = currentNode.type === 'exit_start' ?
         `${currentNode.nodeNum}退场期第一天` :
         `${currentNode.nodeNum}爆破负变正`;
 
-      const nextNodeName = nextNode.nodeNum === exitStartNodeNum ?
+      const nextNodeName = nextNode.type === 'exit_start' ?
         `${nextNode.nodeNum}退场期第一天` :
         `${nextNode.nodeNum}爆破负变正`;
 
@@ -740,26 +861,43 @@ function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitS
       console.log(`[QualityCheck] CoinID ${coinId}: 场外指数变化: ${otcIndexChange} (${changePercent.toFixed(2)}%)`);
 
       if (Math.abs(changePercent) < 5) {
-        increasingCount++; // 场外指数变化<±5%，近乎持平（坏现象）
-        console.log(`[QualityCheck] CoinID ${coinId}: 持平趋势（变化<±5%）✗`);
+        increasingCount++; // 场外指数变化<±5%，近乎持平（坏现象，说明没有稳步下降）
+        console.log(`[QualityCheck] CoinID ${coinId}: 持平趋势（变化<±5%）✗ 退场质量差`);
       } else if (otcIndexChange < 0) {
-        decreasingCount++; // 场外指数下降（好现象）
-        console.log(`[QualityCheck] CoinID ${coinId}: 下降趋势 ✓`);
+        decreasingCount++; // 场外指数下降（好现象，符合退场期预期）
+        console.log(`[QualityCheck] CoinID ${coinId}: 下降趋势 ✓ 退场质量好`);
       } else {
-        increasingCount++; // 场外指数上升（坏现象）
-        console.log(`[QualityCheck] CoinID ${coinId}: 上升趋势 ✗`);
+        increasingCount++; // 场外指数上升（坏现象，出现反复）
+        console.log(`[QualityCheck] CoinID ${coinId}: 上升趋势 ✗ 退场质量差（出现反复）`);
       }
     }
 
-    console.log(`[QualityCheck] CoinID ${coinId}: 下降次数: ${decreasingCount}, 上升次数: ${increasingCount}`);
+    console.log(`[QualityCheck] CoinID ${coinId}: 下降次数: ${decreasingCount}, 上升/持平次数: ${increasingCount}`);
 
-    // 根据趋势判断质量
+    // 先验判断：根据历史关键节点趋势（场外指数应该稳步下降）
+    let priorQuality = '';
     if (decreasingCount > increasingCount) {
-      console.log(`[QualityCheck] CoinID ${coinId}: 稳步下降趋势 -> 高质量退场`);
-      return '高质量退场';
+      priorQuality = '高质量退场';
+      console.log(`[QualityCheck] CoinID ${coinId}: [先验] 场外指数稳步下降 -> ${priorQuality}（做空质量好）`);
     } else {
-      console.log(`[QualityCheck] CoinID ${coinId}: 出现反复，非稳步下降 -> 低质量退场`);
-      return '低质量退场';
+      priorQuality = '低质量退场';
+      console.log(`[QualityCheck] CoinID ${coinId}: [先验] 场外指数出现反复，非稳步下降 -> ${priorQuality}（做空质量差）`);
+    }
+
+    // 贝叶斯更新：分析最近7天趋势（后验证据）
+    const recentTrend = analyzeRecentTrend(historicalMetrics, 7, 'down');
+    console.log(`[QualityCheck] CoinID ${coinId}: [后验] 最近7天趋势: ${recentTrend.trend}, 置信度: ${(recentTrend.confidence * 100).toFixed(1)}%, 变化: ${recentTrend.totalChangePercent.toFixed(1)}%`);
+    console.log(`[QualityCheck] CoinID ${coinId}: [后验] 上升${recentTrend.risingCount}天, 下降${recentTrend.fallingCount}天 -> ${recentTrend.quality}`);
+
+    // 贝叶斯决策：后验证据强时，更新先验判断
+    if (recentTrend.confidence > 0.65) {
+      // 后验证据置信度高，以后验为准
+      console.log(`[QualityCheck] CoinID ${coinId}: [贝叶斯更新] 后验证据强(置信度${(recentTrend.confidence * 100).toFixed(1)}%)，更新判断: ${priorQuality} -> ${recentTrend.quality}`);
+      return recentTrend.quality;
+    } else {
+      // 后验证据不足，保持先验判断
+      console.log(`[QualityCheck] CoinID ${coinId}: [贝叶斯保持] 后验证据弱，保持先验判断: ${priorQuality}`);
+      return priorQuality;
     }
   }
 }
