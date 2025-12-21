@@ -80,6 +80,7 @@ app.get('/api/test', (req, res) => {
 
 // Public, unauthenticated routes
 app.use('/api/public', require('./routes/public'));
+app.use('/api/docs', require('./routes/docs'));
 
 // 路由加载函数 - 带错误处理
 function safelyLoadRoutes(routePath, mountPath) {
@@ -109,7 +110,6 @@ safelyLoadRoutes('./routes/dashboard', '/api/dashboard');
 safelyLoadRoutes('./routes/liquidity', '/api/liquidity');
 safelyLoadRoutes('./routes/favorites', '/api/favorites'); // 添加收藏路由
 safelyLoadRoutes('./routes/debug', '/api/debug');
-safelyLoadRoutes('./routes/docs', '/api/docs'); // API文档路由
 safelyLoadRoutes('./routes/admin', '/api/admin'); // 管理员路由
 
  // 3. 静态文件服务和 SPA 回退 (生产环境)
