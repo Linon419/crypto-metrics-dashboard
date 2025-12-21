@@ -1575,4 +1575,6 @@ router.post('/debug/add-test-data', async (req, res) => {
   }
 });
 
+router.calculatePeriodQuality = calculatePeriodQuality;
+
 module.exports = router;

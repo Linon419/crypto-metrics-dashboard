@@ -78,6 +78,9 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working!', timestamp: new Date().toISOString() });
 });
 
+// Public, unauthenticated routes
+app.use('/api/public', require('./routes/public'));
+
 // 路由加载函数 - 带错误处理
 function safelyLoadRoutes(routePath, mountPath) {
   try {
