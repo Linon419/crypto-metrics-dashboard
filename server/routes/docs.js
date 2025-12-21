@@ -10,6 +10,33 @@ const apiDocs = {
   baseUrl: "/api",
   endpoints: [
     {
+      category: "Public (No Auth)",
+      endpoints: [
+        {
+          method: "GET",
+          path: "/public/top-otc-crypto",
+          description: "Top 5 crypto by OTC index for the latest date (no auth).",
+          response: {
+            success: "boolean",
+            date: "string - data date",
+            count: "number - item count",
+            items: "array - { symbol, name, otc_index, period_quality, time, date, timestamp }"
+          }
+        },
+        {
+          method: "GET",
+          path: "/public/bottom-otc-crypto",
+          description: "Bottom 5 crypto by OTC index for the latest date (no auth).",
+          response: {
+            success: "boolean",
+            date: "string - data date",
+            count: "number - item count",
+            items: "array - { symbol, name, otc_index, period_quality, time, date, timestamp }"
+          }
+        }
+      ]
+    },
+    {
       category: "认证 (Authentication)",
       endpoints: [
         {
