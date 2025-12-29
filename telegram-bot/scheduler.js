@@ -509,7 +509,7 @@ async function checkDataUpdates() {
                                 const qualityOpps = allNotifications.find(n => n.type === 'quality_opportunities');
                                 if (qualityOpps) {
                                     for (const opp of qualityOpps.content) {
-                                        if (opp.isEarlyEntry && opp.notificationKey) {
+                                        if (opp.notificationKey) {
                                             await recordNotification(chatId, opp.coin.symbol, opp.notificationKey, currentDate);
                                         }
                                     }
@@ -816,6 +816,26 @@ async function analyzeQualityOpportunities(metrics, chatId, currentDate) {
     );
     
     for (const coin of qualityEntryCoins) {
+        if (coin.entry_exit_day === 1) {
+            const notificationKey = 'quality_entry_start';
+            const alreadySent = await hasNotificationSent(chatId, coin.coin.symbol, notificationKey, currentDate);
+
+            if (!alreadySent) {
+                opportunities.push({
+                    coin: coin.coin,
+                    opportunityType: '🌟 刚进入高质量进场期',
+                    description: `第${coin.entry_exit_day}天 - ${coin.period_quality}`,
+                    indices: {
+                        explosion: coin.explosion_index,
+                        otc: coin.otc_index
+                    },
+                    notificationKey: notificationKey,
+                    isEarlyEntry: false
+                });
+            }
+            continue;
+        }
+
         // 对于前3天的进场期，使用特殊的去重逻辑（每天都可以通知）
         if (coin.entry_exit_day <= 3) {
             const notificationKey = `quality_entry_day_${coin.entry_exit_day}`;
@@ -844,6 +864,31 @@ async function analyzeQualityOpportunities(metrics, chatId, currentDate) {
                     explosion: coin.explosion_index,
                     otc: coin.otc_index
                 },
+                isEarlyEntry: false
+            });
+        }
+    }
+
+    const qualityExitStartCoins = metrics.filter(metric =>
+        metric.entry_exit_type === 'exit' &&
+        (metric.period_quality === '高质量退场' || metric.period_quality?.includes('高质量')) &&
+        metric.entry_exit_day === 1
+    );
+
+    for (const coin of qualityExitStartCoins) {
+        const notificationKey = 'quality_exit_start';
+        const alreadySent = await hasNotificationSent(chatId, coin.coin.symbol, notificationKey, currentDate);
+
+        if (!alreadySent) {
+            opportunities.push({
+                coin: coin.coin,
+                opportunityType: '📉 刚进入高质量退场期',
+                description: `第${coin.entry_exit_day}天 - ${coin.period_quality}`,
+                indices: {
+                    explosion: coin.explosion_index,
+                    otc: coin.otc_index
+                },
+                notificationKey: notificationKey,
                 isEarlyEntry: false
             });
         }

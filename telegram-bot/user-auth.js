@@ -1,11 +1,41 @@
 const axios = require('axios');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3001/api';
 
-// 用于加密密码的密钥（在生产环境中应该使用更安全的方法）
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32);
+function resolveEncryptionKey() {
+    if (process.env.ENCRYPTION_KEY) {
+        return process.env.ENCRYPTION_KEY;
+    }
+
+    const dataDir = process.env.DB_PATH
+        ? path.dirname(process.env.DB_PATH)
+        : path.join(__dirname, 'data');
+    const keyPath = process.env.ENCRYPTION_KEY_PATH || path.join(dataDir, 'encryption.key');
+
+    try {
+        if (fs.existsSync(keyPath)) {
+            const storedKey = fs.readFileSync(keyPath, 'utf8').trim();
+            if (storedKey) {
+                return storedKey;
+            }
+        }
+
+        fs.mkdirSync(path.dirname(keyPath), { recursive: true });
+        const generatedKey = crypto.randomBytes(32).toString('hex');
+        fs.writeFileSync(keyPath, generatedKey, 'utf8');
+        return generatedKey;
+    } catch (error) {
+        console.warn('Failed to load or persist ENCRYPTION_KEY, using a temporary key:', error.message);
+        return crypto.randomBytes(32).toString('hex');
+    }
+}
+
+// Persist the key to avoid invalidating stored credentials on restart.
+const ENCRYPTION_KEY = resolveEncryptionKey();
 const IV_LENGTH = 16;
 
 class UserAuth {

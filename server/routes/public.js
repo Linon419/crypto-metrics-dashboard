@@ -16,6 +16,24 @@ function formatTimestamp(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
+async function getPreviousDateWithData(currentDate) {
+  try {
+    const previousMetric = await DailyMetric.findOne({
+      where: {
+        date: { [Op.lt]: currentDate }
+      },
+      attributes: ['date'],
+      order: [['date', 'DESC']],
+      raw: true
+    });
+
+    return previousMetric ? previousMetric.date : null;
+  } catch (error) {
+    console.error('[PUBLIC_PREVIOUS_DATE] Error finding previous date:', error);
+    return null;
+  }
+}
+
 router.get('/top-otc-crypto', async (req, res) => {
   try {
     const latestMetricDateEntry = await DailyMetric.findOne({
@@ -45,17 +63,38 @@ router.get('/top-otc-crypto', async (req, res) => {
       limit: 5
     });
 
+    const previousDate = await getPreviousDateWithData(latestDate);
+    const previousExplosionMap = new Map();
+    if (previousDate && metrics.length > 0) {
+      const previousMetrics = await DailyMetric.findAll({
+        where: {
+          date: previousDate,
+          coin_id: metrics.map(metric => metric.coin_id)
+        },
+        attributes: ['coin_id', 'explosion_index'],
+        raw: true
+      });
+      previousMetrics.forEach(metric => {
+        previousExplosionMap.set(metric.coin_id, metric.explosion_index);
+      });
+    }
+
     const calculatePeriodQuality = dataRoutes.calculatePeriodQuality;
     const items = await Promise.all(metrics.map(async (metric) => {
       const periodQuality = typeof calculatePeriodQuality === 'function'
         ? await calculatePeriodQuality(metric.coin_id)
         : null;
       const timestamp = formatTimestamp(metric.timestamp);
+      const previousExplosionIndex = previousExplosionMap.has(metric.coin_id)
+        ? previousExplosionMap.get(metric.coin_id)
+        : null;
 
       return {
         symbol: metric.coin?.symbol || null,
         name: metric.coin?.name || metric.coin?.symbol || null,
         otc_index: metric.otc_index,
+        explosion_index: metric.explosion_index,
+        previous_explosion_index: previousExplosionIndex,
         period_quality: periodQuality,
         time: timestamp || metric.date,
         date: metric.date,
@@ -104,17 +143,38 @@ router.get('/bottom-otc-crypto', async (req, res) => {
       limit: 5
     });
 
+    const previousDate = await getPreviousDateWithData(latestDate);
+    const previousExplosionMap = new Map();
+    if (previousDate && metrics.length > 0) {
+      const previousMetrics = await DailyMetric.findAll({
+        where: {
+          date: previousDate,
+          coin_id: metrics.map(metric => metric.coin_id)
+        },
+        attributes: ['coin_id', 'explosion_index'],
+        raw: true
+      });
+      previousMetrics.forEach(metric => {
+        previousExplosionMap.set(metric.coin_id, metric.explosion_index);
+      });
+    }
+
     const calculatePeriodQuality = dataRoutes.calculatePeriodQuality;
     const items = await Promise.all(metrics.map(async (metric) => {
       const periodQuality = typeof calculatePeriodQuality === 'function'
         ? await calculatePeriodQuality(metric.coin_id)
         : null;
       const timestamp = formatTimestamp(metric.timestamp);
+      const previousExplosionIndex = previousExplosionMap.has(metric.coin_id)
+        ? previousExplosionMap.get(metric.coin_id)
+        : null;
 
       return {
         symbol: metric.coin?.symbol || null,
         name: metric.coin?.name || metric.coin?.symbol || null,
         otc_index: metric.otc_index,
+        explosion_index: metric.explosion_index,
+        previous_explosion_index: previousExplosionIndex,
         period_quality: periodQuality,
         time: timestamp || metric.date,
         date: metric.date,
