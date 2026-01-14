@@ -4,6 +4,13 @@ const router = express.Router();
 const { Op } = require('sequelize');
 const { Coin, DailyMetric } = require('../models');
 const dataRoutes = require('./data');
+const { getSystemSettings } = require('../utils/settings');
+
+// 公开接口：获取注册状态
+router.get('/registration-status', (req, res) => {
+  const settings = getSystemSettings();
+  res.json({ registrationEnabled: settings.registrationEnabled });
+});
 
 const CRYPTO_SYMBOLS = [
   'BTC', 'ETH', 'BNB', 'SOL', 'DOGE', 'LTC', 'LDO', 'CRV', 'LINK', 'ADA', 'UNI',

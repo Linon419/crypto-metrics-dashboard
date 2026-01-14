@@ -942,6 +942,17 @@ export const unbanUser = async (userId) => {
   }
 };
 
+// 获取注册状态（公开接口，无需认证）
+export const getRegistrationStatus = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/public/registration-status'));
+    return response.data;
+  } catch (error) {
+    console.error('[getRegistrationStatus] 获取注册状态失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
 // 获取系统设置
 export const getSystemSettings = async () => {
   try {

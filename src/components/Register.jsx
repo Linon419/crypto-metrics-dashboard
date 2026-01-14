@@ -4,7 +4,7 @@ import { Form, Input, Button, Card, Typography, Alert, Space } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { register as registerApi, getSystemSettings } from '../services/api';
+import { register as registerApi, getRegistrationStatus } from '../services/api';
 import { registerStart, registerSuccess, registerFailure, clearError } from '../redux/slices/authSlice';
 
 const { Title, Text } = Typography;
@@ -28,11 +28,10 @@ function Register() {
   useEffect(() => {
     const checkRegistrationStatus = async () => {
       try {
-        const response = await getSystemSettings();
-        setRegistrationEnabled(response.settings?.registrationEnabled ?? true);
+        const response = await getRegistrationStatus();
+        setRegistrationEnabled(response.registrationEnabled ?? true);
       } catch (error) {
         console.error('获取注册状态失败:', error);
-        // 默认允许注册，避免因API错误导致无法注册
         setRegistrationEnabled(true);
       } finally {
         setSettingsLoading(false);

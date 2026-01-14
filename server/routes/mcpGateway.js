@@ -79,102 +79,33 @@ function getApiBaseUrl() {
   return `http://127.0.0.1:${port}/api`;
 }
 
+// 自动登录：若会话无 token 且配置了默认账号，则自动登录
+async function ensureAuthenticated(session) {
+  if (session.backendAuth) return true;
+
+  const username = process.env.CRYPTO_DEFAULT_USERNAME;
+  const password = process.env.CRYPTO_DEFAULT_PASSWORD;
+  if (!username || !password) return false;
+
+  try {
+    const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
+    const response = await api.post('/auth/login', { username, password });
+    const token = response?.data?.token;
+    if (token) {
+      session.backendAuth = `Bearer ${token}`;
+      return true;
+    }
+  } catch (e) {
+    console.error('[MCP Gateway] Auto-login failed:', e.message);
+  }
+  return false;
+}
+
 function getProtocolVersion(req) {
   return req.header('mcp-protocol-version') || '2024-11-05';
 }
 
 const tools = {
-  auth_login: {
-    description: '用户登录获取 JWT（并写入当前 MCP 会话）',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        username: { type: 'string' },
-        password: { type: 'string' },
-      },
-      required: ['username', 'password'],
-    },
-    handler: async ({ args, session }) => {
-      const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const response = await api.post('/auth/login', {
-        username: args.username,
-        password: args.password,
-      });
-      const token = response?.data?.token;
-      if (token) {
-        session.backendAuth = `Bearer ${token}`;
-      }
-      return response.data;
-    },
-  },
-  auth_register: {
-    description: '用户注册（若后端返回 token 同样写入当前 MCP 会话）',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        username: { type: 'string' },
-        password: { type: 'string' },
-        email: { type: 'string' },
-      },
-      required: ['username', 'password', 'email'],
-    },
-    handler: async ({ args, session }) => {
-      const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const response = await api.post('/auth/register', {
-        username: args.username,
-        password: args.password,
-        email: args.email,
-      });
-      const token = response?.data?.token;
-      if (token) {
-        session.backendAuth = `Bearer ${token}`;
-      }
-      return response.data;
-    },
-  },
-  auth_verify: {
-    description: '验证 JWT（优先使用入参 token，其次使用当前 MCP 会话 token）',
-    inputSchema: {
-      type: 'object',
-      properties: { token: { type: 'string' } },
-      required: [],
-    },
-    handler: async ({ args, session }) => {
-      const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const auth = args.token ? `Bearer ${args.token}` : session.backendAuth;
-      const response = await api.get('/auth/verify', {
-        headers: auth ? { Authorization: auth } : {},
-      });
-      return response.data;
-    },
-  },
-  auth_change_password: {
-    description: '修改密码（优先使用入参 token，其次使用当前 MCP 会话 token）',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        token: { type: 'string' },
-        currentPassword: { type: 'string' },
-        newPassword: { type: 'string' },
-        userId: { type: 'number' },
-      },
-      required: ['currentPassword', 'newPassword', 'userId'],
-    },
-    handler: async ({ args, session }) => {
-      const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const auth = args.token ? `Bearer ${args.token}` : session.backendAuth;
-      const response = await api.put(
-        '/auth/change-password',
-        {
-          currentPassword: args.currentPassword,
-          newPassword: args.newPassword,
-          userId: args.userId,
-        },
-        { headers: auth ? { Authorization: auth } : {} }
-      );
-      return response.data;
-    },
-  },
   get_latest_data: {
     description: '获取最新指标数据',
     inputSchema: { type: 'object', properties: {}, required: [] },
@@ -268,70 +199,6 @@ const tools = {
       return response.data;
     },
   },
-  get_favorites: {
-    description: '获取收藏列表（需要先 auth_login 或传 token）',
-    inputSchema: { type: 'object', properties: { token: { type: 'string' } }, required: [] },
-    handler: async ({ args, session }) => {
-      const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const auth = args.token ? `Bearer ${args.token}` : session.backendAuth;
-      const response = await api.get('/favorites', { headers: auth ? { Authorization: auth } : {} });
-      return response.data;
-    },
-  },
-  add_favorite: {
-    description: '添加收藏（需要先 auth_login 或传 token）',
-    inputSchema: {
-      type: 'object',
-      properties: { token: { type: 'string' }, symbol: { type: 'string' } },
-      required: ['symbol'],
-    },
-    handler: async ({ args, session }) => {
-      const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const auth = args.token ? `Bearer ${args.token}` : session.backendAuth;
-      const response = await api.post(
-        '/favorites',
-        { symbol: args.symbol },
-        { headers: auth ? { Authorization: auth } : {} }
-      );
-      return response.data;
-    },
-  },
-  remove_favorite: {
-    description: '删除收藏（需要先 auth_login 或传 token）',
-    inputSchema: {
-      type: 'object',
-      properties: { token: { type: 'string' }, symbol: { type: 'string' } },
-      required: ['symbol'],
-    },
-    handler: async ({ args, session }) => {
-      const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const auth = args.token ? `Bearer ${args.token}` : session.backendAuth;
-      const response = await api.delete(`/favorites/${encodeURIComponent(args.symbol)}`, {
-        headers: auth ? { Authorization: auth } : {},
-      });
-      return response.data;
-    },
-  },
-  get_db_status: {
-    description: '获取数据库状态（需要后端鉴权，建议先 auth_login）',
-    inputSchema: { type: 'object', properties: { token: { type: 'string' } }, required: [] },
-    handler: async ({ args, session }) => {
-      const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const auth = args.token ? `Bearer ${args.token}` : session.backendAuth;
-      const response = await api.get('/debug/db-status', { headers: auth ? { Authorization: auth } : {} });
-      return response.data;
-    },
-  },
-  get_date_range: {
-    description: '获取数据库日期范围（需要后端鉴权，建议先 auth_login）',
-    inputSchema: { type: 'object', properties: { token: { type: 'string' } }, required: [] },
-    handler: async ({ args, session }) => {
-      const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const auth = args.token ? `Bearer ${args.token}` : session.backendAuth;
-      const response = await api.get('/data/debug/date-range', { headers: auth ? { Authorization: auth } : {} });
-      return response.data;
-    },
-  },
 };
 
 function listTools() {
@@ -392,6 +259,9 @@ router.post('/mcp', async (req, res) => {
       if (!tool) {
         return res.json(jsonRpcError(id ?? null, -32601, `Tool not found: ${toolName}`));
       }
+
+      // 自动登录（若会话无 token 且配置了默认账号）
+      await ensureAuthenticated(session);
 
       const data = await tool.handler({ args, session });
       return res.json(jsonRpcResult(id ?? null, toTextResult(JSON.stringify(data, null, 2))));
