@@ -34,5 +34,6 @@ server/database.sqlite
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+dev.log
 server/node_modules
 .cursor\rules

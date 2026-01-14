@@ -45,9 +45,9 @@ servers:
       - get_date_range
     config:
       authToken: Bearer {{ env "CRYPTO_API_TOKEN" }}
-      baseUrl: http://168.138.207.11:3080/api
-      defaultPassword: Li0122373853
-      defaultUsername: admin
+      baseUrl: '{{ env "CRYPTO_API_BASE_URL" }}'
+      defaultPassword: '{{ env "CRYPTO_DEFAULT_PASSWORD" }}'
+      defaultUsername: '{{ env "CRYPTO_DEFAULT_USERNAME" }}'
 tools:
   - name: auth_auto_login
     description: Auto login with default credentials

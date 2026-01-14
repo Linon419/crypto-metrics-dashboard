@@ -1,68 +1,72 @@
 /**
- * 首次运行检查中间件
- * 检查数据库是否存在管理员账户，如果不存在则创建默认管理员
+ * 首次运行检查中间件：
+ * - 若数据库中不存在管理员账号，则创建一个管理员账号
+ * - 避免使用弱默认口令：未提供 ADMIN_PASSWORD 时生成随机强口令并输出到日志
  */
 
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { User } = require('../models');
 
 let isFirstRunChecked = false;
 
-/**
- * 检查是否是首次运行并初始化管理员账户
- */
+function generateStrongPassword() {
+  // base64url：只包含 URL 安全字符，便于复制粘贴
+  return crypto.randomBytes(24).toString('base64url');
+}
+
 async function checkFirstRun(req, res, next) {
-  // 跳过已经检查过的情况
   if (isFirstRunChecked) {
     return next();
   }
 
   try {
-    // 检查是否有任何管理员账户
-    const adminExists = await User.findOne({
-      where: { role: 'admin' }
-    });
-
-    // 如果已存在管理员账户，标记已检查并继续
+    const adminExists = await User.findOne({ where: { role: 'admin' } });
     if (adminExists) {
-      console.log('系统检查: 已存在管理员账户');
+      console.log('系统初始化检查：已存在管理员账号');
       isFirstRunChecked = true;
       return next();
     }
 
-    // 如果没有管理员账户，创建一个
-    console.log('系统检查: 未发现管理员账户，正在创建默认管理员...');
+    console.warn('系统初始化检查：未发现管理员账号，准备创建管理员账号');
 
-    // 从环境变量获取管理员凭据，如果未设置则使用默认值
     const adminUsername = process.env.ADMIN_USERNAME || 'admin';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
 
-    // 密码加密
+    let adminPassword = process.env.ADMIN_PASSWORD;
+    let passwordSource = '环境变量';
+
+    if (!adminPassword) {
+      adminPassword = generateStrongPassword();
+      passwordSource = '自动生成';
+      console.warn(
+        `未设置 ADMIN_PASSWORD，已生成随机管理员初始密码（请立即保存并尽快修改）：${adminPassword}`
+      );
+    }
+
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(adminPassword, salt);
 
-    // 创建管理员用户
     await User.create({
       username: adminUsername,
       email: adminEmail,
       password: hashedPassword,
       role: 'admin',
-      is_active: true
+      status: 'active',
     });
 
-    console.log(`系统初始化: 默认管理员账户创建成功 - 用户名: ${adminUsername}`);
-    
-    // 标记已检查
+    console.log(
+      `系统初始化完成：管理员账号已创建（用户名：${adminUsername}，密码来源：${passwordSource}）`
+    );
+
     isFirstRunChecked = true;
-    
-    next();
+    return next();
   } catch (error) {
-    console.error('系统初始化检查失败:', error);
-    // 即使检查失败也继续应用流程，不应该阻止应用运行
+    console.error('系统初始化检查失败：', error);
     isFirstRunChecked = true;
-    next();
+    return next();
   }
 }
 
 module.exports = checkFirstRun;
+

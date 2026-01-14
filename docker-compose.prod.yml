@@ -15,17 +15,18 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
       - OPENAI_SYSTEM_PROMPT=${OPENAI_SYSTEM_PROMPT:-你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。}
-      # Custom prompt (optional) - 如果需要自定义prompt，可以取消注释并修改
-      # - OPENAI_PROMPT=你是一个加密货币数据处理专家。请将以下非结构化数据转换为规范的JSON格式。数据示例：{{processedText}}...
+      # Custom prompt (optional)
+      # - OPENAI_PROMPT=...{{processedText}}...
       # Database Configuration
       - DB_STORAGE=/data/db/database.sqlite
-      # JWT Configuration
-      - JWT_SECRET=your-secret-key-change-this-in-production
+      # JWT Configuration（生产环境必须设置强随机值）
+      - JWT_SECRET=${JWT_SECRET}
       # API Configuration
       - API_PUBLIC_HOST=http://168.138.207.11:3080
+      # MCP Gateway（公网/局域网部署时必须设置）
+      - MCP_GATEWAY_TOKEN=${MCP_GATEWAY_TOKEN}
     volumes:
       - /root/crypto-dashboard/data:/data/db
-      # 如果需要持久化其他数据
 
 volumes:
   sqlite-data:

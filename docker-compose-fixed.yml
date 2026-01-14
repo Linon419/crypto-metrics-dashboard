@@ -10,16 +10,17 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - OPENAI_API_KEY=sk-
-      - OPENAI_BASE_URL=https://burn.hair/v1
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       - OPENAI_MODEL=gpt-5-mini
       - DB_STORAGE=/data/db/database.sqlite
-      - JWT_SECRET=your-secret-key-change-this-in-production
+      - JWT_SECRET=${JWT_SECRET}
       - API_PUBLIC_HOST=http://168.138.207.11:3080
-      # Telegram Bot配置
+      # Telegram Bot 配置
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - API_BASE_URL=http://crypto-dashboard:3001/api
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
+      - MCP_GATEWAY_TOKEN=${MCP_GATEWAY_TOKEN}
       - DB_PATH=/app/telegram-bot/data/bot_data.db
       - TZ=Asia/Shanghai
     volumes:

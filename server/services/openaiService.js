@@ -102,6 +102,9 @@ ${processedText}
 | 地产/水泥 | ESTATE |
 | 布伦特原油 | OIL |
 | 美股个股 | 保持原样大写（HOOD, COIN, CIRCLE, TSLA, NVDA, AAPL, GOOG等） |
+| 国内人工智能ETF | CN_AI_ETF |
+| 国内机器人ETF | CN_ROBOT |
+| A股指数 | CN_INDEX |
 
 ---
 
