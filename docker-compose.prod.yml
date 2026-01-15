@@ -25,6 +25,9 @@ services:
       - API_PUBLIC_HOST=http://168.138.207.11:3080
       # MCP Gateway（公网/局域网部署时必须设置）
       - MCP_GATEWAY_TOKEN=${MCP_GATEWAY_TOKEN}
+      # MCP 自动登录账号（可选，配置后 MCP 调用自动认证）
+      - CRYPTO_DEFAULT_USERNAME=${CRYPTO_DEFAULT_USERNAME}
+      - CRYPTO_DEFAULT_PASSWORD=${CRYPTO_DEFAULT_PASSWORD}
     volumes:
       - /root/crypto-dashboard/data:/data/db
 
