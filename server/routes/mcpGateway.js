@@ -102,7 +102,7 @@ async function ensureAuthenticated(session) {
 }
 
 function getProtocolVersion(req) {
-  return req.header('mcp-protocol-version') || '2024-11-05';
+  return req.header('mcp-protocol-version') || '2025-03-26';
 }
 
 const tools = {
@@ -283,6 +283,52 @@ router.post('/mcp', async (req, res) => {
     const code = status ? -32000 : -32603;
     return res.json(jsonRpcError(id ?? null, code, 'Tool execution failed', details));
   }
+});
+
+// GET 方法：用于 SSE 流（OpenAI MCP 2025-03-26 要求）
+router.get('/mcp', async (req, res) => {
+  pruneSessions();
+
+  const auth = requireGatewayAuth(req);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ error: auth.message });
+  }
+
+  const session = getOrCreateSession(req, res);
+
+  // 设置 SSE 响应头
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, mcp-protocol-version');
+  res.setHeader('mcp-protocol-version', getProtocolVersion(req));
+
+  // 发送初始连接确认
+  res.write(`data: ${JSON.stringify({ type: 'connection', status: 'connected', sessionId: session.id })}\n\n`);
+
+  // 保持连接打开，每30秒发送心跳
+  const heartbeat = setInterval(() => {
+    res.write(`: heartbeat\n\n`);
+  }, 30000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+  });
+});
+
+// DELETE 方法：终止会话
+router.delete('/mcp', async (req, res) => {
+  const auth = requireGatewayAuth(req);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ error: auth.message });
+  }
+
+  const sessionId = req.header('Mcp-Session-Id');
+  if (sessionId && sessions.has(sessionId)) {
+    sessions.delete(sessionId);
+  }
+
+  res.status(204).end();
 });
 
 module.exports = router;
