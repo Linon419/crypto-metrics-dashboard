@@ -109,9 +109,10 @@ const tools = {
   get_latest_data: {
     description: '获取最新指标数据',
     inputSchema: { type: 'object', properties: {}, required: [] },
-    handler: async () => {
+    handler: async ({ session }) => {
       const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const response = await api.get('/data/latest');
+      const headers = session.backendAuth ? { Authorization: session.backendAuth } : {};
+      const response = await api.get('/data/latest', { headers });
       return response.data;
     },
   },
@@ -122,9 +123,10 @@ const tools = {
       properties: { date: { type: 'string' } },
       required: ['date'],
     },
-    handler: async ({ args }) => {
+    handler: async ({ args, session }) => {
       const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const response = await api.get(`/data/by-date/${encodeURIComponent(args.date)}`);
+      const headers = session.backendAuth ? { Authorization: session.backendAuth } : {};
+      const response = await api.get(`/data/by-date/${encodeURIComponent(args.date)}`, { headers });
       return response.data;
     },
   },
@@ -135,27 +137,30 @@ const tools = {
       properties: { date: { type: 'string' } },
       required: [],
     },
-    handler: async ({ args }) => {
+    handler: async ({ args, session }) => {
       const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const response = await api.get('/dashboard', { params: args.date ? { date: args.date } : {} });
+      const headers = session.backendAuth ? { Authorization: session.backendAuth } : {};
+      const response = await api.get('/dashboard', { headers, params: args.date ? { date: args.date } : {} });
       return response.data;
     },
   },
   get_coins: {
     description: '获取币种列表',
     inputSchema: { type: 'object', properties: {}, required: [] },
-    handler: async () => {
+    handler: async ({ session }) => {
       const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const response = await api.get('/coins');
+      const headers = session.backendAuth ? { Authorization: session.backendAuth } : {};
+      const response = await api.get('/coins', { headers });
       return response.data;
     },
   },
   get_coin_by_symbol: {
     description: '根据 symbol 获取单个币种',
     inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
-    handler: async ({ args }) => {
+    handler: async ({ args, session }) => {
       const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const response = await api.get(`/coins/${encodeURIComponent(args.symbol)}`);
+      const headers = session.backendAuth ? { Authorization: session.backendAuth } : {};
+      const response = await api.get(`/coins/${encodeURIComponent(args.symbol)}`, { headers });
       return response.data;
     },
   },
@@ -170,9 +175,11 @@ const tools = {
       },
       required: ['symbol'],
     },
-    handler: async ({ args }) => {
+    handler: async ({ args, session }) => {
       const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
+      const headers = session.backendAuth ? { Authorization: session.backendAuth } : {};
       const response = await api.get(`/coins/${encodeURIComponent(args.symbol)}/metrics`, {
+        headers,
         params: {
           ...(args.startDate ? { startDate: args.startDate } : {}),
           ...(args.endDate ? { endDate: args.endDate } : {}),
@@ -184,18 +191,20 @@ const tools = {
   get_liquidity_data: {
     description: '获取流动性概览（可选 date）',
     inputSchema: { type: 'object', properties: { date: { type: 'string' } }, required: [] },
-    handler: async ({ args }) => {
+    handler: async ({ args, session }) => {
       const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const response = await api.get('/liquidity', { params: args.date ? { date: args.date } : {} });
+      const headers = session.backendAuth ? { Authorization: session.backendAuth } : {};
+      const response = await api.get('/liquidity', { headers, params: args.date ? { date: args.date } : {} });
       return response.data;
     },
   },
   get_liquidity_by_date: {
     description: '获取指定日期流动性概览（YYYY-MM-DD）',
     inputSchema: { type: 'object', properties: { date: { type: 'string' } }, required: ['date'] },
-    handler: async ({ args }) => {
+    handler: async ({ args, session }) => {
       const api = axios.create({ baseURL: getApiBaseUrl(), timeout: 30000 });
-      const response = await api.get(`/liquidity/${encodeURIComponent(args.date)}`);
+      const headers = session.backendAuth ? { Authorization: session.backendAuth } : {};
+      const response = await api.get(`/liquidity/${encodeURIComponent(args.date)}`, { headers });
       return response.data;
     },
   },
