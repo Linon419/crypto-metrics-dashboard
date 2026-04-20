@@ -5,9 +5,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { Op } = require('sequelize');
+const { getJwtSecret } = require('../utils/authConfig');
 
-// Secret key for JWT
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-should-be-in-env-file';
+const JWT_SECRET = getJwtSecret();
 
 // 导入系统设置管理
 const { getSystemSettings } = require('../utils/settings');
@@ -184,5 +184,9 @@ router.put('/change-password', async (req, res) => {
     res.status(500).json({ error: '密码修改失败' });
   }
 });
+
+router.__authTestUtils = {
+  resolvedJwtSecret: JWT_SECRET,
+};
 
 module.exports = router;

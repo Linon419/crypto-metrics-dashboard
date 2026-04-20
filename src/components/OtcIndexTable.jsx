@@ -8,6 +8,7 @@ import {
   WarningOutlined,
   RightOutlined
 } from '@ant-design/icons';
+import { getPeriodQualityMeta } from '../utils/periodQualityMeta';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -390,29 +391,12 @@ function OtcIndexTable({ coins, loading = false }) {
   const renderQualityTag = (quality, isMobile = false) => {
     if (!quality) return <Tag>未知</Tag>;
 
-    let color = 'default';
-    if (quality.includes('高质量')) color = 'success';
-    else if (quality.includes('低质量')) color = 'error';
-    else if (quality.includes('待观察')) color = 'warning';
-    
-    // Mapping for explanations
-    const qualityExplanations = {
-      '高质量进场': '相邻关键节点间场外指数上升（变化≥±5%），主力持续加仓，波动有望充分展开。',
-      '低质量进场': '相邻关键节点间场外指数蜿蜒反复、下降或近乎持平（变化<±5%），大资金对投产比不明确易抽身，进场期可能变差变短。',
-      '低质量进场期（需调仓）': '进场期一周内未破200且爆破指数均值下降，主力动能不足，建议调整仓位。',
-      '进场期 (待观察)': '当前进场期尚未出现爆破指数跌破200的关键节点，暂无法评估质量。',
-      '高质量退场': '相邻关键节点间场外指数下降（变化≥±5%），主力撤离明显，做空性价比高。',
-      '低质量退场': '相邻关键节点间场外指数出现反复、上升或近乎持平（变化<±5%），主力撤离不明显，退场期做空需谨慎。',
-      '退场期 (待观察)': '当前退场期仍未出现爆破指数由负转正的关键节点，暂无法评估质量。',
-      '观望': '当前既不在进场期也不在退场期，建议观望。',
-      '数据不足': '历史数据不足，无法评估进退场期质量。'
-    };
-    const explanation = qualityExplanations[quality] || '暂无解释';
-    const tag = <Tag color={color} className={isMobile ? "text-xs" : ""}>{quality}</Tag>;
+    const meta = getPeriodQualityMeta(quality);
+    const tag = <Tag color={meta.tagColor} className={isMobile ? "text-xs" : ""}>{quality}</Tag>;
     return isMobile ? (
-      <Tooltip title={explanation}>{tag}</Tooltip>
+      <Tooltip title={meta.description}>{tag}</Tooltip>
     ) : (
-      <Tooltip title={explanation}>{tag}</Tooltip>
+      <Tooltip title={meta.description}>{tag}</Tooltip>
     );
   }
 

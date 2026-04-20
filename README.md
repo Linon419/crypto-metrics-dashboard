@@ -76,6 +76,14 @@ crypto-metrics-dashboard
 ├─ README.md
 ├─ database.sqlite
 ├─ docker-compose.yml
+├─ docs
+│  ├─ archive
+│  │  ├─ ISO_FORMAT_IMPLEMENTATION.md
+│  │  ├─ MOMENTUM_INDICATORS_DESIGN.md
+│  │  ├─ TIME_PRECISION_IMPLEMENTATION.md
+│  │  └─ YEAR_SUPPORT_SUMMARY.md
+│  └─ plans
+│     └─ 2026-01-14-mcp-gateway-design.md
 ├─ package-lock.json
 ├─ package.json
 ├─ postcss.config.js
@@ -123,16 +131,17 @@ crypto-metrics-dashboard
 │  └─ services
 │     └─ openaiService.js
 ├─ src
-│  ├─ App.css
 │  ├─ App.js
 │  ├─ App.test.js
 │  ├─ components
+│  │  ├─ AdminRoute.jsx
 │  │  ├─ ChangePassword.jsx
 │  │  ├─ CoinCard.jsx
 │  │  ├─ CoinDetailChart.jsx
 │  │  ├─ CoinList.jsx
 │  │  ├─ Dashboard.jsx
 │  │  ├─ DataInputForm.jsx
+│  │  ├─ FavoriteDebug.jsx
 │  │  ├─ LoadingPlaceholder.jsx
 │  │  ├─ LiquidityChart.jsx
 │  │  ├─ Login.jsx
@@ -140,14 +149,12 @@ crypto-metrics-dashboard
 │  │  ├─ ProtectedRoute.jsx
 │  │  ├─ Register.jsx
 │  │  ├─ SearchBar.jsx
+│  │  ├─ UserManagement.jsx
 │  │  └─ UserProfile.jsx
-│  ├─ helpers
-│  │  └─ strategyAdvisor.js
 │  ├─ hooks
-│  │  └─ useApi.js
+│  │  └─ useFavorites.js
 │  ├─ index.css
 │  ├─ index.js
-│  ├─ logo.svg
 │  ├─ redux
 │  │  ├─ slices
 │  │  │  ├─ authSlice.js
@@ -158,5 +165,7 @@ crypto-metrics-dashboard
 │  ├─ reportWebVitals.js
 │  ├─ services
 │  │  └─ api.js
-│  └─ setupTests.js
+│  ├─ setupTests.js
+│  └─ styles
+│     └─ mobile.css
 └─ tailwind.config.js

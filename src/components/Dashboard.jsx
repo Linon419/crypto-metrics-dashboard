@@ -35,6 +35,7 @@ import { logout } from '../redux/slices/authSlice';
 import ChangePassword from './ChangePassword';
 import UserProfile from './UserProfile';
 import { useFavorites } from '../hooks/useFavorites'; // Keep this
+import { PERIOD_QUALITY_GUIDE, PERIOD_QUALITY_METHOD } from '../utils/periodQualityMeta';
 
 
 const { Header, Content } = Layout;
@@ -904,6 +905,30 @@ function Dashboard() {
           <div>
             <Title level={5}>进/退场期 (Entry/Exit Period)</Title>
             <Text>进场期表示适合买入的市场阶段，退场期表示适合卖出的市场阶段。后面的数字表示当前阶段的持续天数。</Text>
+          </div>
+
+          <div>
+            <Title level={5}>{PERIOD_QUALITY_METHOD.title}</Title>
+            <Text>{PERIOD_QUALITY_METHOD.intro}</Text>
+            <div className="mt-2 space-y-2">
+              {PERIOD_QUALITY_METHOD.rules.map((rule) => (
+                <Text key={rule} className="block">
+                  • {rule}
+                </Text>
+              ))}
+            </div>
+            <div className={`mt-3 grid gap-3 ${isMobile ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              {PERIOD_QUALITY_GUIDE.map((item) => (
+                <div key={item.key} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <Tag color={item.color} className="mb-2">
+                    {item.label}
+                  </Tag>
+                  <Text className="block text-sm text-gray-600">
+                    {item.description}
+                  </Text>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div>

@@ -1,8 +1,8 @@
 // server/middleware/auth.js
 const jwt = require('jsonwebtoken');
+const { getJwtSecret } = require('../utils/authConfig');
 
-// JWT Secret（生产环境会在 server/index.js 做强校验）
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-dev-secret-key-change-in-production';
+const JWT_SECRET = getJwtSecret();
 
 // 仅用于开发环境的显式绕过开关：避免误把“免登录管理员”带到生产
 const DEV_AUTH_BYPASS = ['true', '1', 'yes'].includes(
@@ -54,5 +54,7 @@ const requireAdmin = (req, res, next) => {
 module.exports = {
   verifyToken: authMiddleware,
   requireAdmin,
+  __authTestUtils: {
+    resolvedJwtSecret: JWT_SECRET,
+  },
 };
-

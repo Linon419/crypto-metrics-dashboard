@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Row, Col, Carousel, Pagination, Spin, Empty, Button, Alert, Card, Badge } from 'antd';
 import { ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import CoinCard from './CoinCard';
+import { getQualityRibbonProps } from '../utils/periodQualityMeta';
 
 function CoinList({ 
   coins = [], 
@@ -154,36 +155,6 @@ function CoinList({
             {currentCoinsToDisplay.length > 0 ? (
               <Row gutter={[16, 16]} className="mb-4">
                 {currentCoinsToDisplay.map((coin, index) => {
-                  // Helper function to get quality ribbon props
-                  const getQualityRibbonProps = (period_quality) => {
-                    if (!period_quality) return { display: 'none', text: '', color: 'blue' };
-
-                    let color = 'blue';
-                    let text = period_quality;
-
-                    if (period_quality.includes('高质量')) {
-                      color = 'green';
-                      text = period_quality.replace('高质量', '高');
-                    } else if (period_quality.includes('需调仓')) {
-                      color = 'red';
-                      text = '需调仓';
-                    } else if (period_quality.includes('低质量')) {
-                      color = 'red';
-                      text = period_quality.replace('低质量', '低');
-                    } else if (period_quality.includes('待观察')) {
-                      color = 'orange';
-                      text = '待观察';
-                    } else if (period_quality === '观望') {
-                      color = 'default';
-                      text = '观望';
-                    } else if (period_quality === '数据不足') {
-                      color = 'default';
-                      text = '无数据';
-                    }
-
-                    return { display: 'block', text, color };
-                  };
-
                   const ribbonProps = getQualityRibbonProps(coin.period_quality);
 
                   return (
@@ -233,36 +204,6 @@ function CoinList({
                 {/* Optimized mobile grid layout */}
                 <Row gutter={[8, 8]} className="mb-4">
                   {currentCoinsToDisplay.map((coin, index) => {
-                    // Helper function to get quality ribbon props (same as desktop)
-                    const getQualityRibbonProps = (period_quality) => {
-                      if (!period_quality) return { display: 'none', text: '', color: 'blue' };
-
-                      let color = 'blue';
-                      let text = period_quality;
-
-                      if (period_quality.includes('高质量')) {
-                        color = 'green';
-                        text = period_quality.replace('高质量', '高');
-                      } else if (period_quality.includes('需调仓')) {
-                        color = 'red';
-                        text = '需调仓';
-                      } else if (period_quality.includes('低质量')) {
-                        color = 'red';
-                        text = period_quality.replace('低质量', '低');
-                      } else if (period_quality.includes('待观察')) {
-                        color = 'orange';
-                        text = '待观察';
-                      } else if (period_quality === '观望') {
-                        color = 'default';
-                        text = '观望';
-                      } else if (period_quality === '数据不足') {
-                        color = 'default';
-                        text = '无数据';
-                      }
-
-                      return { display: 'block', text, color };
-                    };
-
                     const ribbonProps = getQualityRibbonProps(coin.period_quality);
 
                     return (
