@@ -9,11 +9,12 @@ import {
   RightOutlined
 } from '@ant-design/icons';
 import { getPeriodQualityMeta } from '../utils/periodQualityMeta';
+import { evaluateStrategySignal } from '../utils/strategySignals';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
 
-function OtcIndexTable({ coins, loading = false }) {
+function OtcIndexTable({ coins, marketCoins = coins, liquidity = null, loading = false }) {
   //console.log("OtcIndexTable received coins data:", coins); // <--- 添加这行来进行调试
   const [sortedInfo, setSortedInfo] = useState({
     columnKey: 'otcIndex',
@@ -57,6 +58,33 @@ function OtcIndexTable({ coins, loading = false }) {
     momentumIndicators: coin.momentumIndicators || [],
     nearThreshold: coin.nearThreshold || false
   }));
+  const strategyContext = { marketCoins, liquidity };
+
+  const renderStrategySignal = (coin, compact = false) => {
+    const signal = evaluateStrategySignal(coin, strategyContext);
+
+    if (signal.direction === 'neutral') {
+      return <Text type="secondary">{signal.label}</Text>;
+    }
+
+    const title = (
+      <div>
+        <div>{signal.description}</div>
+        {signal.warnings?.length > 0 && (
+          <div className="mt-1">提醒: {signal.warnings.join(' / ')}</div>
+        )}
+      </div>
+    );
+
+    return (
+      <Tooltip title={title}>
+        <Tag color={signal.color} className={compact ? 'text-xs' : 'px-2 py-1'}>
+          {signal.label}
+          {signal.confirmed ? ' · 已确认' : ' · 候选'}
+        </Tag>
+      </Tooltip>
+    );
+  };
 
   // Sort data based on current sort settings
   const getSortedData = () => {
@@ -299,58 +327,7 @@ function OtcIndexTable({ coins, loading = false }) {
       title: '交易建议',
       key: 'suggestion',
       width: 200,
-      render: (_, record) => {
-        const prevData = record.previousDayData || record.previous_day_data;
-        if (!prevData) return <Text type="secondary">数据不足</Text>;
-
-        const currExplosionIndex = parseFloat(record.explosionIndex);
-        const prevExplosionIndex = prevData.explosion_index !== undefined && prevData.explosion_index !== null ? parseFloat(prevData.explosion_index) : undefined;
-
-        if (isNaN(currExplosionIndex) || (prevExplosionIndex !== undefined && isNaN(prevExplosionIndex))) {
-            return <Text type="secondary">数据错误</Text>;
-        }
-
-        // Long: explosion index turns positive or new entry
-        if (prevExplosionIndex < 0 && currExplosionIndex > 0) {
-          return (
-            <Tag color="success" className="px-2 py-1">
-              做多：爆破指数由负转正
-            </Tag>
-          );
-        }
-
-        if (record.entryExitType === 'entry' && record.entryExitDay <= 3) {
-          return (
-            <Tag color="success" className="px-2 py-1">
-              做多：进场期初期
-            </Tag>
-          );
-        }
-
-        // Short: explosion index drops below 200 or new exit
-        if (prevExplosionIndex >= 200 && currExplosionIndex < 200) {
-          return (
-            <Tag color="error" className="px-2 py-1">
-              做空：爆破指数跌破200
-            </Tag>
-          );
-        }
-
-        if (record.entryExitType === 'exit' && record.entryExitDay === 1) {
-          return (
-            <Tag color="error" className="px-2 py-1">
-              做空：退场期第一天
-            </Tag>
-          );
-        }
-
-        // Default suggestion
-        return (
-          <Text type="secondary">
-            {currExplosionIndex >= 200 ? "观望" : "风险注意"}
-          </Text>
-        );
-      }
+      render: (_, record) => renderStrategySignal(record)
     }
   ];
 
@@ -408,33 +385,7 @@ function OtcIndexTable({ coins, loading = false }) {
     const prevOtcIndex = prevData ? parseFloat(prevData.otc_index) : undefined;
     const prevExplosionIndex = prevData ? parseFloat(prevData.explosion_index) : undefined;
 
-
-    // Trading suggestion
-    let suggestion = '';
-    let suggestionColor = '';
     const periodQuality = coin.period_quality;
-
-    if (prevData && !isNaN(numericExplosionIndex) && (prevExplosionIndex === undefined || !isNaN(prevExplosionIndex))) {
-      const currExplosionIndex = numericExplosionIndex;
-
-      if (prevExplosionIndex < 0 && currExplosionIndex > 0) {
-        suggestion = '做多：爆破指数由负转正';
-        suggestionColor = 'success';
-      } else if (coin.entryExitType === 'entry' && coin.entryExitDay <= 3) {
-        suggestion = '做多：进场期初期';
-        suggestionColor = 'success';
-      } else if (prevExplosionIndex >= 200 && currExplosionIndex < 200) {
-        suggestion = '做空：爆破指数跌破200';
-        suggestionColor = 'error';
-      } else if (coin.entryExitType === 'exit' && coin.entryExitDay === 1) {
-        suggestion = '做空：退场期第一天';
-        suggestionColor = 'error';
-      } else {
-        suggestion = currExplosionIndex >= 200 ? "观望" : "风险注意";
-      }
-    } else if (!prevData) {
-        suggestion = "数据不足";
-    }
 
 
     return (
@@ -471,11 +422,7 @@ function OtcIndexTable({ coins, loading = false }) {
               )}
             </div>
 
-            {suggestionColor ? (
-              <Tag color={suggestionColor}>{suggestion}</Tag>
-            ) : (
-              <Text type="secondary">{suggestion || '数据不足'}</Text>
-            )}
+            {renderStrategySignal(coin, true)}
           </div>
           
           <div className="flex justify-between items-center mt-2">

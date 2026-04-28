@@ -36,7 +36,7 @@ function Login() {
       dispatch(loginSuccess(data));
       navigate('/dashboard');
     } catch (error) {
-      dispatch(loginFailure(error.error || 'Login failed'));
+      dispatch(loginFailure(error.displayMessage || error.response?.data?.error || error.message || 'Login failed'));
     }
   };
   

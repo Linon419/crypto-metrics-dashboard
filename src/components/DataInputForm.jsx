@@ -30,7 +30,7 @@ function DataInputForm({ onSuccess }) {
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
   const [timePrecision, setTimePrecision] = useState('day');
-  const [selectedModel, setSelectedModel] = useState('gpt-5-mini'); // 默认使用gpt-5-mini
+  const [selectedModel, setSelectedModel] = useState('gpt-5-chat-latest'); // 默认使用gpt-5-chat-latest
   const [jsonPreview, setJsonPreview] = useState(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const fileInputRef = useRef(null);

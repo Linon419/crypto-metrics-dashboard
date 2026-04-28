@@ -1,5 +1,5 @@
 // src/components/Dashboard.jsx - Mobile-friendly version
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Layout, Tag, Divider, Spin, Alert, DatePicker, Space, Typography, Button, Modal, notification, Dropdown, Menu, Avatar, Tooltip, Drawer } from 'antd';
 import {
   ReloadOutlined,
@@ -36,10 +36,26 @@ import ChangePassword from './ChangePassword';
 import UserProfile from './UserProfile';
 import { useFavorites } from '../hooks/useFavorites'; // Keep this
 import { PERIOD_QUALITY_GUIDE, PERIOD_QUALITY_METHOD } from '../utils/periodQualityMeta';
+import { evaluateStrategySignal, hasStrategyDirection } from '../utils/strategySignals';
 
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
+
+const getRiskRank = (risk) => {
+  if (risk === 'low') return 0;
+  if (risk === 'medium') return 1;
+  return 2;
+};
+
+const getSignalSummaryText = (signals) => {
+  if (signals.length === 0) return '暂无';
+
+  return signals
+    .slice(0, 3)
+    .map(({ coin, signal }) => `${coin.symbol}(${signal.confirmed ? '已确认' : '候选'})`)
+    .join('、');
+};
 
 function Dashboard() {
   // State management
@@ -70,11 +86,54 @@ function Dashboard() {
   const [menuDrawerVisible, setMenuDrawerVisible] = useState(false);
   const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const notifiedStrategyDatesRef = useRef(new Set());
 
   // Authentication related
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { user } = useSelector(state => state.auth);
+
+  const showStrategyNotification = useCallback((coins, liquidity, date) => {
+    if (!date || !Array.isArray(coins) || coins.length === 0) return;
+    if (notifiedStrategyDatesRef.current.has(date)) return;
+
+    const signals = coins
+      .map(coin => ({
+        coin,
+        signal: evaluateStrategySignal(coin, { marketCoins: coins, liquidity })
+      }))
+      .filter(item => item.signal.direction === 'long' || item.signal.direction === 'short')
+      .sort((a, b) => {
+        if (a.signal.confirmed !== b.signal.confirmed) return a.signal.confirmed ? -1 : 1;
+        return getRiskRank(a.signal.risk) - getRiskRank(b.signal.risk);
+      });
+
+    const longSignals = signals.filter(item => item.signal.direction === 'long');
+    const shortSignals = signals.filter(item => item.signal.direction === 'short');
+    const confirmedLongCount = longSignals.filter(item => item.signal.confirmed).length;
+    const confirmedShortCount = shortSignals.filter(item => item.signal.confirmed).length;
+
+    notifiedStrategyDatesRef.current.add(date);
+
+    notification.open({
+      key: `strategy-${date}`,
+      message: `策略信号更新 · ${date}`,
+      description: (
+        <div>
+          <div className="mb-2">
+            <Tag color="success">做多 {longSignals.length}</Tag>
+            <Text type="secondary">已确认 {confirmedLongCount}：{getSignalSummaryText(longSignals)}</Text>
+          </div>
+          <div>
+            <Tag color="error">做空 {shortSignals.length}</Tag>
+            <Text type="secondary">已确认 {confirmedShortCount}：{getSignalSummaryText(shortSignals)}</Text>
+          </div>
+        </div>
+      ),
+      placement: 'topRight',
+      duration: 10,
+    });
+  }, []);
 
   // Window resize handler for responsive design
   useEffect(() => {
@@ -118,6 +177,7 @@ function Dashboard() {
         }
 
         setApiStatus({ ok: true, message: '数据加载成功，API连接正常' });
+        showStrategyNotification(result.coins, result.liquidity, result.date);
 
         if (!initialLoadComplete) {
           notification.success({
@@ -151,7 +211,7 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCoin, initialLoadComplete]); // Removed formatCoinsData from dependencies as it's defined inside or constant
+  }, [selectedCoin, initialLoadComplete, showStrategyNotification]); // Removed formatCoinsData from dependencies as it's defined inside or constant
 
   // Filter coins based on view mode
   const getFilteredCoins = () => {
@@ -167,41 +227,16 @@ function Dashboard() {
         return [...currentAllCoins].sort((a, b) => (b.otcIndex || 0) - (a.otcIndex || 0)).slice(0, 10); // Increased to 10
 
       case 'long': // Long strategy
-        return currentAllCoins.filter(coin => {
-          const prevData = coin.previousDayData || coin.previous_day_data;
-          if (!prevData || coin.explosionIndex === undefined || prevData.explosion_index === undefined) return false;
-
-          const prevExplosionIndex = parseFloat(prevData.explosion_index);
-          const currExplosionIndex = parseFloat(coin.explosionIndex);
-          const explosionChangePercent = parseFloat(coin.explosionIndexChangePercent);
-
-
-          const turnedPositive = prevExplosionIndex < 0 && currExplosionIndex > 0;
-          const justEnteredEntry = coin.entryExitType === 'entry' && (coin.entryExitDay || 0) <= 3;
-          const significantIncrease = prevExplosionIndex >= 0 && // Changed from >0 to >=0 to include cases from 0
-                                     currExplosionIndex > 0 &&
-                                     !isNaN(explosionChangePercent) && explosionChangePercent > 30;
-
-          return turnedPositive || justEnteredEntry || significantIncrease;
-        });
+        return currentAllCoins.filter(coin => hasStrategyDirection(coin, 'long', {
+          marketCoins: currentAllCoins,
+          liquidity: liquidityData
+        }));
 
       case 'short': // Short strategy
-        return currentAllCoins.filter(coin => {
-            const prevData = coin.previousDayData || coin.previous_day_data;
-            if (!prevData || coin.explosionIndex === undefined || prevData.explosion_index === undefined) return false;
-
-            const prevExplosionIndex = parseFloat(prevData.explosion_index);
-            const currExplosionIndex = parseFloat(coin.explosionIndex);
-            const explosionChangePercent = parseFloat(coin.explosionIndexChangePercent);
-
-            const brokeThreshold = prevExplosionIndex >= 200 && currExplosionIndex < 200;
-            const justEnteredExit = coin.entryExitType === 'exit' && (coin.entryExitDay || 0) === 1;
-            const significantDecrease = prevExplosionIndex > 0 &&
-                                     currExplosionIndex > 0 && // Or currExplosionIndex < prevExplosionIndex if allowing negative current
-                                     !isNaN(explosionChangePercent) && explosionChangePercent < -30;
-
-          return brokeThreshold || justEnteredExit || significantDecrease;
-        });
+        return currentAllCoins.filter(coin => hasStrategyDirection(coin, 'short', {
+          marketCoins: currentAllCoins,
+          liquidity: liquidityData
+        }));
 
       default:
         return currentAllCoins;
@@ -241,9 +276,15 @@ function Dashboard() {
         const historicalData = await fetchDataByDate(selectedDateStr);
 
         if (historicalData && historicalData.success) {
+          const historicalCoins = historicalData.coins || [];
+          const btcCoin = historicalCoins.find(c => c.symbol === 'BTC');
+
           // 更新状态以显示历史数据
-          setAllCoins(historicalData.coins || []);
+          setAllCoins(historicalCoins);
           setLatestDateStr(selectedDateStr);
+          setLiquidityData(historicalData.liquidityOverview || historicalData.liquidity || null);
+          setViewMode('all');
+          setSelectedCoin(btcCoin ? btcCoin.symbol : historicalCoins[0]?.symbol || null);
 
           notification.success({
             message: '历史数据加载成功',
@@ -286,6 +327,10 @@ function Dashboard() {
     console.log('[Dashboard] Force refreshing all data...');
     loadData(true); // 强制刷新，绕过缓存
     refreshFavorites();
+  };
+
+  const handleBackToLatest = () => {
+    loadData(true);
   };
 
   // Handle favorite toggle
@@ -499,17 +544,20 @@ function Dashboard() {
                   : `最新数据: ${latestDateStr}`}
               </Text>
             )}
-            <Tooltip title="点击选择日期查看历史数据">
-              <DatePicker
-                value={selectedDate}
-                onChange={handleDateChange}
-                format="YYYY-MM-DD"
-                allowClear={false}
-                className="mr-2"
-                placeholder="选择日期查看历史数据"
-                disabled={loading}
-              />
-            </Tooltip>
+            <DatePicker
+              value={selectedDate}
+              onChange={handleDateChange}
+              format="YYYY-MM-DD"
+              allowClear={false}
+              className="mr-2"
+              placeholder="选择历史日期"
+              disabled={loading}
+            />
+            {selectedDate && selectedDate.format('YYYY-MM-DD') !== latestDateStr && (
+              <Button onClick={handleBackToLatest} disabled={loading}>
+                回到最新
+              </Button>
+            )}
             <Button
               type="primary"
               icon={<ReloadOutlined />}
@@ -773,6 +821,8 @@ function Dashboard() {
             {/* OTC index table */}
             <OtcIndexTable
               coins={filteredCoins}
+              marketCoins={allCoins}
+              liquidity={liquidityData}
               loading={loading && (!allCoins || allCoins.length === 0)} // Show loading in Table only if allCoins is truly empty
               onRefresh={handleRefresh}
             />
@@ -831,6 +881,11 @@ function Dashboard() {
         <Divider />
 
         <div className="p-4">
+          {latestDateStr && (
+            <Text type="secondary" className="block mb-2">
+              当前数据: {latestDateStr}
+            </Text>
+          )}
           <DatePicker
             value={selectedDate}
             onChange={(date) => {
@@ -840,9 +895,21 @@ function Dashboard() {
             format="YYYY-MM-DD"
             allowClear={false}
             className="w-full mb-3"
-            placeholder="选择日期查看历史数据"
+            placeholder="选择历史日期"
             disabled={loading}
           />
+
+          <Button
+            block
+            onClick={() => {
+              handleBackToLatest();
+              setFilterDrawerVisible(false);
+            }}
+            disabled={loading}
+            className="mb-3"
+          >
+            回到最新
+          </Button>
 
           <Button
             block

@@ -479,6 +479,20 @@ export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
   }
 };
 
+export const fetchLiquidityHistory = async ({ startDate, endDate } = {}) => {
+  try {
+    const params = {};
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
+
+    const response = await callApiWithRetry(() => api.get('/liquidity', { params }));
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (error) {
+    console.error('获取流动性历史数据失败:', error.displayMessage || error.message);
+    return [];
+  }
+};
+
 export const exportAllData = async (forceRefresh = false) => {
   const now = Date.now();
   if (!forceRefresh && dataCache.allDatabaseData && (now - dataCache.lastDatabaseFetchTime < 10 * 60 * 1000)) {

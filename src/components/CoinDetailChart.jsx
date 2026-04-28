@@ -1,11 +1,11 @@
 // src/components/CoinDetailChart.jsx - 确保与卡片数据一致
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Area, AreaChart, ResponsiveContainer,
-  ReferenceArea, ReferenceLine, Legend, ComposedChart
+  ReferenceArea, ReferenceLine, Legend, ComposedChart, Bar, Cell
 } from 'recharts';
-import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty, Radio, Tag, Tooltip as AntTooltip } from 'antd';
+import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty, Radio, Tag, Tooltip as AntTooltip, DatePicker } from 'antd';
 import {
   ZoomInOutlined,
   ZoomOutOutlined,
@@ -15,11 +15,23 @@ import {
   LineChartOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { fetchCoinMetrics } from '../services/api';
+import { fetchCoinMetrics, fetchLiquidityHistory } from '../services/api';
 import { getPeriodQualityMeta } from '../utils/periodQualityMeta';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const { RangePicker } = DatePicker;
+const chartSyncId = 'coin-detail-date-sync';
+const liquiditySeriesMeta = {
+  BTC: { key: 'btc', label: 'Bitcoin' },
+  ETH: { key: 'eth', label: 'Ethereum' },
+  SOL: { key: 'sol', label: 'Solana' }
+};
+const getLiquidityBarColor = (value) => {
+  if (value > 0) return '#16a34a';
+  if (value < 0) return '#dc2626';
+  return '#94a3b8';
+};
 
 function CoinDetailChart({ coin, onRefresh, selectedDate }) {
   console.log('[CoinDetailChart] Component rendered with props:', {
@@ -27,14 +39,44 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
     selectedDate: selectedDate ? selectedDate.format('YYYY-MM-DD') : 'null'
   });
   const [metrics, setMetrics] = useState([]);
+  const [liquidityHistory, setLiquidityHistory] = useState([]);
+  const [liquidityLoading, setLiquidityLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [timeRange, setTimeRange] = useState('1M'); // 默认显示1个月
+  const [customDateRange, setCustomDateRange] = useState(null);
   const [zoomState, setZoomState] = useState(null);
   const [displayData, setDisplayData] = useState([]);
   const [chartMode, setChartMode] = useState('both'); // 'blast', 'otc', 'both'
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const chartRef = useRef(null);
+  const fallbackEndDate = selectedDate || dayjs();
+
+  const presetStartDate = useMemo(() => {
+    switch(timeRange) {
+      case '1W':
+        return fallbackEndDate.subtract(7, 'day');
+      case '1M':
+        return fallbackEndDate.subtract(30, 'day');
+      case '3M':
+        return fallbackEndDate.subtract(90, 'day');
+      case '6M':
+        return fallbackEndDate.subtract(180, 'day');
+      case '1Y':
+        return fallbackEndDate.subtract(365, 'day');
+      case 'ALL':
+        return dayjs('2023-01-01');
+      default:
+        return fallbackEndDate.subtract(30, 'day');
+    }
+  }, [timeRange, fallbackEndDate]);
+
+  const effectiveStartDateStr = (customDateRange?.[0] || presetStartDate).format('YYYY-MM-DD');
+  const effectiveEndDateStr = (customDateRange?.[1] || fallbackEndDate).format('YYYY-MM-DD');
+  const chartMargin = isMobile ?
+    { top: 10, right: 10, left: 10, bottom: 20 } :
+    { top: 10, right: 30, left: 20, bottom: 30 };
+  const selectedLiquiditySeries = liquiditySeriesMeta[coin?.symbol?.toUpperCase()];
 
   // 监听窗口大小变化
   useEffect(() => {
@@ -153,21 +195,20 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
   // 处理选中日期变化，过滤显示数据
   useEffect(() => {
     console.log('[CoinDetailChart] Date filter effect triggered:', {
-      selectedDate: selectedDate ? selectedDate.format('YYYY-MM-DD') : 'null',
+      selectedDate: effectiveEndDateStr,
       metricsLength: metrics.length,
       coinSymbol: coin?.symbol
     });
 
-    if (selectedDate && metrics.length > 0) {
-      const selectedDateStr = selectedDate.format('YYYY-MM-DD');
+    if (effectiveEndDateStr && metrics.length > 0) {
       const filteredMetrics = metrics.filter(metric => {
-        return metric.date <= selectedDateStr;
+        return metric.date <= effectiveEndDateStr;
       });
 
       console.log('[CoinDetailChart] Filtered metrics:', {
         originalLength: metrics.length,
         filteredLength: filteredMetrics.length,
-        selectedDate: selectedDateStr,
+        selectedDate: effectiveEndDateStr,
         firstDate: metrics[0]?.date,
         lastDate: metrics[metrics.length - 1]?.date
       });
@@ -184,7 +225,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
       console.log('[CoinDetailChart] No selected date or no metrics, showing all data');
       setDisplayData(metrics);
     }
-  }, [selectedDate, metrics]);
+  }, [effectiveEndDateStr, metrics]);
 
   // 加载币种历史指标数据
   useEffect(() => {
@@ -200,38 +241,18 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
       try {
         // 计算日期范围 - 如果有选中日期，使用选中日期作为结束日期
         // 使用 dayjs 而不是 Date 对象来避免时区问题
-        const endDateDayjs = selectedDate || dayjs();
-        let startDateDayjs;
-
-        switch(timeRange) {
-          case '1W':
-            startDateDayjs = endDateDayjs.subtract(7, 'day');
-            break;
-          case '1M':
-            startDateDayjs = endDateDayjs.subtract(30, 'day');
-            break;
-          case '3M':
-            startDateDayjs = endDateDayjs.subtract(90, 'day');
-            break;
-          case '6M':
-            startDateDayjs = endDateDayjs.subtract(180, 'day');
-            break;
-          case '1Y':
-            startDateDayjs = endDateDayjs.subtract(365, 'day');
-            break;
-          case 'ALL':
-            startDateDayjs = dayjs('2023-01-01'); // 从2023年开始
-            break;
-          default:
-            startDateDayjs = endDateDayjs.subtract(30, 'day');
-        }
+        const endDateDayjs = dayjs(effectiveEndDateStr);
+        const startDateDayjs = dayjs(effectiveStartDateStr);
 
         // 将日期转换为 YYYY-MM-DD 格式（避免时区问题）
         const formattedStartDate = startDateDayjs.format('YYYY-MM-DD');
         const formattedEndDate = endDateDayjs.format('YYYY-MM-DD');
 
         console.log(`[CoinDetailChart] 获取 ${coin.symbol} 从 ${formattedStartDate} 到 ${formattedEndDate} 的指标数据`, {
-          selectedDate: selectedDate ? selectedDate.format('YYYY-MM-DD') : 'null',
+          selectedDate: effectiveEndDateStr,
+          customDateRange: customDateRange
+            ? customDateRange.map(date => date.format('YYYY-MM-DD'))
+            : null,
           timeRange,
           endDateUsed: formattedEndDate
         });
@@ -299,7 +320,24 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
     };
     
     loadMetricsData();
-  }, [coin?.symbol, timeRange, selectedDate]); // 在coin.symbol、timeRange或selectedDate变化时重新加载
+  }, [coin?.symbol, timeRange, effectiveStartDateStr, effectiveEndDateStr]); // 在coin.symbol、timeRange或日期范围变化时重新加载
+
+  useEffect(() => {
+    const loadLiquidityHistory = async () => {
+      setLiquidityLoading(true);
+      try {
+        const data = await fetchLiquidityHistory({
+          startDate: effectiveStartDateStr,
+          endDate: effectiveEndDateStr
+        });
+        setLiquidityHistory(data);
+      } finally {
+        setLiquidityLoading(false);
+      }
+    };
+
+    loadLiquidityHistory();
+  }, [effectiveStartDateStr, effectiveEndDateStr]);
   
   // 创建模拟数据函数 - 当API无法获取数据时使用
   const createMockData = (coin, startDate, endDate) => {
@@ -375,6 +413,46 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
     const hasData = displayData.some(d => d.schellingPoint && d.schellingPoint > 0);
     //console.log('谢林点数据检查:', hasData, displayData.map(d => d.schellingPoint));
     return hasData;
+  };
+
+  const getAlignedLiquidityData = () => {
+    const liquidityByDate = new Map(
+      liquidityHistory.map(item => [item.date, item])
+    );
+
+    return displayData.map(item => {
+      const liquidity = liquidityByDate.get(item.date) || {};
+      return {
+        date: item.date,
+        btc: liquidity.btc_fund_change ?? null,
+        eth: liquidity.eth_fund_change ?? null,
+        sol: liquidity.sol_fund_change ?? null
+      };
+    });
+  };
+
+  const liquidityChartData = getAlignedLiquidityData();
+  const hasLiquidityChartData = selectedLiquiditySeries
+    ? liquidityChartData.some(item => item[selectedLiquiditySeries.key] !== null)
+    : false;
+
+  const LiquidityTooltip = ({ active, payload, label }) => {
+    if (!active || !payload || !payload.length) return null;
+
+    const visiblePayload = payload.filter(item => item.value !== null && item.value !== undefined);
+    if (!visiblePayload.length) return null;
+
+    return (
+      <div className="bg-white p-3 border border-gray-200 shadow-lg rounded-md">
+        <div className="text-gray-600 text-sm mb-2">{`日期: ${label}`}</div>
+        {visiblePayload.map(item => (
+          <div key={item.dataKey} className="flex justify-between gap-4 text-sm">
+            <span style={{ color: item.color }}>{item.name}</span>
+            <span className="font-medium">{Number(item.value).toFixed(2)}亿</span>
+          </div>
+        ))}
+      </div>
+    );
   };
   
   // 自定义提示框
@@ -536,9 +614,12 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
               </div>
               
               <Select 
-                defaultValue="1M" 
+                value={timeRange}
                 style={{ width: 120 }} 
-                onChange={value => setTimeRange(value)}
+                onChange={value => {
+                  setTimeRange(value);
+                  setCustomDateRange(null);
+                }}
               >
                 <Option value="1W">1周</Option>
                 <Option value="1M">1个月</Option>
@@ -547,6 +628,16 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
                 <Option value="1Y">1年</Option>
                 <Option value="ALL">全部</Option>
               </Select>
+
+              <RangePicker
+                value={customDateRange}
+                onChange={setCustomDateRange}
+                format="YYYY-MM-DD"
+                placeholder={['起始日期', '截止日期']}
+                allowClear
+                disabled={loading}
+                style={{ width: isMobile ? '100%' : 260, marginLeft: isMobile ? 0 : 12, marginTop: isMobile ? 8 : 0 }}
+              />
             </div>
           </div>
           
@@ -618,10 +709,8 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={displayData}
-                margin={isMobile ?
-                  { top: 10, right: 10, left: 10, bottom: 20 } :
-                  { top: 10, right: 30, left: 20, bottom: 30 }
-                }
+                margin={chartMargin}
+                syncId={chartSyncId}
                 onMouseDown={handleMouseDown}
                 onMouseMove={zoomState ? handleMouseMove : null}
                 onMouseUp={zoomState ? handleMouseUp : null}
@@ -872,6 +961,87 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
               </ComposedChart>
             </ResponsiveContainer>
           </div>
+
+          {selectedLiquiditySeries && (
+          <div className="mt-4">
+            <div className="flex justify-between items-center mb-2">
+              <Title level={5} className="mb-0">流动性概况</Title>
+              <Text type="secondary" className="text-xs">{selectedLiquiditySeries.label}，单位：亿美元</Text>
+            </div>
+            <div style={{ height: isMobile ? '220px' : '260px', userSelect: 'none' }}>
+              {liquidityLoading ? (
+                <div className="h-full flex items-center justify-center">
+                  <Spin />
+                </div>
+              ) : hasLiquidityChartData ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart
+                    data={liquidityChartData}
+                    margin={chartMargin}
+                    syncId={chartSyncId}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: isMobile ? 10 : 12 }}
+                      tickMargin={isMobile ? 5 : 10}
+                      interval={isMobile ? 'preserveStartEnd' : 'preserveStart'}
+                      tickFormatter={(value) => {
+                        const date = new Date(value);
+                        return `${date.getMonth() + 1}/${date.getDate()}`;
+                      }}
+                    />
+                    <YAxis
+                      yAxisId="left"
+                      tick={{ fontSize: isMobile ? 10 : 12 }}
+                      width={isMobile ? 35 : 60}
+                      label={isMobile ? undefined : {
+                        value: '资金变化',
+                        angle: -90,
+                        position: 'insideLeft',
+                        offset: -5,
+                        style: { fill: '#475569' }
+                      }}
+                    />
+                    {chartMode === 'both' && (
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={false}
+                      />
+                    )}
+                    <Tooltip content={<LiquidityTooltip />} />
+                    <Legend
+                      wrapperStyle={{
+                        fontSize: isMobile ? '11px' : '12px',
+                        paddingTop: isMobile ? '5px' : '10px'
+                      }}
+                      iconSize={isMobile ? 12 : 14}
+                    />
+                    <ReferenceLine y={0} yAxisId="left" stroke="#94a3b8" strokeDasharray="4 4" />
+                    <Bar
+                      dataKey={selectedLiquiditySeries.key}
+                      name={selectedLiquiditySeries.label}
+                      yAxisId="left"
+                      radius={[3, 3, 0, 0]}
+                    >
+                      {liquidityChartData.map((entry) => (
+                        <Cell
+                          key={`liquidity-${entry.date}`}
+                          fill={getLiquidityBarColor(entry[selectedLiquiditySeries.key])}
+                        />
+                      ))}
+                    </Bar>
+                  </ComposedChart>
+                </ResponsiveContainer>
+              ) : (
+                <Empty description="当前日期范围暂无流动性数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </div>
+          </div>
+          )}
           
           {/* 指标数据 */}
           {coin && (

@@ -1,20 +1,23 @@
 // server/routes/liquidity.js
 const express = require('express');
 const router = express.Router();
+const { Op } = require('sequelize');
 const { LiquidityOverview } = require('../models');
 
 // 获取所有流动性概况数据
 router.get('/', async (req, res) => {
   try {
-    const { date } = req.query;
+    const { date, startDate, endDate } = req.query;
     
     // 构建查询条件
     const where = {};
     if (date) where.date = date;
+    if (startDate) where.date = { [Op.gte]: startDate };
+    if (endDate) where.date = { ...where.date, [Op.lte]: endDate };
     
     const liquidityData = await LiquidityOverview.findAll({
       where,
-      order: [['date', 'DESC']]
+      order: [['date', 'ASC']]
     });
     
     res.json(liquidityData);
