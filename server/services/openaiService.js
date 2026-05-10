@@ -5,6 +5,8 @@ require('dotenv').config();
 // 延迟初始化OpenAI客户端
 let openai = null;
 
+const MOMENTUM_INDICATORS = ['$', '*', '※', '‼', '↑', 'w'];
+
 function getOpenAIClient() {
   if (!openai) {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -20,6 +22,107 @@ function getOpenAIClient() {
     });
   }
   return openai;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeMomentumIndicators(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(indicator => String(indicator).trim())
+      .filter(indicator => MOMENTUM_INDICATORS.includes(indicator));
+  }
+
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return [];
+
+    try {
+      return normalizeMomentumIndicators(JSON.parse(trimmedValue));
+    } catch (error) {
+      return MOMENTUM_INDICATORS.includes(trimmedValue) ? [trimmedValue] : [];
+    }
+  }
+
+  return [];
+}
+
+function lineContainsCoinAnchor(line, coin) {
+  const upperLine = line.toUpperCase();
+  const symbol = coin.symbol ? String(coin.symbol).toUpperCase() : '';
+  const name = coin.name ? String(coin.name).toUpperCase() : '';
+
+  if (symbol && upperLine.includes(symbol)) return true;
+  if (name && upperLine.includes(name)) return true;
+
+  return false;
+}
+
+function lineContainsMetricAnchor(line, coin) {
+  const hasOtcIndex = Number.isFinite(coin.otcIndex) && line.includes(String(coin.otcIndex));
+  const hasExplosionIndex = Number.isFinite(coin.explosionIndex) && line.includes(String(coin.explosionIndex));
+
+  return hasOtcIndex || hasExplosionIndex;
+}
+
+function getCoinEvidenceBlock(rawText, coin) {
+  if (!rawText || !coin) return '';
+
+  const lines = rawText
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const startIndex = lines.findIndex(line => (
+    line.includes('场外指数') &&
+    (lineContainsCoinAnchor(line, coin) || lineContainsMetricAnchor(line, coin))
+  ));
+
+  if (startIndex === -1) {
+    return '';
+  }
+
+  const blockLines = [lines[startIndex]];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (lines[index].includes('场外指数')) break;
+    blockLines.push(lines[index]);
+  }
+
+  return blockLines.join('\n');
+}
+
+function hasIndicatorSource(indicator, evidenceBlock) {
+  if (!indicator || !evidenceBlock) return false;
+
+  const escapedIndicator = escapeRegExp(indicator);
+  const numericPrefixPattern = new RegExp(`[-+]?\\d+(?:\\.\\d+)?\\s*${escapedIndicator}(?=$|[\\s,，。;；])`);
+  if (numericPrefixPattern.test(evidenceBlock)) {
+    return true;
+  }
+
+  const standalonePattern = new RegExp(`(^|[\\s,，。;；])${escapedIndicator}(?=$|[\\s,，。;；])`);
+  return standalonePattern.test(evidenceBlock);
+}
+
+function filterMomentumIndicatorsByRawText(parsedData, rawText) {
+  if (!parsedData || !Array.isArray(parsedData.coins)) {
+    return parsedData;
+  }
+
+  parsedData.coins = parsedData.coins.map(coin => {
+    const evidenceBlock = getCoinEvidenceBlock(rawText, coin);
+    const sourcedIndicators = normalizeMomentumIndicators(coin.momentumIndicators)
+      .filter(indicator => hasIndicatorSource(indicator, evidenceBlock));
+
+    return {
+      ...coin,
+      momentumIndicators: sourcedIndicators,
+    };
+  });
+
+  return parsedData;
 }
 
 /**
@@ -67,6 +170,7 @@ ${processedText}
 | 符号 | 含义 |
 |------|------|
 | \`$\` | 较大向上动能，重点关注 |
+| \`*\` | 爆破指数>200，高速油门期 |
 | \`※\` | 爆破指数>200，高速油门期 |
 | \`‼\` | 爆破指数从>200跌至<200，短期撤出信号 |
 | \`↑\` | 爆破指数连续2-3天上涨，进入上升通道 |
@@ -76,16 +180,19 @@ ${processedText}
 
 **✅ 应识别为动能指标**：
 - 数值后紧跟的符号：\`爆破指数490$\`、\`场外指数1200※\`
+- 数值后用空格分隔的星号：\`爆破指数249 *\`
 - 独立出现在数据行中：\`BTC ↑ 场外指数1500\`
+- momentumIndicators 只收录输入原文逐字出现的符号
+- 爆破指数数值只用于 explosionIndex 字段；原文没有符号时 momentumIndicators 返回 []
 
-**❌ 不应识别为动能指标**：
+#### 币种名称符号处理
 - 币种名称前缀：\`$Trump\`、\`$DOGE\` 中的 \`$\` 是名称组成部分
-- 币种标准命名的一部分
+- 标准命名里的符号归入 symbol 解析
 
 #### 识别流程（按顺序执行）
 1. **先识别币种名称**（包括其前缀符号）
 2. **再查找动能符号**（数值后或独立出现的符号）
-3. **验证排除**（确保符号不属于币种名称）
+3. **验证来源**（确保符号来自同一币种的原始文本）
 
 ---
 
@@ -131,7 +238,7 @@ ${processedText}
       "explosionIndex": 196,
       "schellingPoint": 96900,
       "nearThreshold": false,
-      "momentumIndicators": ["$", "※"]
+      "momentumIndicators": ["$", "*", "※"]
     }
   ],
   "liquidity": {
@@ -280,6 +387,8 @@ async function processRawData(rawText, customModel = null) {
         console.log('最终日期:', parsedData.date);
       }
       
+      filterMomentumIndicatorsByRawText(parsedData, rawText);
+
       // 验证币种数据
       console.log('币种数组存在:', !!parsedData.coins);
       console.log('币种数量:', parsedData.coins ? parsedData.coins.length : 0);
@@ -404,4 +513,12 @@ function validateAndFixDate(date, rawText, currentYear) {
   return today.toISOString().split('T')[0];
 }
 
-module.exports = { processRawData };
+module.exports = {
+  processRawData,
+  __testUtils: {
+    filterMomentumIndicatorsByRawText,
+    getCoinEvidenceBlock,
+    hasIndicatorSource,
+    normalizeMomentumIndicators,
+  },
+};

@@ -39,6 +39,27 @@ const dataCache = {
   lastFavoritesFetchTime: 0
 };
 
+function parseMomentumIndicators(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(indicator => String(indicator).trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return [];
+
+    try {
+      return parseMomentumIndicators(JSON.parse(trimmedValue));
+    } catch (error) {
+      return [trimmedValue];
+    }
+  }
+
+  return [];
+}
+
 // --- 2. 创建主 Axios 实例 ---
 const api = axios.create({
   baseURL: effectiveApiBaseUrl, // 使用动态获取的基地址
@@ -328,6 +349,7 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
           entryExitType: metric.entry_exit_type || 'neutral',
           entryExitDay: typeof metric.entry_exit_day === 'number' ? metric.entry_exit_day : 0,
           nearThreshold: !!metric.near_threshold,
+          momentumIndicators: parseMomentumIndicators(metric.momentum_indicators || metric.momentumIndicators),
           otcIndexChangePercent: otcIndexChangePercent,
           explosionIndexChangePercent: explosionIndexChangePercent,
           date: metric.date || latestDate,
@@ -362,6 +384,7 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
               entryExitType: trendingCoin.entry_exit_type || 'neutral',
               entryExitDay: typeof trendingCoin.entry_exit_day === 'number' ? trendingCoin.entry_exit_day : 0,
               nearThreshold: !!trendingCoin.near_threshold,
+              momentumIndicators: parseMomentumIndicators(trendingCoin.momentum_indicators || trendingCoin.momentumIndicators),
               otcIndexChangePercent: trendOtcChangePercent,
               explosionIndexChangePercent: trendExplosionChangePercent,
               date: trendingCoin.date || latestDate,
@@ -637,7 +660,8 @@ export const importDatabaseDump = async (dumpData) => {
           schelling_point: coin.schellingPoint,
           entry_exit_type: coin.entryExitType || 'neutral',
           entry_exit_day: coin.entryExitDay || 0,
-          near_threshold: !!coin.nearThreshold
+          near_threshold: !!coin.nearThreshold,
+          momentum_indicators: JSON.stringify(parseMomentumIndicators(coin.momentumIndicators))
         });
       });
     }

@@ -34,9 +34,7 @@ describe('OtcIndexTable', () => {
   test('shows page size selector', () => {
     render(<OtcIndexTable coins={mockCoins} />);
     
-    // Look for page size selector (should be present in pagination)
-    const pageSizeSelector = screen.getByTitle('页码');
-    expect(pageSizeSelector).toBeInTheDocument();
+    expect(document.querySelector('.ant-select-selector')).toBeInTheDocument();
   });
 
   test('displays correct number of rows per page', () => {
@@ -54,14 +52,31 @@ describe('OtcIndexTable', () => {
     // Should still render the table structure
     expect(screen.getByText('场外指数表')).toBeInTheDocument();
     
-    // Should show empty state
-    expect(screen.getByText('暂无数据')).toBeInTheDocument();
+    expect(document.querySelector('.ant-table-empty')).toBeInTheDocument();
   });
 
   test('shows loading state', () => {
     render(<OtcIndexTable coins={mockCoins} loading={true} />);
     
-    // Should show loading spinner
-    expect(screen.getByTestId('loading')).toBeInTheDocument();
+    expect(document.querySelector('.ant-spin-spinning')).toBeInTheDocument();
+  });
+
+  test('renders asterisk momentum indicator', () => {
+    render(
+      <OtcIndexTable
+        coins={[
+          {
+            symbol: 'SNDK',
+            otcIndex: 1529,
+            explosionIndex: 249,
+            entryExitType: 'entry',
+            entryExitDay: 34,
+            momentumIndicators: ['*']
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText('*')).toBeInTheDocument();
   });
 });
