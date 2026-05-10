@@ -117,6 +117,7 @@ function OtcIndexTable({ coins, marketCoins = coins, liquidity = null, loading =
     
     const indicatorConfig = {
       '$': { color: '#52c41a', tooltip: '向上动能强劲，重点关注' },
+      '*': { color: '#ff4d4f', tooltip: '高速油门期，爆破指数>200' },
       '※': { color: '#ff4d4f', tooltip: '高速油门期，爆破指数>200' },
       '‼': { color: '#faad14', tooltip: '短期撤出信号，爆破跌破200' },
       '↑': { color: '#1890ff', tooltip: '连续上涨，进入上升通道' },

@@ -22,6 +22,33 @@ function calculateChangePercent(current, previous) {
   return ((current - previous) / previous) * 100;
 }
 
+function normalizeMomentumIndicators(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(indicator => String(indicator).trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return [];
+
+    try {
+      const parsedValue = JSON.parse(trimmedValue);
+      return normalizeMomentumIndicators(parsedValue);
+    } catch (error) {
+      return [trimmedValue];
+    }
+  }
+
+  return [];
+}
+
+function serializeMomentumIndicators(value) {
+  const indicators = normalizeMomentumIndicators(value);
+  return indicators.length > 0 ? JSON.stringify(indicators) : null;
+}
+
 // --- 路由：处理原始数据输入并存储 ---
 router.post('/input', async (req, res) => {
   const { rawData, model } = req.body;
@@ -185,7 +212,7 @@ async function storeProcessedData(data) {
           entry_exit_type: coinData.entryExitType || 'neutral',
           entry_exit_day: typeof coinData.entryExitDay === 'number' ? coinData.entryExitDay : 0,
           near_threshold: !!coinData.nearThreshold,
-          momentum_indicators: coinData.momentumIndicators ? JSON.stringify(coinData.momentumIndicators) : null
+          momentum_indicators: serializeMomentumIndicators(coinData.momentumIndicators)
         };
         // console.log('[STORE_DATA] Metric payload:', JSON.stringify(metricPayload, null, 2));
 
@@ -373,6 +400,7 @@ router.get('/latest', async (req, res) => {
         entry_exit_type: currentMetric.entry_exit_type,
         entry_exit_day: currentMetric.entry_exit_day,
         near_threshold: currentMetric.near_threshold,
+        momentum_indicators: currentMetric.momentum_indicators,
         coin: currentMetric.coin, // 包含完整的 coin 对象
         previous_day_data: prevMetrics ? {
           date: prevMetrics.date,
@@ -1065,6 +1093,7 @@ router.post('/import-database', async (req, res) => {
           entry_exit_type: mData.entry_exit_type || 'neutral',
           entry_exit_day: typeof mData.entry_exit_day === 'number' ? mData.entry_exit_day : 0,
           near_threshold: !!mData.near_threshold,
+          momentum_indicators: serializeMomentumIndicators(mData.momentum_indicators || mData.momentumIndicators),
         };
         const [instance, created] = await DailyMetric.findOrCreate({ where: { coin_id: coinId, date: metricTimeInfo.date }, defaults: metricPayload, transaction });
         if (!created) await instance.update(metricPayload, { transaction });
@@ -1244,7 +1273,7 @@ router.get('/by-date/:date', async (req, res) => {
         entryExitType: metric.entry_exit_type,
         entryExitDay: metric.entry_exit_day,
         nearThreshold: metric.near_threshold,
-        momentumIndicators: metric.momentum_indicators ? JSON.parse(metric.momentum_indicators) : [],
+        momentumIndicators: normalizeMomentumIndicators(metric.momentum_indicators),
         date: metric.date,
         timestamp: metric.timestamp,
         timePrecision: metric.time_precision,
@@ -1353,6 +1382,8 @@ router.__qualityTestUtils = {
   QUALITY_LOOKBACK_DAYS,
   buildKeyNodeComparisons,
   scoreBayesianPeriodQuality,
+  normalizeMomentumIndicators,
+  serializeMomentumIndicators,
 };
 
 module.exports = router;
