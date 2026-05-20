@@ -536,6 +536,11 @@ const ENTRY_DIP_WEAKENING_THRESHOLD_PERCENT = -5;
 const ENTRY_RECOVERY_NEAR_START_THRESHOLD_PERCENT = -2;
 const ENTRY_HIGH_QUALITY_KEY_NODE_MIN_CHANGE_PERCENT = 5;
 
+function hasIncompleteEntryStart(metric) {
+  const entryExitDay = Number(metric?.entry_exit_day);
+  return Number.isFinite(entryExitDay) && entryExitDay > 1;
+}
+
 function isMetricAfterNode(metric, nodeDate) {
   if (!metric?.date || !nodeDate) {
     return false;
@@ -678,6 +683,45 @@ function logKeyNodeComparisons(coinId, comparisons) {
   });
 }
 
+function getEntryComparisonsUpToTarget(comparisons, targetMetric) {
+  if (!targetMetric?.date) {
+    return comparisons;
+  }
+
+  const targetDate = new Date(targetMetric.date);
+  return comparisons.filter((comparison) =>
+    comparison.toRole !== 'after' || new Date(comparison.toDate) <= targetDate
+  );
+}
+
+function getLatestEntryKeyMetric(comparisons, targetMetric) {
+  const latestAfterComparison = [...comparisons].reverse().find((comparison) =>
+    comparison.toRole === 'after'
+  );
+
+  if (!latestAfterComparison) {
+    return targetMetric;
+  }
+
+  return {
+    ...targetMetric,
+    date: latestAfterComparison.toDate,
+    otc_index: latestAfterComparison.toOtcIndex,
+  };
+}
+
+function getEntryQualityComparisons(comparisons, targetMetric, incompleteEntryStart) {
+  const comparisonsUpToTarget = getEntryComparisonsUpToTarget(comparisons, targetMetric);
+
+  if (!incompleteEntryStart) {
+    return comparisonsUpToTarget;
+  }
+
+  return comparisonsUpToTarget.filter((comparison) =>
+    comparison.fromRole === 'after' && comparison.toRole === 'after'
+  );
+}
+
 /**
  * 根据 bodong 文档第五章评估进场期质量
  * @param {Array} historicalMetrics - 历史数据
@@ -687,6 +731,8 @@ function logKeyNodeComparisons(coinId, comparisons) {
  * @returns {string} - 进场期质量评估结果
  */
 function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId, targetMetric = entryStartDateMetric) {
+  const incompleteEntryStart = hasIncompleteEntryStart(entryStartDateMetric);
+
   // 找到所有"爆破指数跌破200"的节点
   // 注意：historicalMetrics是按日期降序排列的，所以i=0是最新的数据
   let dipBelow200Nodes = [];
@@ -709,7 +755,9 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
 
   console.log(`[QualityCheck] CoinID ${coinId}: Found ${dipBelow200Nodes.length} dip below 200 nodes total.`);
 
-  const firstWeekRisk = detectWeakEntryWithinFirstWeek(historicalMetrics, entryStartDateMetric, targetMetric);
+  const firstWeekRisk = incompleteEntryStart
+    ? { triggered: false }
+    : detectWeakEntryWithinFirstWeek(historicalMetrics, entryStartDateMetric, targetMetric);
   if (firstWeekRisk.triggered) {
     console.log(
       `[QualityCheck] CoinID ${coinId}: 首周爆破均值走弱，前半段均值=${firstWeekRisk.earlyAverage.toFixed(2)}, ` +
@@ -763,21 +811,37 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
     return '进场期 (待观察)';
   }
 
-  logKeyNodeComparisons(coinId, comparisons);
+  const comparisonsForTarget = getEntryQualityComparisons(comparisons, targetMetric, incompleteEntryStart);
+  if (comparisonsForTarget.length === 0) {
+    if (incompleteEntryStart) {
+      console.log(
+        `[QualityCheck] CoinID ${coinId}: Entry period starts from existing day ${entryStartDateMetric.entry_exit_day}; ` +
+        `same-type key-node comparison unavailable. Returning '数据不足'.`
+      );
+      return '数据不足';
+    }
 
-  const weakDipComparison = findLatestWeakEntryDipComparison(comparisons, targetMetric);
-  const weakDipRecoveryQuality = classifyEntryRecoveryAfterWeakDip(targetMetric, weakDipComparison, entryStartOtcIndex, comparisons);
+    console.log(`[QualityCheck] CoinID ${coinId}: No target key-node comparison available. Returning '进场期 (待观察)'.`);
+    return '进场期 (待观察)';
+  }
+
+  const effectiveTargetMetric = getLatestEntryKeyMetric(comparisonsForTarget, targetMetric);
+
+  logKeyNodeComparisons(coinId, comparisonsForTarget);
+
+  const weakDipComparison = findLatestWeakEntryDipComparison(comparisonsForTarget, effectiveTargetMetric);
+  const weakDipRecoveryQuality = classifyEntryRecoveryAfterWeakDip(effectiveTargetMetric, weakDipComparison, entryStartOtcIndex, comparisonsForTarget);
   if (weakDipRecoveryQuality) {
     if (weakDipRecoveryQuality !== '低质量进场') {
       console.log(
-        `[QualityCheck] CoinID ${coinId}: Entry recovered after weak dip, target=${targetMetric.date}` +
-        `(${targetMetric.otc_index}/${targetMetric.explosion_index}) -> ${weakDipRecoveryQuality}`
+        `[QualityCheck] CoinID ${coinId}: Entry recovered after weak dip, target=${effectiveTargetMetric.date}` +
+        `(${effectiveTargetMetric.otc_index}/${effectiveTargetMetric.explosion_index}) -> ${weakDipRecoveryQuality}`
       );
     }
     return weakDipRecoveryQuality;
   }
 
-  const latestDipComparison = [...comparisons].reverse().find(comparison => comparison.toRole === 'after');
+  const latestDipComparison = [...comparisonsForTarget].reverse().find(comparison => comparison.toRole === 'after');
   if (
     latestDipComparison
     && Number.isFinite(latestDipComparison.changePercent)
@@ -793,7 +857,7 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
 
   const bayesianQuality = scoreBayesianPeriodQuality({
     phase: 'entry',
-    comparisons,
+    comparisons: comparisonsForTarget,
   });
 
   console.log(
