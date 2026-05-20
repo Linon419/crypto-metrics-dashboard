@@ -24,6 +24,7 @@ database.sqlite.backup*
 
 # production
 /build
+local-artifacts/
 server/output/
 zsxq-*.json
 zsxq-*.txt
