@@ -2,7 +2,7 @@ const assert = require('assert');
 
 const { __testUtils } = require('../services/openaiService');
 
-const { filterMomentumIndicatorsByRawText } = __testUtils || {};
+const { filterMomentumIndicatorsByRawText, validateAndFixDate } = __testUtils || {};
 
 function run() {
   assert.strictEqual(
@@ -52,6 +52,16 @@ function run() {
   }, 'BTC场外指数1500场外进场期第1天\n爆破指数490$');
 
   assert.deepStrictEqual(explicitDollarData.coins[0].momentumIndicators, ['$']);
+
+  assert.strictEqual(
+    validateAndFixDate('2026-05-20', '2026-05-20 00:01\nBTC场外指数1200', 2026),
+    '2026-05-20 00:01'
+  );
+
+  assert.strictEqual(
+    validateAndFixDate('2026-05-20 00:01', '2026-05-20\nBTC场外指数1200', 2026),
+    '2026-05-20 00:01'
+  );
 
   console.log('openaiMomentumSource.test.js passed');
 }

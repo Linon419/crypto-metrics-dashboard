@@ -1,6 +1,7 @@
 // server/services/openaiService.js - 修复日期解析问题
 const { OpenAI } = require('openai');
 require('dotenv').config();
+const { parseFlexibleDateTime, formatToISO } = require('../utils/timeParser');
 
 // 延迟初始化OpenAI客户端
 let openai = null;
@@ -148,6 +149,7 @@ ${processedText}
 - **日精度**：\`5.9\` 或 \`2024.5.9\`
 - **小时精度**：\`5.9 14\` 或 \`2024.5.9 14\`
 - **分钟精度**：\`5.9 14:30\` 或 \`2024.5.9 14:30\`
+- **ISO日期时间**：\`2026-05-20\`、\`2026-05-20 00:01\` 或 \`2026-05-20T00:01\`
 
 #### 年份处理逻辑
 - **省略年份时**：使用当前年份（从上方"当前日期"获取）
@@ -460,7 +462,39 @@ function preprocessDateFormat(rawText) {
  * @param {number} currentYear - 当前年份
  * @returns {string} - 修复后的日期字符串 (YYYY-MM-DD)
  */
+function getRawFirstLineTime(rawText) {
+  const firstLine = (rawText || '').split('\n')[0]?.trim();
+  if (!firstLine) return null;
+
+  const parsedFirstLine = parseFlexibleDateTime(firstLine);
+  return parsedFirstLine.isValid ? parsedFirstLine : null;
+}
+
+function formatParsedDateByPrecision(parsedDate) {
+  if (!parsedDate?.isValid) return null;
+
+  if (parsedDate.precision === 'minute') {
+    return formatToISO(parsedDate.timestamp, 'minute');
+  }
+
+  if (parsedDate.precision === 'hour') {
+    return formatToISO(parsedDate.timestamp, 'hour');
+  }
+
+  return parsedDate.date;
+}
+
 function validateAndFixDate(date, rawText, currentYear) {
+  const rawFirstLineTime = getRawFirstLineTime(rawText);
+  if (rawFirstLineTime && rawFirstLineTime.precision !== 'day') {
+    return formatParsedDateByPrecision(rawFirstLineTime);
+  }
+
+  const parsedReturnedDate = parseFlexibleDateTime(date);
+  if (parsedReturnedDate.isValid && parsedReturnedDate.precision !== 'day') {
+    return formatParsedDateByPrecision(parsedReturnedDate);
+  }
+
   // 如果已经是正确的YYYY-MM-DD格式，验证月份和日期的值是否合理
   if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
     const [yearStr, monthStr, dayStr] = date.split('-');
@@ -520,5 +554,6 @@ module.exports = {
     getCoinEvidenceBlock,
     hasIndicatorSource,
     normalizeMomentumIndicators,
+    validateAndFixDate,
   },
 };
