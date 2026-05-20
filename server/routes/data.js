@@ -623,10 +623,14 @@ function findLatestWeakEntryDipComparison(comparisons, targetMetric) {
   );
 }
 
-function detectWeakEntryWithinFirstWeek(historicalMetrics, entryStartDateMetric) {
+function detectWeakEntryWithinFirstWeek(historicalMetrics, entryStartDateMetric, targetMetric) {
   const entryStartDate = new Date(entryStartDateMetric.date);
   const oneWeekLater = new Date(entryStartDate);
   oneWeekLater.setDate(oneWeekLater.getDate() + 7);
+
+  if (!targetMetric || new Date(targetMetric.date) < oneWeekLater) {
+    return { triggered: false };
+  }
 
   const oneWeekData = historicalMetrics
     .filter((metric) => {
@@ -705,7 +709,7 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
 
   console.log(`[QualityCheck] CoinID ${coinId}: Found ${dipBelow200Nodes.length} dip below 200 nodes total.`);
 
-  const firstWeekRisk = detectWeakEntryWithinFirstWeek(historicalMetrics, entryStartDateMetric);
+  const firstWeekRisk = detectWeakEntryWithinFirstWeek(historicalMetrics, entryStartDateMetric, targetMetric);
   if (firstWeekRisk.triggered) {
     console.log(
       `[QualityCheck] CoinID ${coinId}: 首周爆破均值走弱，前半段均值=${firstWeekRisk.earlyAverage.toFixed(2)}, ` +

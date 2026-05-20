@@ -39,6 +39,29 @@ async function run() {
   await assertQuality('2026-04-20', '观察型进场', nearFlatDipMetrics.slice(1));
   await assertQuality('2026-04-22', '观察型进场', nearFlatDipMetrics);
 
+  const earlyFirstWeekWeakMomentumMetrics = [
+    { date: '2026-04-10', otc_index: 1033, explosion_index: 246, entry_exit_type: 'entry' },
+    { date: '2026-04-09', otc_index: 1011, explosion_index: 248, entry_exit_type: 'entry' },
+    { date: '2026-04-08', otc_index: 1013, explosion_index: 285, entry_exit_type: 'entry' },
+    { date: '2026-02-27', otc_index: 752, explosion_index: 112, entry_exit_type: 'exit' },
+    { date: '2026-02-26', otc_index: 780, explosion_index: 214, entry_exit_type: 'exit' },
+  ];
+
+  await assertQuality('2026-04-10', '观察型进场', earlyFirstWeekWeakMomentumMetrics);
+
+  const completedFirstWeekWeakMomentumMetrics = [
+    { date: '2026-04-15', otc_index: 1317, explosion_index: 228, entry_exit_type: 'entry' },
+    { date: '2026-04-14', otc_index: 1096, explosion_index: 219, entry_exit_type: 'entry' },
+    { date: '2026-04-11', otc_index: 983, explosion_index: 237, entry_exit_type: 'entry' },
+    { date: '2026-04-10', otc_index: 1033, explosion_index: 246, entry_exit_type: 'entry' },
+    { date: '2026-04-09', otc_index: 1011, explosion_index: 248, entry_exit_type: 'entry' },
+    { date: '2026-04-08', otc_index: 1013, explosion_index: 285, entry_exit_type: 'entry' },
+    { date: '2026-02-27', otc_index: 752, explosion_index: 112, entry_exit_type: 'exit' },
+    { date: '2026-02-26', otc_index: 780, explosion_index: 214, entry_exit_type: 'exit' },
+  ];
+
+  await assertQuality('2026-04-15', '低质量进场（需调仓）', completedFirstWeekWeakMomentumMetrics);
+
   const recoveryAfterWeakDipMetrics = [
     { date: '2026-03-10', otc_index: 1131, explosion_index: 253, entry_exit_type: 'entry' },
     { date: '2026-03-08', otc_index: 1011, explosion_index: 108, entry_exit_type: 'entry' },
