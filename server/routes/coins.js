@@ -3,6 +3,11 @@ const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize'); // 添加这一行
 const { Coin, DailyMetric } = require('../models');
+const dataRouter = require('./data');
+const {
+  attachPeriodQualityToMetrics,
+  getQualityLookbackStartDate,
+} = require('../utils/periodQualityTimeline');
 
 // 获取所有币种
 router.get('/', async (req, res) => {
@@ -57,13 +62,44 @@ router.get('/:symbol/metrics', async (req, res) => {
     if (startDate) where.date = { [Op.gte]: startDate };
     if (endDate) where.date = { ...where.date, [Op.lte]: endDate };
     
-    // 查询指标数据
     const metrics = await DailyMetric.findAll({
       where,
-      order: [['date', 'ASC']]
+      order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']],
+      raw: true,
     });
-    
-    res.json(metrics);
+
+    if (metrics.length === 0) {
+      return res.json([]);
+    }
+
+    const visibleStartDate = metrics[0].date;
+    const visibleEndDate = metrics[metrics.length - 1].date;
+    const historyStartDate = getQualityLookbackStartDate(visibleStartDate);
+    const historyWhere = {
+      coin_id: coin.id,
+      date: { [Op.lte]: visibleEndDate },
+    };
+
+    if (historyStartDate) {
+      historyWhere.date = {
+        ...historyWhere.date,
+        [Op.gte]: historyStartDate,
+      };
+    }
+
+    const historicalMetrics = await DailyMetric.findAll({
+      where: historyWhere,
+      order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
+    const calculatePeriodQualityForDate = dataRouter.__qualityTestUtils?.calculatePeriodQualityForDate;
+    const metricsWithQuality = await attachPeriodQualityToMetrics(metrics, {
+      coinId: coin.id,
+      historicalMetrics,
+      calculatePeriodQualityForDate,
+    });
+
+    res.json(metricsWithQuality);
   } catch (error) {
     console.error(`Error fetching metrics for ${req.params.symbol}:`, error);
     res.status(500).json({ error: 'Failed to fetch metrics' });

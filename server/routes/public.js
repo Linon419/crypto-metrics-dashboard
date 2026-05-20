@@ -5,6 +5,7 @@ const { Op } = require('sequelize');
 const { Coin, DailyMetric } = require('../models');
 const dataRoutes = require('./data');
 const { getSystemSettings } = require('../utils/settings');
+const { buildPeriodRiskNotes } = require('../utils/periodRiskNotes');
 
 // 公开接口：获取注册状态
 router.get('/registration-status', (req, res) => {
@@ -103,6 +104,7 @@ router.get('/top-otc-crypto', async (req, res) => {
         explosion_index: metric.explosion_index,
         previous_explosion_index: previousExplosionIndex,
         period_quality: periodQuality,
+        risk_notes: buildPeriodRiskNotes(metric),
         time: timestamp || metric.date,
         date: metric.date,
         timestamp: timestamp
@@ -183,6 +185,7 @@ router.get('/bottom-otc-crypto', async (req, res) => {
         explosion_index: metric.explosion_index,
         previous_explosion_index: previousExplosionIndex,
         period_quality: periodQuality,
+        risk_notes: buildPeriodRiskNotes(metric),
         time: timestamp || metric.date,
         date: metric.date,
         timestamp: timestamp

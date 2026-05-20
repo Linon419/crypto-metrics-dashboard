@@ -82,6 +82,8 @@ function buildKeyNodeComparisons({ phase, beforeNode, startNode, afterNodes = []
       toDate: toNode.date,
       fromLabel: fromNode.label,
       toLabel: toNode.label,
+      fromRole: fromNode.role,
+      toRole: toNode.role,
       fromOtcIndex: fromNode.otc_index,
       toOtcIndex: toNode.otc_index,
       changeValue: typeof fromNode.otc_index === 'number' && typeof toNode.otc_index === 'number'

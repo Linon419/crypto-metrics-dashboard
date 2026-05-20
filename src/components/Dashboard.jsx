@@ -27,16 +27,22 @@ import SearchBar from './SearchBar';
 import CoinList from './CoinList';
 import CoinDetailChart from './CoinDetailChart';
 import OtcIndexTable from './OtcIndexTable';
+import BtcPredictionPanel from './BtcPredictionPanel';
 import LiquidityChart from './LiquidityChart';
 import LoadingPlaceholder from './LoadingPlaceholder';
 import FavoriteDebug from './FavoriteDebug';
-import { fetchLatestMetrics, fetchDataByDate } from '../services/api'; // Keep this
+import { fetchLatestMetrics, fetchDataByDate, fetchAvailableDataDates } from '../services/api'; // Keep this
 import { logout } from '../redux/slices/authSlice';
 import ChangePassword from './ChangePassword';
 import UserProfile from './UserProfile';
 import { useFavorites } from '../hooks/useFavorites'; // Keep this
 import { PERIOD_QUALITY_GUIDE, PERIOD_QUALITY_METHOD } from '../utils/periodQualityMeta';
 import { evaluateStrategySignal, hasStrategyDirection } from '../utils/strategySignals';
+import {
+  findNearestAvailableDate,
+  isDateAvailable,
+  normalizeAvailableDates,
+} from '../utils/availableDates';
 
 
 const { Header, Content } = Layout;
@@ -70,9 +76,11 @@ function Dashboard() {
     refreshFavorites
   } = useFavorites();
   const [loading, setLoading] = useState(true);
-  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [error, setError] = useState(null);
   const [latestDateStr, setLatestDateStr] = useState('');
+  const [latestAvailableDateStr, setLatestAvailableDateStr] = useState('');
+  const [availableDates, setAvailableDates] = useState([]);
+  const [availableDatesLoaded, setAvailableDatesLoaded] = useState(false);
   const [infoModalVisible, setInfoModalVisible] = useState(false);
   const [apiStatusModalVisible, setApiStatusModalVisible] = useState(false);
   const [apiStatus, setApiStatus] = useState({ ok: false, message: '正在检查API状态...' });
@@ -87,6 +95,8 @@ function Dashboard() {
   const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const notifiedStrategyDatesRef = useRef(new Set());
+  const initialLoadCompleteRef = useRef(false);
+  const activeDataRequestRef = useRef(0);
 
   // Authentication related
   const dispatch = useDispatch();
@@ -135,6 +145,36 @@ function Dashboard() {
     });
   }, []);
 
+  const refreshAvailableDates = useCallback(async () => {
+    try {
+      const result = await fetchAvailableDataDates();
+      const normalizedDates = normalizeAvailableDates(result.dates);
+      setAvailableDates(normalizedDates);
+      setAvailableDatesLoaded(true);
+
+      const newestDate = result.newestDate && normalizedDates.includes(result.newestDate)
+        ? result.newestDate
+        : normalizedDates[normalizedDates.length - 1] || '';
+
+      if (newestDate) {
+        setLatestAvailableDateStr(newestDate);
+      }
+
+      return normalizedDates;
+    } catch (error) {
+      console.error('加载可用日期失败:', error);
+      setAvailableDates([]);
+      setAvailableDatesLoaded(true);
+      return [];
+    }
+  }, []);
+
+  const disabledCalendarDate = useCallback((date) => {
+    if (!date) return true;
+    if (!availableDatesLoaded) return true;
+    return !isDateAvailable(date, availableDates);
+  }, [availableDates, availableDatesLoaded]);
+
   // Window resize handler for responsive design
   useEffect(() => {
     const handleResize = () => {
@@ -147,6 +187,8 @@ function Dashboard() {
 
   // Load data
   const loadData = useCallback(async (forceRefresh = false) => {
+    const requestId = activeDataRequestRef.current + 1;
+    activeDataRequestRef.current = requestId;
     setLoading(true);
     setError(null);
 
@@ -155,19 +197,25 @@ function Dashboard() {
       const result = await fetchLatestMetrics(forceRefresh); // This already contains previousDayData
       // console.log("[DASHBOARD - fetchLatestMetrics result]", JSON.stringify(result, null, 2));
 
+      if (activeDataRequestRef.current !== requestId) return;
 
       if (result && result.coins) { // Check if result and result.coins are valid
         // No need for an additional formatCoinsData if fetchLatestMetrics already prepares the data well
         setAllCoins(result.coins); // Directly use coins from fetchLatestMetrics
 
-        if (!selectedCoin && result.coins.length > 0) {
+        setSelectedCoin(currentSelectedCoin => {
+          if (currentSelectedCoin && result.coins.some(coin => coin.symbol === currentSelectedCoin)) {
+            return currentSelectedCoin;
+          }
+
           const btcCoin = result.coins.find(c => c.symbol === 'BTC');
-          setSelectedCoin(btcCoin ? btcCoin.symbol : result.coins[0].symbol);
-        }
+          return btcCoin ? btcCoin.symbol : result.coins[0]?.symbol || null;
+        });
 
         if (result.date) {
           console.log('[Dashboard] Setting date from API:', result.date);
           setLatestDateStr(result.date);
+          setLatestAvailableDateStr(result.date);
           setSelectedDate(dayjs(result.date));
           console.log('[Dashboard] Selected date set to:', dayjs(result.date).format('YYYY-MM-DD'));
         }
@@ -178,14 +226,15 @@ function Dashboard() {
 
         setApiStatus({ ok: true, message: '数据加载成功，API连接正常' });
         showStrategyNotification(result.coins, result.liquidity, result.date);
+        refreshAvailableDates();
 
-        if (!initialLoadComplete) {
+        if (!initialLoadCompleteRef.current) {
           notification.success({
             message: '数据加载成功',
             description: `已获取最新的加密货币指标数据 (${result.date || '未知日期'})`,
             duration: 3
           });
-          setInitialLoadComplete(true);
+          initialLoadCompleteRef.current = true;
         }
       } else {
         // Handle case where result or result.coins is not as expected
@@ -194,6 +243,7 @@ function Dashboard() {
         setError("获取到的数据格式不正确");
       }
     } catch (err) {
+      if (activeDataRequestRef.current !== requestId) return;
       console.error("加载数据失败:", err);
       setError(`加载数据失败：${err.message || "未知错误"}`);
       setApiStatus({ ok: false, message: `API连接错误: ${err.message}` });
@@ -209,9 +259,11 @@ function Dashboard() {
         )
       });
     } finally {
-      setLoading(false);
+      if (activeDataRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
-  }, [selectedCoin, initialLoadComplete, showStrategyNotification]); // Removed formatCoinsData from dependencies as it's defined inside or constant
+  }, [showStrategyNotification, refreshAvailableDates]); // Removed formatCoinsData from dependencies as it's defined inside or constant
 
   // Filter coins based on view mode
   const getFilteredCoins = () => {
@@ -245,6 +297,7 @@ function Dashboard() {
 
   // Load data on mount
   useEffect(() => {
+    refreshAvailableDates();
     loadData();
 
     const refreshInterval = setInterval(() => {
@@ -252,61 +305,117 @@ function Dashboard() {
     }, 5 * 60 * 1000);
 
     return () => clearInterval(refreshInterval);
-  }, [loadData]); // loadData is now stable due to useCallback
+  }, [loadData, refreshAvailableDates]); // loadData is now stable due to useCallback
+
+  const applyHistoricalData = (selectedDateStr, historicalData) => {
+    if (!historicalData || !historicalData.success) {
+      throw new Error(historicalData?.error || '获取历史数据失败');
+    }
+
+    const historicalCoins = historicalData.coins || [];
+    const btcCoin = historicalCoins.find(c => c.symbol === 'BTC');
+
+    setAllCoins(historicalCoins);
+    setLatestDateStr(selectedDateStr);
+    setLiquidityData(historicalData.liquidityOverview || historicalData.liquidity || null);
+    setViewMode('all');
+    setSelectedCoin(btcCoin ? btcCoin.symbol : historicalCoins[0]?.symbol || null);
+
+    notification.success({
+      message: '历史数据加载成功',
+      description: `已获取 ${selectedDateStr} 的数据，包含 ${historicalData.totalCoins || 0} 个币种`,
+      duration: 3
+    });
+
+    setApiStatus({ ok: true, message: `历史数据加载成功 (${selectedDateStr})` });
+  };
+
+  const loadHistoricalDate = async (dateStr, requestId) => {
+    console.log(`加载 ${dateStr} 的历史数据...`);
+    const historicalData = await fetchDataByDate(dateStr);
+    if (activeDataRequestRef.current !== requestId) return false;
+    applyHistoricalData(dateStr, historicalData);
+    return true;
+  };
+
+  const resolveSelectableDate = (date) => {
+    if (!date) return;
+
+    let selectedDateStr = date.format('YYYY-MM-DD');
+    let nextDate = date;
+
+    if (availableDates.length > 0 && !isDateAvailable(date, availableDates)) {
+      const fallbackDateStr = findNearestAvailableDate(selectedDateStr, availableDates);
+      if (!fallbackDateStr) return;
+
+      selectedDateStr = fallbackDateStr;
+      nextDate = dayjs(fallbackDateStr);
+      notification.info({
+        message: '已回退到最近有数据日期',
+        description: `所选日期暂无数据，已切换到 ${fallbackDateStr}`,
+        duration: 3
+      });
+    }
+
+    return { selectedDateStr, nextDate };
+  };
 
   // Handle date change
   const handleDateChange = async (date) => {
-    if (date) {
-      setSelectedDate(date);
-      const selectedDateStr = date.format('YYYY-MM-DD');
+    const resolvedDate = resolveSelectableDate(date);
+    if (!resolvedDate) return;
 
-      // 如果选择的是今天，加载最新数据
-      const today = dayjs().format('YYYY-MM-DD');
-      if (selectedDateStr === today) {
-        loadData();
-        return;
-      }
+    const { selectedDateStr, nextDate } = resolvedDate;
+    const requestId = activeDataRequestRef.current + 1;
+    activeDataRequestRef.current = requestId;
 
-      // 加载历史数据
-      setLoading(true);
-      setError(null);
+    setSelectedDate(nextDate);
 
-      try {
-        console.log(`加载 ${selectedDateStr} 的历史数据...`);
-        const historicalData = await fetchDataByDate(selectedDateStr);
+    if (latestAvailableDateStr && selectedDateStr === latestAvailableDateStr) {
+      loadData(true);
+      return;
+    }
 
-        if (historicalData && historicalData.success) {
-          const historicalCoins = historicalData.coins || [];
-          const btcCoin = historicalCoins.find(c => c.symbol === 'BTC');
+    setLoading(true);
+    setError(null);
 
-          // 更新状态以显示历史数据
-          setAllCoins(historicalCoins);
-          setLatestDateStr(selectedDateStr);
-          setLiquidityData(historicalData.liquidityOverview || historicalData.liquidity || null);
-          setViewMode('all');
-          setSelectedCoin(btcCoin ? btcCoin.symbol : historicalCoins[0]?.symbol || null);
+    try {
+      await loadHistoricalDate(selectedDateStr, requestId);
+    } catch (error) {
+      if (activeDataRequestRef.current !== requestId) return;
+      console.error('加载历史数据失败:', error);
+      const fallbackDateStr = findNearestAvailableDate(
+        selectedDateStr,
+        availableDates.filter(availableDate => availableDate !== selectedDateStr)
+      );
 
-          notification.success({
-            message: '历史数据加载成功',
-            description: `已获取 ${selectedDateStr} 的数据，包含 ${historicalData.totalCoins || 0} 个币种`,
+      if (fallbackDateStr) {
+        try {
+          setSelectedDate(dayjs(fallbackDateStr));
+          const fallbackApplied = await loadHistoricalDate(fallbackDateStr, requestId);
+          if (!fallbackApplied) return;
+          notification.info({
+            message: '已回退到最近有数据日期',
+            description: `${selectedDateStr} 加载失败，已切换到 ${fallbackDateStr}`,
             duration: 3
           });
-
-          setApiStatus({ ok: true, message: `历史数据加载成功 (${selectedDateStr})` });
-        } else {
-          throw new Error(historicalData?.error || '获取历史数据失败');
+          return;
+        } catch (fallbackError) {
+          console.error('回退日期加载失败:', fallbackError);
         }
-      } catch (error) {
-        console.error('加载历史数据失败:', error);
-        setError(`加载 ${selectedDateStr} 的数据失败: ${error.message}`);
-        setApiStatus({ ok: false, message: `加载历史数据失败: ${error.message}` });
+      }
 
-        notification.error({
-          message: '历史数据加载失败',
-          description: `无法获取 ${selectedDateStr} 的数据: ${error.message}`,
-          duration: 5
-        });
-      } finally {
+      if (activeDataRequestRef.current !== requestId) return;
+      setError(`加载 ${selectedDateStr} 的数据失败: ${error.message}`);
+      setApiStatus({ ok: false, message: `加载历史数据失败: ${error.message}` });
+
+      notification.error({
+        message: '历史数据加载失败',
+        description: `无法获取 ${selectedDateStr} 的数据: ${error.message}`,
+        duration: 5
+      });
+    } finally {
+      if (activeDataRequestRef.current === requestId) {
         setLoading(false);
       }
     }
@@ -467,6 +576,10 @@ function Dashboard() {
   };
 
   const filteredCoins = getFilteredCoins();
+  const selectedDateStr = selectedDate ? selectedDate.format('YYYY-MM-DD') : '';
+  const isViewingLatest = latestAvailableDateStr
+    ? latestDateStr === latestAvailableDateStr
+    : Boolean(latestDateStr && selectedDateStr === latestDateStr);
     // console.log("[DASHBOARD - filteredCoins for OtcIndexTable[0]]", filteredCoins && filteredCoins.length > 0 ? JSON.stringify(filteredCoins[0], null, 2) : "empty or undefined");
 
 
@@ -539,7 +652,7 @@ function Dashboard() {
           <Space wrap>
             {latestDateStr && (
               <Text className="text-gray-300 mr-2 hidden sm:inline">
-                {selectedDate && selectedDate.format('YYYY-MM-DD') !== dayjs().format('YYYY-MM-DD')
+                {!isViewingLatest
                   ? `历史数据: ${latestDateStr}`
                   : `最新数据: ${latestDateStr}`}
               </Text>
@@ -547,13 +660,14 @@ function Dashboard() {
             <DatePicker
               value={selectedDate}
               onChange={handleDateChange}
+              disabledDate={disabledCalendarDate}
               format="YYYY-MM-DD"
               allowClear={false}
               className="mr-2"
               placeholder="选择历史日期"
-              disabled={loading}
+              disabled={loading || !availableDatesLoaded}
             />
-            {selectedDate && selectedDate.format('YYYY-MM-DD') !== latestDateStr && (
+            {!isViewingLatest && (
               <Button onClick={handleBackToLatest} disabled={loading}>
                 回到最新
               </Button>
@@ -794,6 +908,8 @@ function Dashboard() {
               viewMode={viewMode}
             />
 
+            <BtcPredictionPanel />
+
             {selectedCoin && getSelectedCoinData() ? (
               <CoinDetailChart
                 coin={getSelectedCoinData()}
@@ -892,24 +1008,27 @@ function Dashboard() {
               handleDateChange(date);
               setFilterDrawerVisible(false);
             }}
+            disabledDate={disabledCalendarDate}
             format="YYYY-MM-DD"
             allowClear={false}
             className="w-full mb-3"
             placeholder="选择历史日期"
-            disabled={loading}
+            disabled={loading || !availableDatesLoaded}
           />
 
-          <Button
-            block
-            onClick={() => {
-              handleBackToLatest();
-              setFilterDrawerVisible(false);
-            }}
-            disabled={loading}
-            className="mb-3"
-          >
-            回到最新
-          </Button>
+          {!isViewingLatest && (
+            <Button
+              block
+              onClick={() => {
+                handleBackToLatest();
+                setFilterDrawerVisible(false);
+              }}
+              disabled={loading}
+              className="mb-3"
+            >
+              回到最新
+            </Button>
+          )}
 
           <Button
             block

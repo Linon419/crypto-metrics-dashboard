@@ -1,6 +1,23 @@
 // server/utils/timeParser.js
 // 时间解析工具函数，支持多种时间精度格式
 
+const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+function createBeijingDate(year, month, day, hour = 0, minute = 0) {
+  return new Date(Date.UTC(year, month - 1, day, hour, minute) - BEIJING_OFFSET_MS);
+}
+
+function getBeijingParts(date) {
+  const shiftedDate = new Date(date.getTime() + BEIJING_OFFSET_MS);
+  return {
+    year: shiftedDate.getUTCFullYear(),
+    month: shiftedDate.getUTCMonth() + 1,
+    day: shiftedDate.getUTCDate(),
+    hour: shiftedDate.getUTCHours(),
+    minute: shiftedDate.getUTCMinutes(),
+  };
+}
+
 /**
  * 解析灵活的时间输入格式
  * @param {string} dateInput - 输入的时间字符串
@@ -34,9 +51,10 @@ function parseFlexibleDateTime(dateInput, fallbackDate = new Date()) {
 
     // 验证年月日的有效性
     if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      const timestamp = new Date(year, month - 1, day);
+      const timestamp = createBeijingDate(year, month, day);
       // 验证日期是否有效
-      if (timestamp.getFullYear() === year && timestamp.getMonth() === month - 1 && timestamp.getDate() === day) {
+      const parts = getBeijingParts(timestamp);
+      if (parts.year === year && parts.month === month && parts.day === day) {
         return {
           date: formatToISO(timestamp, 'day'),
           originalInput: trimmedInput,
@@ -58,9 +76,10 @@ function parseFlexibleDateTime(dateInput, fallbackDate = new Date()) {
 
     // 验证月份和日期的有效性
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      const timestamp = new Date(year, month - 1, day);
+      const timestamp = createBeijingDate(year, month, day);
       // 验证日期是否有效（例如2月30日是无效的）
-      if (timestamp.getMonth() === month - 1 && timestamp.getDate() === day) {
+      const parts = getBeijingParts(timestamp);
+      if (parts.month === month && parts.day === day) {
         return {
           date: formatToISO(timestamp, 'day'),
           originalInput: trimmedInput,
@@ -90,11 +109,12 @@ function parseFlexibleDateTime(dateInput, fallbackDate = new Date()) {
     // 验证时间的有效性
     if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31 &&
         hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
-      const timestamp = new Date(year, month - 1, day, hour, minute);
+      const timestamp = createBeijingDate(year, month, day, hour, minute);
       // 验证日期是否有效
-      if (timestamp.getFullYear() === year && timestamp.getMonth() === month - 1 && timestamp.getDate() === day) {
+      const parts = getBeijingParts(timestamp);
+      if (parts.year === year && parts.month === month && parts.day === day) {
         return {
-          date: formatToISO(timestamp, 'minute'),
+          date: formatToISO(timestamp, 'day'),
           originalInput: trimmedInput,
           timestamp: timestamp,
           precision: 'minute',
@@ -121,11 +141,12 @@ function parseFlexibleDateTime(dateInput, fallbackDate = new Date()) {
     // 验证时间的有效性
     if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31 &&
         hour >= 0 && hour <= 23) {
-      const timestamp = new Date(year, month - 1, day, hour, 0);
+      const timestamp = createBeijingDate(year, month, day, hour, 0);
       // 验证日期是否有效
-      if (timestamp.getFullYear() === year && timestamp.getMonth() === month - 1 && timestamp.getDate() === day) {
+      const parts = getBeijingParts(timestamp);
+      if (parts.year === year && parts.month === month && parts.day === day) {
         return {
-          date: formatToISO(timestamp, 'hour'),
+          date: formatToISO(timestamp, 'day'),
           originalInput: trimmedInput,
           timestamp: timestamp,
           precision: 'hour',
@@ -148,11 +169,12 @@ function parseFlexibleDateTime(dateInput, fallbackDate = new Date()) {
     // 验证时间的有效性
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31 &&
         hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
-      const timestamp = new Date(year, month - 1, day, hour, minute);
+      const timestamp = createBeijingDate(year, month, day, hour, minute);
       // 验证日期是否有效（例如2月30日是无效的）
-      if (timestamp.getMonth() === month - 1 && timestamp.getDate() === day) {
+      const parts = getBeijingParts(timestamp);
+      if (parts.month === month && parts.day === day) {
         return {
-          date: formatToISO(timestamp, 'minute'),
+          date: formatToISO(timestamp, 'day'),
           originalInput: trimmedInput,
           timestamp: timestamp,
           precision: 'minute',
@@ -173,11 +195,12 @@ function parseFlexibleDateTime(dateInput, fallbackDate = new Date()) {
 
     // 验证时间的有效性
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour >= 0 && hour <= 23) {
-      const timestamp = new Date(year, month - 1, day, hour, 0);
+      const timestamp = createBeijingDate(year, month, day, hour, 0);
       // 验证日期是否有效（例如2月30日是无效的）
-      if (timestamp.getMonth() === month - 1 && timestamp.getDate() === day) {
+      const parts = getBeijingParts(timestamp);
+      if (parts.month === month && parts.day === day) {
         return {
-          date: formatToISO(timestamp, 'hour'),
+          date: formatToISO(timestamp, 'day'),
           originalInput: trimmedInput,
           timestamp: timestamp,
           precision: 'hour',
@@ -202,7 +225,7 @@ function parseFlexibleDateTime(dateInput, fallbackDate = new Date()) {
       }
       
       return {
-        date: formatToISO(isoDate, precision),
+        date: formatToISO(isoDate, 'day'),
         originalInput: trimmedInput,
         timestamp: isoDate,
         precision: precision,
@@ -236,16 +259,14 @@ function formatDateForStorage(date, precision = 'day') {
     return new Date().toISOString().split('T')[0];
   }
   
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
+  const { month, day, hour, minute } = getBeijingParts(date);
   
   switch (precision) {
     case 'minute':
-      const hours = date.getHours().toString().padStart(2, '0');
-      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const hours = hour.toString().padStart(2, '0');
+      const minutes = minute.toString().padStart(2, '0');
       return `${month}.${day} ${hours}:${minutes}`;
     case 'hour':
-      const hour = date.getHours();
       return `${month}.${day} ${hour}`;
     case 'day':
     default:
@@ -291,18 +312,19 @@ function formatToISO(date, precision = 'day') {
     return new Date().toISOString().split('T')[0];
   }
 
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const parts = getBeijingParts(date);
+  const year = parts.year;
+  const month = String(parts.month).padStart(2, '0');
+  const day = String(parts.day).padStart(2, '0');
 
   switch (precision) {
     case 'minute':
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const hours = String(parts.hour).padStart(2, '0');
+      const minutes = String(parts.minute).padStart(2, '0');
       return `${year}-${month}-${day} ${hours}:${minutes}`;
     case 'hour':
-      const hour = String(date.getHours()).padStart(2, '0');
-      return `${year}-${month}-${day} ${hour}:00`;
+      const displayHour = String(parts.hour).padStart(2, '0');
+      return `${year}-${month}-${day} ${displayHour}:00`;
     case 'day':
     default:
       return `${year}-${month}-${day}`;

@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
         as: 'coin',
         attributes: ['symbol', 'name']
       }],
-      order: [['date', 'DESC']]
+      order: [['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']]
     });
     
     res.json(metrics);

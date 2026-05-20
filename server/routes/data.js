@@ -11,6 +11,7 @@ const {
   buildKeyNodeComparisons,
   scoreBayesianPeriodQuality,
 } = require('../utils/periodQuality');
+const { buildPeriodRiskNotes } = require('../utils/periodRiskNotes');
 const { parseFlexibleDateTime, validateTimePrecision } = require('../utils/timeParser');
 
 // --- 辅助函数：计算百分比变化 ---
@@ -47,6 +48,52 @@ function normalizeMomentumIndicators(value) {
 function serializeMomentumIndicators(value) {
   const indicators = normalizeMomentumIndicators(value);
   return indicators.length > 0 ? JSON.stringify(indicators) : null;
+}
+
+function parseRecordTime(date, timestamp, precision) {
+  const parsedTime = parseFlexibleDateTime(date);
+  const explicitTimestamp = timestamp ? new Date(timestamp) : null;
+  const hasExplicitTimestamp = explicitTimestamp && !Number.isNaN(explicitTimestamp.getTime());
+
+  return {
+    date: parsedTime.date,
+    timestamp: hasExplicitTimestamp ? explicitTimestamp : parsedTime.timestamp,
+    precision: validateTimePrecision(precision || parsedTime.precision),
+  };
+}
+
+function buildVersionWhere(baseWhere, timeInfo) {
+  const where = { ...baseWhere, date: timeInfo.date };
+
+  if (timeInfo.timestamp) {
+    where.timestamp = timeInfo.timestamp;
+  }
+
+  return where;
+}
+
+async function getLatestMetricVersionForDate(date) {
+  if (!date) return null;
+
+  return DailyMetric.findOne({
+    where: { date },
+    attributes: ['date', 'timestamp', 'time_precision'],
+    order: [['timestamp', 'DESC'], ['id', 'DESC']],
+    raw: true,
+  });
+}
+
+function buildDateVersionWhere(date, version) {
+  const where = { date };
+
+  if (version?.timestamp) {
+    const parsedTimestamp = new Date(version.timestamp);
+    where.timestamp = Number.isNaN(parsedTimestamp.getTime())
+      ? version.timestamp
+      : parsedTimestamp;
+  }
+
+  return where;
 }
 
 // --- 路由：处理原始数据输入并存储 ---
@@ -217,7 +264,7 @@ async function storeProcessedData(data) {
         // console.log('[STORE_DATA] Metric payload:', JSON.stringify(metricPayload, null, 2));
 
         const [metricInstance, metricCreated] = await DailyMetric.findOrCreate({
-          where: { coin_id: coinInstance.id, date: timeInfo.date },
+          where: buildVersionWhere({ coin_id: coinInstance.id }, timeInfo),
           defaults: metricPayload,
           transaction
         });
@@ -255,7 +302,7 @@ async function storeProcessedData(data) {
         liquidityPayload.daily_reminder = data.dailyReminder;
       }
       const [liqInstance, liqCreated] = await LiquidityOverview.findOrCreate({
-        where: { date: timeInfo.date },
+        where: buildVersionWhere({}, timeInfo),
         defaults: liquidityPayload,
         transaction
       });
@@ -286,7 +333,7 @@ async function storeProcessedData(data) {
                 entry_exit_day: typeof trendData.entryExitDay === 'number' ? trendData.entryExitDay : 0,
             };
             const [trendInstance, trendCreated] = await TrendingCoin.findOrCreate({
-                where: { date: timeInfo.date, symbol: trendSymbolUpper },
+                where: buildVersionWhere({ symbol: trendSymbolUpper }, timeInfo),
                 defaults: trendPayload,
                 transaction
             });
@@ -350,8 +397,8 @@ router.get('/latest', async (req, res) => {
     console.log('[LATEST_DATA] Request received for latest data (enhanced).');
 
     const latestMetricDateEntry = await DailyMetric.findOne({
-      attributes: ['date'],
-      order: [['date', 'DESC']],
+      attributes: ['date', 'timestamp', 'time_precision'],
+      order: [['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']],
       raw: true, // 获取原始数据对象
     });
 
@@ -362,6 +409,7 @@ router.get('/latest', async (req, res) => {
 
     const latestDate = latestMetricDateEntry.date;
     const previousDate = await getPreviousDateWithData(latestDate);
+    const latestVersionWhere = buildDateVersionWhere(latestDate, latestMetricDateEntry);
     console.log(`[LATEST_DATA] Latest date: ${latestDate}, Previous date with data: ${previousDate}`);
 
     const commonIncludeCoin = {
@@ -371,15 +419,16 @@ router.get('/latest', async (req, res) => {
     };
 
     const latestDayMetrics = await DailyMetric.findAll({
-      where: { date: latestDate },
+      where: latestVersionWhere,
       include: [commonIncludeCoin]
     });
     // console.log(`[LATEST_DATA] Found ${latestDayMetrics.length} metrics for ${latestDate}.`);
 
     let previousDayMetricsMap = new Map();
     if (previousDate) {
+      const previousVersion = await getLatestMetricVersionForDate(previousDate);
       const previousDayMetricsRaw = await DailyMetric.findAll({
-        where: { date: previousDate },
+        where: buildDateVersionWhere(previousDate, previousVersion),
         // attributes: ['coin_id', 'otc_index', 'explosion_index', 'schelling_point'] // 只取需要对比的字段
       });
       // console.log(`[LATEST_DATA] Found ${previousDayMetricsRaw.length} metrics for ${previousDate}.`);
@@ -401,6 +450,8 @@ router.get('/latest', async (req, res) => {
         entry_exit_day: currentMetric.entry_exit_day,
         near_threshold: currentMetric.near_threshold,
         momentum_indicators: currentMetric.momentum_indicators,
+        timestamp: currentMetric.timestamp,
+        time_precision: currentMetric.time_precision,
         coin: currentMetric.coin, // 包含完整的 coin 对象
         previous_day_data: prevMetrics ? {
           date: prevMetrics.date,
@@ -412,6 +463,7 @@ router.get('/latest', async (req, res) => {
         otc_index_change_percent: prevMetrics ? calculateChangePercent(currentMetric.otc_index, prevMetrics.otc_index) : null,
         explosion_index_change_percent: prevMetrics ? calculateChangePercent(currentMetric.explosion_index, prevMetrics.explosion_index) : null,
         period_quality: '数据不足', // 默认为数据不足
+        risk_notes: buildPeriodRiskNotes(currentMetric),
       };
     });
 
@@ -422,8 +474,27 @@ router.get('/latest', async (req, res) => {
     }));
 
 
-    const liquidity = await LiquidityOverview.findOne({ where: { date: latestDate } });
-    const trendingCoinsRaw = await TrendingCoin.findAll({ where: { date: latestDate } });
+    let liquidity = await LiquidityOverview.findOne({
+      where: buildDateVersionWhere(latestDate, latestMetricDateEntry),
+      order: [['timestamp', 'DESC'], ['id', 'DESC']],
+    });
+    if (!liquidity) {
+      liquidity = await LiquidityOverview.findOne({
+        where: { date: latestDate },
+        order: [['timestamp', 'DESC'], ['id', 'DESC']],
+      });
+    }
+
+    let trendingCoinsRaw = await TrendingCoin.findAll({
+      where: buildDateVersionWhere(latestDate, latestMetricDateEntry),
+      order: [['timestamp', 'DESC'], ['symbol', 'ASC']],
+    });
+    if (trendingCoinsRaw.length === 0) {
+      trendingCoinsRaw = await TrendingCoin.findAll({
+        where: { date: latestDate },
+        order: [['timestamp', 'DESC'], ['symbol', 'ASC']],
+      });
+    }
     // console.log(`[LATEST_DATA] Found ${trendingCoinsRaw.length} trending coins for ${latestDate}.`);
     
     // 确保 trendingCoins 也包含 coin 详细信息（如果前端需要）和变化百分比
@@ -459,6 +530,97 @@ router.get('/latest', async (req, res) => {
 
 function formatProbability(probability) {
   return `${(probability * 100).toFixed(1)}%`;
+}
+
+const ENTRY_DIP_WEAKENING_THRESHOLD_PERCENT = -5;
+const ENTRY_RECOVERY_NEAR_START_THRESHOLD_PERCENT = -2;
+const ENTRY_HIGH_QUALITY_KEY_NODE_MIN_CHANGE_PERCENT = 5;
+
+function isMetricAfterNode(metric, nodeDate) {
+  if (!metric?.date || !nodeDate) {
+    return false;
+  }
+
+  return new Date(metric.date) > new Date(nodeDate);
+}
+
+function findConfirmedRecoveryDipComparisons(comparisons, weakDipComparison, targetMetric) {
+  if (!weakDipComparison || !targetMetric?.date) {
+    return [];
+  }
+
+  const weakDipDate = new Date(weakDipComparison.toDate);
+  const targetDate = new Date(targetMetric.date);
+
+  return comparisons.filter((comparison) =>
+    comparison.fromRole === 'after'
+    && comparison.toRole === 'after'
+    && new Date(comparison.fromDate) >= weakDipDate
+    && new Date(comparison.toDate) <= targetDate
+  );
+}
+
+function hasConfirmedHighQualityRecovery(comparisons, weakDipComparison, targetMetric, entryStartOtcIndex) {
+  const recoveryDipComparisons = findConfirmedRecoveryDipComparisons(comparisons, weakDipComparison, targetMetric);
+
+  return recoveryDipComparisons.length >= 2
+    && recoveryDipComparisons.every((comparison) =>
+      Number.isFinite(comparison.changePercent)
+      && comparison.changePercent >= ENTRY_HIGH_QUALITY_KEY_NODE_MIN_CHANGE_PERCENT
+      && Number(comparison.toOtcIndex) >= entryStartOtcIndex
+    );
+}
+
+function hasWeakRecoveryKeyNode(comparisons, weakDipComparison, targetMetric) {
+  const recoveryDipComparisons = findConfirmedRecoveryDipComparisons(comparisons, weakDipComparison, targetMetric);
+
+  return recoveryDipComparisons.some((comparison) =>
+    Number.isFinite(comparison.changePercent)
+    && comparison.changePercent < ENTRY_HIGH_QUALITY_KEY_NODE_MIN_CHANGE_PERCENT
+  );
+}
+
+function classifyEntryRecoveryAfterWeakDip(targetMetric, latestDipComparison, entryStartOtcIndex, comparisons = []) {
+  if (
+    !targetMetric
+    || !latestDipComparison
+    || !Number.isFinite(latestDipComparison.changePercent)
+    || latestDipComparison.changePercent > ENTRY_DIP_WEAKENING_THRESHOLD_PERCENT
+    || !isMetricAfterNode(targetMetric, latestDipComparison.toDate)
+  ) {
+    return null;
+  }
+
+  const targetOtcIndex = Number(targetMetric.otc_index);
+  const recoveredFromDipNode = targetOtcIndex >= Number(latestDipComparison.toOtcIndex);
+  const changeFromEntryStart = calculateChangePercent(targetOtcIndex, entryStartOtcIndex);
+  const recoveredNearEntryStart = Number.isFinite(changeFromEntryStart)
+    && changeFromEntryStart >= ENTRY_RECOVERY_NEAR_START_THRESHOLD_PERCENT;
+
+  if (!recoveredFromDipNode || !recoveredNearEntryStart) {
+    return '低质量进场';
+  }
+
+  if (hasWeakRecoveryKeyNode(comparisons, latestDipComparison, targetMetric)) {
+    return '低质量进场';
+  }
+
+  if (targetOtcIndex >= entryStartOtcIndex
+    && hasConfirmedHighQualityRecovery(comparisons, latestDipComparison, targetMetric, entryStartOtcIndex)
+  ) {
+    return '高质量进场';
+  }
+
+  return '修复型进场';
+}
+
+function findLatestWeakEntryDipComparison(comparisons, targetMetric) {
+  return [...comparisons].reverse().find(comparison =>
+    comparison.toRole === 'after'
+    && Number.isFinite(comparison.changePercent)
+    && comparison.changePercent <= ENTRY_DIP_WEAKENING_THRESHOLD_PERCENT
+    && isMetricAfterNode(targetMetric, comparison.toDate)
+  );
 }
 
 function detectWeakEntryWithinFirstWeek(historicalMetrics, entryStartDateMetric) {
@@ -520,7 +682,7 @@ function logKeyNodeComparisons(coinId, comparisons) {
  * @param {number} coinId - 币种ID
  * @returns {string} - 进场期质量评估结果
  */
-function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId) {
+function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId, targetMetric = entryStartDateMetric) {
   // 找到所有"爆破指数跌破200"的节点
   // 注意：historicalMetrics是按日期降序排列的，所以i=0是最新的数据
   let dipBelow200Nodes = [];
@@ -598,6 +760,32 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
   }
 
   logKeyNodeComparisons(coinId, comparisons);
+
+  const weakDipComparison = findLatestWeakEntryDipComparison(comparisons, targetMetric);
+  const weakDipRecoveryQuality = classifyEntryRecoveryAfterWeakDip(targetMetric, weakDipComparison, entryStartOtcIndex, comparisons);
+  if (weakDipRecoveryQuality) {
+    if (weakDipRecoveryQuality !== '低质量进场') {
+      console.log(
+        `[QualityCheck] CoinID ${coinId}: Entry recovered after weak dip, target=${targetMetric.date}` +
+        `(${targetMetric.otc_index}/${targetMetric.explosion_index}) -> ${weakDipRecoveryQuality}`
+      );
+    }
+    return weakDipRecoveryQuality;
+  }
+
+  const latestDipComparison = [...comparisons].reverse().find(comparison => comparison.toRole === 'after');
+  if (
+    latestDipComparison
+    && Number.isFinite(latestDipComparison.changePercent)
+    && latestDipComparison.changePercent <= ENTRY_DIP_WEAKENING_THRESHOLD_PERCENT
+  ) {
+    console.log(
+      `[QualityCheck] CoinID ${coinId}: Latest entry dip node weakened, ` +
+      `${latestDipComparison.fromDate}(${latestDipComparison.fromOtcIndex}) -> ` +
+      `${latestDipComparison.toDate}(${latestDipComparison.toOtcIndex}) -> 低质量进场`
+    );
+    return '低质量进场';
+  }
 
   const bayesianQuality = scoreBayesianPeriodQuality({
     phase: 'entry',
@@ -788,7 +976,7 @@ async function calculatePeriodQualityForDate(coinId, targetDate, historicalMetri
       if (!entryStartOtcIndex) return '数据不足';
 
       // 使用完整的进场期质量评估算法
-      return evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId);
+      return evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId, targetMetric);
     }
 
     // 退场期质量评估
@@ -889,7 +1077,7 @@ async function calculatePeriodQuality(coinId) {
       // 2. 在进场期内，找到第一个“爆破指数跌回200”的节点
       // 从进场第一天开始，往更近的日期找
       // 按照bodong文档第五章实现进场期质量评估
-      return evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId);
+      return evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, entryStartOtcIndex, coinId, latestMetric);
     }
     
     // 退场期质量评估 (bodong 文档 - 第六章)
@@ -1080,13 +1268,13 @@ router.post('/import-database', async (req, res) => {
         if (!coinId) { console.warn(`[IMPORT_DB] Skipping metric for unknown coin (symbol: ${coinSymbol}, date: ${mData.date}).`); continue; }
         
         // 解析时间信息
-        const metricTimeInfo = parseFlexibleDateTime(mData.date);
+        const metricTimeInfo = parseRecordTime(mData.date, mData.timestamp, mData.time_precision || mData.timePrecision);
 
         const metricPayload = {
           coin_id: coinId,
           date: metricTimeInfo.date,
           timestamp: metricTimeInfo.timestamp,
-          time_precision: validateTimePrecision(metricTimeInfo.precision),
+          time_precision: metricTimeInfo.precision,
           otc_index: typeof mData.otc_index === 'number' ? mData.otc_index : null,
           explosion_index: typeof mData.explosion_index === 'number' ? mData.explosion_index : null,
           schelling_point: typeof mData.schelling_point === 'number' ? mData.schelling_point : null,
@@ -1095,7 +1283,7 @@ router.post('/import-database', async (req, res) => {
           near_threshold: !!mData.near_threshold,
           momentum_indicators: serializeMomentumIndicators(mData.momentum_indicators || mData.momentumIndicators),
         };
-        const [instance, created] = await DailyMetric.findOrCreate({ where: { coin_id: coinId, date: metricTimeInfo.date }, defaults: metricPayload, transaction });
+        const [instance, created] = await DailyMetric.findOrCreate({ where: buildVersionWhere({ coin_id: coinId }, metricTimeInfo), defaults: metricPayload, transaction });
         if (!created) await instance.update(metricPayload, { transaction });
         counts.metrics++;
       }
@@ -1107,19 +1295,19 @@ router.post('/import-database', async (req, res) => {
         for (const lData of dumpData.allLiquidityHistory) {
             if (!lData || !lData.date) { console.warn('[IMPORT_DB] Skipping liquidity entry with no date.'); continue; }
             // 解析时间信息
-            const liquidityTimeInfo = parseFlexibleDateTime(lData.date);
+            const liquidityTimeInfo = parseRecordTime(lData.date, lData.timestamp, lData.time_precision || lData.timePrecision);
 
             const liquidityPayload = {
                 date: liquidityTimeInfo.date,
                 timestamp: liquidityTimeInfo.timestamp,
-                time_precision: validateTimePrecision(liquidityTimeInfo.precision),
+                time_precision: liquidityTimeInfo.precision,
                 btc_fund_change: typeof lData.btc_fund_change === 'number' ? lData.btc_fund_change : null,
                 eth_fund_change: typeof lData.eth_fund_change === 'number' ? lData.eth_fund_change : null,
                 sol_fund_change: typeof lData.sol_fund_change === 'number' ? lData.sol_fund_change : null,
                 total_market_fund_change: typeof lData.total_market_fund_change === 'number' ? lData.total_market_fund_change : null,
                 comments: lData.comments || null,
             };
-            const [instance, created] = await LiquidityOverview.findOrCreate({ where: { date: liquidityTimeInfo.date }, defaults: liquidityPayload, transaction });
+            const [instance, created] = await LiquidityOverview.findOrCreate({ where: buildVersionWhere({}, liquidityTimeInfo), defaults: liquidityPayload, transaction });
             if (!created) await instance.update(liquidityPayload, { transaction });
             counts.liquidity++;
         }
@@ -1132,12 +1320,12 @@ router.post('/import-database', async (req, res) => {
             if (!tData || !tData.date || !tData.symbol) { console.warn('[IMPORT_DB] Skipping trending coin with no date or symbol.'); continue; }
             const symbolUpper = tData.symbol.toUpperCase();
             // 解析时间信息
-            const trendTimeInfo = parseFlexibleDateTime(tData.date);
+            const trendTimeInfo = parseRecordTime(tData.date, tData.timestamp, tData.time_precision || tData.timePrecision);
 
             const trendPayload = {
                 date: trendTimeInfo.date,
                 timestamp: trendTimeInfo.timestamp,
-                time_precision: validateTimePrecision(trendTimeInfo.precision),
+                time_precision: trendTimeInfo.precision,
                 symbol: symbolUpper,
                 otc_index: typeof tData.otc_index === 'number' ? tData.otc_index : null,
                 explosion_index: typeof tData.explosion_index === 'number' ? tData.explosion_index : null,
@@ -1145,7 +1333,7 @@ router.post('/import-database', async (req, res) => {
                 entry_exit_type: tData.entry_exit_type || 'neutral',
                 entry_exit_day: typeof tData.entry_exit_day === 'number' ? tData.entry_exit_day : 0,
             };
-            const [instance, created] = await TrendingCoin.findOrCreate({ where: { date: trendTimeInfo.date, symbol: symbolUpper }, defaults: trendPayload, transaction });
+            const [instance, created] = await TrendingCoin.findOrCreate({ where: buildVersionWhere({ symbol: symbolUpper }, trendTimeInfo), defaults: trendPayload, transaction });
             if (!created) await instance.update(trendPayload, { transaction });
             counts.trending++;
         }
@@ -1188,9 +1376,23 @@ router.get('/by-date/:date', async (req, res) => {
       });
     }
 
-    // 获取指定日期的所有币种数据
-    const metricsForDate = await DailyMetric.findAll({
+    const dateVersions = await DailyMetric.findAll({
       where: { date },
+      attributes: [
+        'date',
+        'timestamp',
+        'time_precision',
+        [sequelize.fn('COUNT', sequelize.col('id')), 'metricsCount'],
+      ],
+      group: ['date', 'timestamp', 'time_precision'],
+      order: [['timestamp', 'ASC']],
+      raw: true,
+    });
+    const selectedVersion = dateVersions[dateVersions.length - 1] || null;
+
+    // 获取指定日期最新版本的所有币种数据
+    const metricsForDate = await DailyMetric.findAll({
+      where: buildDateVersionWhere(date, selectedVersion),
       include: [{
         model: Coin,
         as: 'coin',
@@ -1211,8 +1413,9 @@ router.get('/by-date/:date', async (req, res) => {
 
     let previousMetrics = [];
     if (previousDateStr) {
+      const previousVersion = await getLatestMetricVersionForDate(previousDateStr);
       previousMetrics = await DailyMetric.findAll({
-        where: { date: previousDateStr },
+        where: buildDateVersionWhere(previousDateStr, previousVersion),
         include: [{
           model: Coin,
           as: 'coin',
@@ -1247,7 +1450,7 @@ router.get('/by-date/:date', async (req, res) => {
             coin_id: coin.id,
             date: { [Op.lte]: date } // 只使用指定日期及之前的数据
           },
-          order: [['date', 'DESC']],
+          order: [['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']],
           limit: QUALITY_LOOKBACK_DAYS,
           raw: true
         });
@@ -1286,24 +1489,28 @@ router.get('/by-date/:date', async (req, res) => {
         otcChangePercent,
         explosionChangePercent,
         // 完整的质量判断
-        period_quality: periodQuality
+        period_quality: periodQuality,
+        risk_notes: buildPeriodRiskNotes(metric)
       };
     }));
 
     // 获取流动性概况
     const liquidityOverview = await LiquidityOverview.findOne({
-      where: { date }
+      where: buildDateVersionWhere(date, selectedVersion),
+      order: [['timestamp', 'DESC'], ['id', 'DESC']]
     });
 
     // 获取热门币种
     const trendingCoins = await TrendingCoin.findAll({
-      where: { date },
+      where: buildDateVersionWhere(date, selectedVersion),
       order: [['symbol', 'ASC']]
     });
 
     const response = {
       success: true,
       date,
+      selectedVersion,
+      dateVersions,
       previousDate: previousDateStr,
       coins: processedCoins,
       liquidityOverview,
@@ -1320,6 +1527,46 @@ router.get('/by-date/:date', async (req, res) => {
       success: false,
       error: 'Error fetching data for date',
       details: error.message
+    });
+  }
+});
+
+router.get('/available-dates', async (req, res) => {
+  try {
+    const dateRange = await DailyMetric.findOne({
+      attributes: [
+        [sequelize.fn('MIN', sequelize.col('date')), 'oldestDate'],
+        [sequelize.fn('MAX', sequelize.col('date')), 'newestDate'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'totalMetricsCount'],
+        [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('date'))), 'distinctDatesCount'],
+      ],
+      raw: true,
+    });
+
+    const distinctDates = await DailyMetric.findAll({
+      attributes: [[sequelize.fn('DISTINCT', sequelize.col('date')), 'date']],
+      order: [['date', 'DESC']],
+      raw: true,
+    });
+
+    const dates = distinctDates
+      .map(item => item.date)
+      .filter(date => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date));
+
+    res.json({
+      success: true,
+      oldestDate: dateRange?.oldestDate || null,
+      newestDate: dateRange?.newestDate || null,
+      totalMetricsCount: dateRange?.totalMetricsCount || 0,
+      distinctDatesCount: dateRange?.distinctDatesCount || 0,
+      dates,
+    });
+  } catch (error) {
+    console.error('[AVAILABLE_DATES] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching available dates',
+      details: error.message,
     });
   }
 });
@@ -1382,8 +1629,10 @@ router.__qualityTestUtils = {
   QUALITY_LOOKBACK_DAYS,
   buildKeyNodeComparisons,
   scoreBayesianPeriodQuality,
+  calculatePeriodQualityForDate,
   normalizeMomentumIndicators,
   serializeMomentumIndicators,
+  buildPeriodRiskNotes,
 };
 
 module.exports = router;

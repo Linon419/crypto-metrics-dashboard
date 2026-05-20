@@ -1,6 +1,6 @@
 // src/components/DataInputForm.jsx - 修复数据库导入功能
 import React, { useState, useRef } from 'react';
-import { Form, Input, Button, message, Card, Alert, Typography, DatePicker, Modal, Space, Divider, Dropdown, Spin, Select, TimePicker } from 'antd';
+import { Form, Input, Button, message, Card, Alert, Typography, DatePicker, Modal, Space, Divider, Dropdown, Spin, Select, TimePicker, Checkbox } from 'antd';
 import {
   CalendarOutlined,
   InfoCircleOutlined,
@@ -15,6 +15,8 @@ import {
   ClockCircleOutlined
 } from '@ant-design/icons';
 import { submitRawData, exportAllData, importDatabaseDump } from '../services/api';
+import { formatDateForDisplay, preprocessRawDataForSubmit } from '../utils/inputPreprocess';
+import DateDataManagement from './DateDataManagement';
 import dayjs from 'dayjs';
 
 const { TextArea } = Input;
@@ -30,6 +32,7 @@ function DataInputForm({ onSuccess }) {
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
   const [timePrecision, setTimePrecision] = useState('day');
+  const [overrideTextTime, setOverrideTextTime] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gpt-5-chat-latest'); // 默认使用gpt-5-chat-latest
   const [jsonPreview, setJsonPreview] = useState(null);
   const [previewVisible, setPreviewVisible] = useState(false);
@@ -40,28 +43,6 @@ function DataInputForm({ onSuccess }) {
   const [jsonDataForBatchImport, setJsonDataForBatchImport] = useState(null);
   const [batchImportLoading, setBatchImportLoading] = useState(false);
   const [importProgress, setImportProgress] = useState(''); // 增加进度信息状态
-
-  const formatDateForDisplay = (date, time, precision) => {
-    if (!date) return '';
-    const month = date.month() + 1;
-    const day = date.date();
-
-    switch(precision) {
-      case 'minute':
-        if (time) {
-          return `${month}.${day} ${time.format('HH:mm')}`;
-        }
-        return `${month}.${day} 00:00`;
-      case 'hour':
-        if (time) {
-          return `${month}.${day} ${time.hour()}`;
-        }
-        return `${month}.${day} 0`;
-      case 'day':
-      default:
-        return `${month}.${day}`;
-    }
-  };
 
   // 将ISO格式转换为用户友好的显示格式
   const formatISOToUserFriendly = (isoString) => {
@@ -93,21 +74,12 @@ function DataInputForm({ onSuccess }) {
   };
 
   const preprocessData = (rawData) => {
-    if (!rawData) return '';
-    if (selectedDate) {
-      const dateStr = formatDateForDisplay(selectedDate, selectedTime, timePrecision);
-      const lines = rawData.trim().split('\n');
-      const firstLine = lines[0];
-      // 检查第一行是否是时间格式（支持多种精度和ISO格式）
-      const timeFormatRegex = /^\s*(\d{1,2}\.\d{1,2}(\s+\d{1,2}(:\d{2})?)?|\d{4}-\d{2}-\d{2}(\s+\d{2}:\d{2})?|\d{2,4}\.\d{1,2}\.\d{1,2}(\s+\d{1,2}(:\d{2})?)?)\s*$/;
-      if (firstLine.match(timeFormatRegex)) {
-        lines[0] = dateStr;
-        return lines.join('\n');
-      } else {
-        return `${dateStr}\n${rawData}`;
-      }
-    }
-    return rawData;
+    return preprocessRawDataForSubmit(rawData, {
+      selectedDate,
+      selectedTime,
+      timePrecision,
+      overrideTextTime,
+    });
   };
 
   const handleSubmit = async (values) => {
@@ -126,6 +98,7 @@ function DataInputForm({ onSuccess }) {
       setSelectedDate(null);
       setSelectedTime(null);
       setTimePrecision('day');
+      setOverrideTextTime(false);
       if (onSuccess) onSuccess();
     } catch (error) {
       // 收集完整的错误信息
@@ -583,6 +556,8 @@ if (jsonData.metadata && (jsonData.allCoinsInfo || jsonData.coins) && (jsonData.
         </Space>
       </div>
       <Divider />
+
+      <DateDataManagement />
       
       <div className="mb-6">
         <Title level={5}><CalendarOutlined className="mr-2" />选择数据时间</Title>
@@ -642,9 +617,19 @@ if (jsonData.metadata && (jsonData.allCoinsInfo || jsonData.coins) && (jsonData.
           )}
         </div>
 
+        {selectedDate && (
+          <Checkbox
+            checked={overrideTextTime}
+            onChange={(event) => setOverrideTextTime(event.target.checked)}
+            className="mt-2"
+          >
+            用选择器时间覆盖文本首行时间
+          </Checkbox>
+        )}
+
         <Text type="secondary" className="mt-2 block">
           <InfoCircleOutlined className="mr-1" />
-          选择时间后，提交时将以此时间为准。支持日、小时、分钟三种精度级别。如果文本中第一行是时间格式，则会被替换。
+          选择时间后，文本首行只有日期时会更新为选择器日期；文本首行已有日期和时间时默认保留，勾选覆盖后使用选择器时间替换。
         </Text>
       </div>
 
@@ -770,7 +755,7 @@ Btc 场外指数1627场外进场期第26天
                 <p>• 支持简化年份格式：24.5.9（自动转换为2024年）</p>
                 <p><Text strong>使用说明:</Text></p>
                 <p>1. 选择时间精度后，可以设置相应精度的时间。</p>
-                <p>2. 如果选择了时间，该时间将优先使用，并会覆盖文本中第一行的时间（如果存在）。</p>
+                <p>2. 如果选择了时间，文本首行只有日期时会更新为选择器日期；文本首行已有日期和时间时默认保留，勾选覆盖后使用选择器时间替换。</p>
                 <p>3. 如果未选择时间且文本中第一行不是有效时间格式，提交时AI会尝试解析或使用当前时间。</p>
                 <p>4. 建议使用时间选择器以确保时间准确性和格式一致性。</p>
               </div>

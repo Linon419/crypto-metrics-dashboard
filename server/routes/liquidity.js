@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
     
     const liquidityData = await LiquidityOverview.findAll({
       where,
-      order: [['date', 'ASC']]
+      order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']]
     });
     
     res.json(liquidityData);
@@ -33,7 +33,8 @@ router.get('/:date', async (req, res) => {
     const { date } = req.params;
     
     const liquidityData = await LiquidityOverview.findOne({
-      where: { date }
+      where: { date },
+      order: [['timestamp', 'DESC'], ['id', 'DESC']]
     });
     
     if (!liquidityData) {

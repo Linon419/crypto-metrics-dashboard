@@ -20,7 +20,7 @@ const apiDocs = {
             success: "boolean",
             date: "string - data date",
             count: "number - item count",
-            items: "array - { symbol, name, otc_index, period_quality, time, date, timestamp }"
+            items: "array - { symbol, name, otc_index, period_quality, risk_notes, time, date, timestamp }"
           }
         },
         {
@@ -31,7 +31,7 @@ const apiDocs = {
             success: "boolean",
             date: "string - data date",
             count: "number - item count",
-            items: "array - { symbol, name, otc_index, period_quality, time, date, timestamp }"
+            items: "array - { symbol, name, otc_index, period_quality, risk_notes, time, date, timestamp }"
           }
         }
       ]
@@ -546,6 +546,7 @@ const apiDocs = {
       timestamp: "string - 时间戳",
       time_precision: "string - 时间精度",
       period_quality: "string - 周期质量判断",
+      risk_notes: "array - 周期质量之外的交易风险提示",
       created_at: "string - 创建时间",
       updated_at: "string - 更新时间"
     },

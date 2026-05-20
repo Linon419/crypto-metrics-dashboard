@@ -60,6 +60,14 @@ function parseMomentumIndicators(value) {
   return [];
 }
 
+function buildMetricVersionKey(item = {}) {
+  const timestamp = item.timestamp || item.timeStamp || null;
+  if (!timestamp) return `${item.date || ''}|day`;
+
+  const parsed = new Date(timestamp);
+  return `${item.date || ''}|${Number.isNaN(parsed.getTime()) ? timestamp : parsed.getTime()}`;
+}
+
 // --- 2. 创建主 Axios 实例 ---
 const api = axios.create({
   baseURL: effectiveApiBaseUrl, // 使用动态获取的基地址
@@ -293,6 +301,21 @@ export const fetchDataByDate = async (date) => {
   }
 };
 
+export const fetchAvailableDataDates = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/data/available-dates'));
+
+    if (response.data && response.data.success) {
+      return response.data;
+    }
+
+    throw new Error(response.data?.error || '获取可用日期失败');
+  } catch (error) {
+    console.error('获取可用日期失败:', error.displayMessage || error.message);
+    throw new Error(error.displayMessage || '获取可用日期失败');
+  }
+};
+
 export const fetchLatestMetrics = async (forceRefresh = false) => {
   const now = Date.now();
   if (!forceRefresh && dataCache.latestMetrics && (now - dataCache.lastFetchTime < 5 * 60 * 1000)) {
@@ -353,8 +376,12 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
           otcIndexChangePercent: otcIndexChangePercent,
           explosionIndexChangePercent: explosionIndexChangePercent,
           date: metric.date || latestDate,
+          timestamp: metric.timestamp || null,
+          timePrecision: metric.time_precision || metric.timePrecision || 'day',
+          time_precision: metric.time_precision || metric.timePrecision || 'day',
           previousDayData: metric.previous_day_data, // Ensure this is passed through
-          period_quality: metric.period_quality
+          period_quality: metric.period_quality,
+          riskNotes: Array.isArray(metric.risk_notes) ? metric.risk_notes : []
         };
       });
       // if (coinsWithMetrics.length > 0) {
@@ -388,8 +415,12 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
               otcIndexChangePercent: trendOtcChangePercent,
               explosionIndexChangePercent: trendExplosionChangePercent,
               date: trendingCoin.date || latestDate,
+              timestamp: trendingCoin.timestamp || null,
+              timePrecision: trendingCoin.time_precision || trendingCoin.timePrecision || 'day',
+              time_precision: trendingCoin.time_precision || trendingCoin.timePrecision || 'day',
               previousDayData: trendingCoin.previous_day_data, // Also pass for trending coins if available
-              period_quality: trendingCoin.period_quality
+              period_quality: trendingCoin.period_quality,
+              riskNotes: Array.isArray(trendingCoin.risk_notes) ? trendingCoin.risk_notes : []
             });
           }
         }
@@ -422,6 +453,21 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
   } catch (error) {
     console.error('获取最新指标数据最终失败:', error.displayMessage || error.message);
     return getFallbackMetricsData();
+  }
+};
+
+export const fetchBtcPredictionBacktest = async ({ refresh = false } = {}) => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/predictions/btc/backtest', {
+      params: refresh ? { refresh: 1 } : undefined,
+    }));
+    if (response.data && response.data.success) {
+      return response.data;
+    }
+    throw new Error(response.data?.error || '获取BTC预测回测失败');
+  } catch (error) {
+    console.error('获取BTC预测回测失败:', error.displayMessage || error.message);
+    throw new Error(error.displayMessage || '获取BTC预测回测失败');
   }
 };
 
@@ -472,26 +518,37 @@ export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
 
     const metrics = response.data.map(metric => ({
       date: metric.date || new Date().toISOString().split('T')[0], // Fallback date
+      timestamp: metric.timestamp || null,
+      time_precision: metric.time_precision || 'day',
       otc_index: typeof metric.otc_index === 'number' ? metric.otc_index : 0,
       explosion_index: typeof metric.explosion_index === 'number' ? metric.explosion_index : 0,
       schelling_point: typeof metric.schelling_point === 'number' ? metric.schelling_point : 0,
       entry_exit_type: metric.entry_exit_type || 'neutral',
-      entry_exit_day: typeof metric.entry_exit_day === 'number' ? metric.entry_exit_day : 0
+      entry_exit_day: typeof metric.entry_exit_day === 'number' ? metric.entry_exit_day : 0,
+      near_threshold: !!metric.near_threshold,
+      period_quality: metric.period_quality || null,
     }));
 
     // 如果获取的历史数据包含今天的日期，并且 coinDetails 缓存中有今天的最新数据，则用缓存的最新数据替换历史数据中的今天条目
     const latestCachedCoinData = dataCache.coinDetails.get(symbol);
     if (latestCachedCoinData && metrics.length > 0) {
       const lastHistoricalEntry = metrics[metrics.length - 1];
-      if (lastHistoricalEntry.date === latestCachedCoinData.date) { // 假设 latestCachedCoinData 也包含 date
+      if (
+        lastHistoricalEntry.date === latestCachedCoinData.date &&
+        buildMetricVersionKey(lastHistoricalEntry) === buildMetricVersionKey(latestCachedCoinData)
+      ) {
         // console.log(`Updating last historical entry for ${symbol} with latest cached data for date ${latestCachedCoinData.date}`);
         metrics[metrics.length - 1] = {
           date: latestCachedCoinData.date,
+          timestamp: latestCachedCoinData.timestamp || lastHistoricalEntry.timestamp || null,
+          time_precision: latestCachedCoinData.timePrecision || latestCachedCoinData.time_precision || lastHistoricalEntry.time_precision || 'day',
           otc_index: latestCachedCoinData.otcIndex,
           explosion_index: latestCachedCoinData.explosionIndex,
           schelling_point: latestCachedCoinData.schellingPoint,
           entry_exit_type: latestCachedCoinData.entryExitType,
           entry_exit_day: latestCachedCoinData.entryExitDay,
+          near_threshold: !!latestCachedCoinData.nearThreshold,
+          period_quality: latestCachedCoinData.period_quality || lastHistoricalEntry.period_quality || null,
         };
       }
     }
@@ -1009,6 +1066,49 @@ export const updateSystemSettings = async (settings) => {
     return response.data;
   } catch (error) {
     console.error('[updateSystemSettings] 更新系统设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const getDateRecordSummary = async (date) => {
+  try {
+    const response = await api.get(`/admin/date-records/${encodeURIComponent(date)}/summary`);
+    return response.data;
+  } catch (error) {
+    console.error('[getDateRecordSummary] 获取日期数据概况失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const updateDateRecordTime = async (date, { time, timePrecision }) => {
+  try {
+    const response = await api.put(`/admin/date-records/${encodeURIComponent(date)}/time`, {
+      time,
+      timePrecision,
+    });
+    dataCache.latestMetrics = null;
+    dataCache.lastFetchTime = 0;
+    dataCache.coinDetails.clear();
+    dataCache.allDatabaseData = null;
+    dataCache.lastDatabaseFetchTime = 0;
+    return response.data;
+  } catch (error) {
+    console.error('[updateDateRecordTime] 修改日期时间失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const deleteDateRecordsByDate = async (date) => {
+  try {
+    const response = await api.delete(`/admin/date-records/${encodeURIComponent(date)}`);
+    dataCache.latestMetrics = null;
+    dataCache.lastFetchTime = 0;
+    dataCache.coinDetails.clear();
+    dataCache.allDatabaseData = null;
+    dataCache.lastDatabaseFetchTime = 0;
+    return response.data;
+  } catch (error) {
+    console.error('[deleteDateRecordsByDate] 删除日期数据失败:', error.displayMessage || error.message);
     throw error;
   }
 };

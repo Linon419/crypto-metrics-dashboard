@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
         where: { date },
         required: false, // LEFT JOIN，即使没有指标数据也返回币种
         limit: 1,
-        order: [['date', 'DESC']]
+        order: [['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']]
       }],
       order: [['symbol', 'ASC']]
     });
@@ -41,7 +41,9 @@ router.get('/', async (req, res) => {
           schelling_point: metrics.schelling_point,
           entry_exit_type: metrics.entry_exit_type,
           entry_exit_day: metrics.entry_exit_day,
-          near_threshold: metrics.near_threshold
+          near_threshold: metrics.near_threshold,
+          timestamp: metrics.timestamp,
+          time_precision: metrics.time_precision
         } : null
       };
     });
@@ -127,7 +129,7 @@ router.get('/trends', async (req, res) => {
           ...where,
           coin_id: coin.id
         },
-        order: [['date', 'ASC']],
+        order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']],
         limit: limit ? parseInt(limit) : undefined
       });
     } else {
@@ -140,7 +142,7 @@ router.get('/trends', async (req, res) => {
           attributes: ['symbol', 'name'],
           where: coinWhere
         }],
-        order: [['date', 'ASC']],
+        order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']],
         limit: limit ? parseInt(limit) : undefined
       });
     }
@@ -168,6 +170,8 @@ router.get('/trends', async (req, res) => {
         
         trends[coinSymbol].data.push({
           date: m.date,
+          timestamp: m.timestamp,
+          time_precision: m.time_precision,
           value: m[metric]
         });
       });
@@ -187,16 +191,22 @@ router.get('/trends', async (req, res) => {
         
         trends[coinSymbol].otc_index.push({
           date: m.date,
+          timestamp: m.timestamp,
+          time_precision: m.time_precision,
           value: m.otc_index
         });
         
         trends[coinSymbol].explosion_index.push({
           date: m.date,
+          timestamp: m.timestamp,
+          time_precision: m.time_precision,
           value: m.explosion_index
         });
         
         trends[coinSymbol].schelling_point.push({
           date: m.date,
+          timestamp: m.timestamp,
+          time_precision: m.time_precision,
           value: m.schelling_point
         });
       });

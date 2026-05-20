@@ -8,6 +8,11 @@ const toNumber = (value) => {
 
 const getPrevData = (coin) => coin?.previousDayData || coin?.previous_day_data || null;
 
+const getRiskNotes = (coin) => {
+  const notes = coin?.riskNotes || coin?.risk_notes;
+  return Array.isArray(notes) ? notes.filter(Boolean) : [];
+};
+
 const getMarketContext = (marketCoins = []) => {
   const majors = marketCoins.filter(coin => ['BTC', 'ETH'].includes(coin.symbol));
   const majorEntryCount = majors.filter(coin => coin.entryExitType === 'entry').length;
@@ -63,6 +68,7 @@ const makeSignal = ({ direction, risk, reasons, confirmations, warnings }) => {
 
 export function evaluateStrategySignal(coin, { marketCoins = [], liquidity = null } = {}) {
   const prevData = getPrevData(coin);
+  const riskNotes = getRiskNotes(coin);
   if (!coin || !prevData) {
     return {
       direction: 'neutral',
@@ -70,7 +76,7 @@ export function evaluateStrategySignal(coin, { marketCoins = [], liquidity = nul
       label: '数据不足',
       reasons: [],
       confirmations: [],
-      warnings: ['缺少前一日数据'],
+      warnings: ['缺少前一日数据', ...riskNotes],
     };
   }
 
@@ -107,6 +113,7 @@ export function evaluateStrategySignal(coin, { marketCoins = [], liquidity = nul
   if (liquidityContext.longSupport) longConfirmations.push('市场流动性流入');
 
   const longWarnings = [];
+  longWarnings.push(...riskNotes);
   if (isWeakQuality(quality)) longWarnings.push(quality);
   if (market.shortSupport) longWarnings.push('BTC/ETH大盘偏退场');
   if (liquidityContext.shortSupport) longWarnings.push('市场流动性流出');
@@ -125,6 +132,7 @@ export function evaluateStrategySignal(coin, { marketCoins = [], liquidity = nul
   if (liquidityContext.shortSupport) shortConfirmations.push('市场流动性流出');
 
   const shortWarnings = [];
+  shortWarnings.push(...riskNotes);
   if (market.longSupport) shortWarnings.push('BTC/ETH大盘仍有支撑');
   if (liquidityContext.longSupport) shortWarnings.push('市场流动性流入');
 
@@ -158,7 +166,7 @@ export function evaluateStrategySignal(coin, { marketCoins = [], liquidity = nul
     label: currExplosion >= 200 ? '观望' : '风险注意',
     reasons: [],
     confirmations: [],
-    warnings: [],
+    warnings: riskNotes,
   };
 }
 

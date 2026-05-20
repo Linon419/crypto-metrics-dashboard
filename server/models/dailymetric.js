@@ -57,6 +57,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'coin_id',
       as: 'coin'
     });
+    DailyMetric.hasOne(models.BtcPricePoint, {
+      foreignKey: 'daily_metric_id',
+      as: 'btcPricePoint'
+    });
   };
   
   return DailyMetric;

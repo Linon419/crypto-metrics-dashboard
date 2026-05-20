@@ -17,12 +17,16 @@
 database.sqlite
 server/database.sqlite
 .database.sqlite
+database.sqlite.backup*
 
 # testing
 /coverage
 
 # production
 /build
+server/output/
+zsxq-*.json
+zsxq-*.txt
 
 # misc
 .DS_Store

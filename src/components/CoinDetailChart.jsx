@@ -1,8 +1,8 @@
 // src/components/CoinDetailChart.jsx - 确保与卡片数据一致
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Area, AreaChart, ResponsiveContainer,
+  Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Area, ResponsiveContainer,
   ReferenceArea, ReferenceLine, Legend, ComposedChart, Bar, Cell
 } from 'recharts';
 import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty, Radio, Tag, Tooltip as AntTooltip, DatePicker } from 'antd';
@@ -17,6 +17,13 @@ import {
 import dayjs from 'dayjs';
 import { fetchCoinMetrics, fetchLiquidityHistory } from '../services/api';
 import { getPeriodQualityMeta } from '../utils/periodQualityMeta';
+import { buildPeriodQualityMarkers } from '../utils/periodQualityMarkers';
+import {
+  formatMetricAxisTick,
+  formatMetricDisplayTime,
+  getMetricSortTime,
+  getMetricTimeKey,
+} from '../utils/timeDisplay';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -74,9 +81,43 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
   const effectiveStartDateStr = (customDateRange?.[0] || presetStartDate).format('YYYY-MM-DD');
   const effectiveEndDateStr = (customDateRange?.[1] || fallbackEndDate).format('YYYY-MM-DD');
   const chartMargin = isMobile ?
-    { top: 10, right: 10, left: 10, bottom: 20 } :
-    { top: 10, right: 30, left: 20, bottom: 30 };
+    { top: 28, right: 10, left: 10, bottom: 20 } :
+    { top: 30, right: 30, left: 20, bottom: 30 };
   const selectedLiquiditySeries = liquiditySeriesMeta[coin?.symbol?.toUpperCase()];
+  const periodQualityMarkers = useMemo(
+    () => buildPeriodQualityMarkers(displayData),
+    [displayData]
+  );
+  const renderPeriodQualityMarkerLabel = useCallback(({ viewBox, marker }) => {
+    const x = Number(viewBox?.x);
+    const y = Number(viewBox?.y);
+    const width = Number(viewBox?.width);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+    const edgePadding = isMobile ? 44 : 60;
+    let dx = 0;
+    let textAnchor = 'middle';
+    if (x < edgePadding) {
+      dx = 8;
+      textAnchor = 'start';
+    } else if (Number.isFinite(width) && x > width - edgePadding) {
+      dx = -8;
+      textAnchor = 'end';
+    }
+
+    return (
+      <text
+        x={x + dx}
+        y={y + (isMobile ? 14 : 16)}
+        fill={marker.color}
+        fontSize={isMobile ? 10 : 12}
+        fontWeight={600}
+        textAnchor={textAnchor}
+      >
+        {marker.label}
+      </text>
+    );
+  }, [isMobile]);
 
   // 监听窗口大小变化
   useEffect(() => {
@@ -127,11 +168,11 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
     // 过滤数据以实现缩放
     const filteredData = metrics.filter(
       item => {
-        const itemDate = new Date(item.date).getTime();
-        const date1 = new Date(x1).getTime();
-        const date2 = new Date(x2).getTime();
-        const [smaller, larger] = date1 <= date2 ? [date1, date2] : [date2, date1];
-        return itemDate >= smaller && itemDate <= larger;
+        const itemTime = item.sortTime;
+        const point1 = metrics.find(metric => metric.timeKey === x1)?.sortTime || 0;
+        const point2 = metrics.find(metric => metric.timeKey === x2)?.sortTime || 0;
+        const [smaller, larger] = point1 <= point2 ? [point1, point2] : [point2, point1];
+        return itemTime >= smaller && itemTime <= larger;
       }
     );
     
@@ -177,12 +218,15 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
       if (coin.schellingPoint !== undefined) {
         updatedMetrics[lastIndex].schellingPoint = coin.schellingPoint;
       }
+      if (coin.period_quality !== undefined) {
+        updatedMetrics[lastIndex].periodQuality = coin.period_quality;
+      }
       
       // 更新状态
       setMetrics(updatedMetrics);
       
       // 如果当前显示的是原始数据的子集（缩放状态），也更新displayData
-      if (displayData.length > 0 && displayData[displayData.length - 1].date === updatedMetrics[lastIndex].date) {
+      if (displayData.length > 0 && displayData[displayData.length - 1].timeKey === updatedMetrics[lastIndex].timeKey) {
         const updatedDisplayData = [...displayData];
         updatedDisplayData[updatedDisplayData.length - 1] = updatedMetrics[lastIndex];
         setDisplayData(updatedDisplayData);
@@ -274,33 +318,49 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
           
           // 处理数据 - 将API返回的格式转换为图表需要的格式
           const processedData = data.map((metric, index) => {
+            const displayTime = formatMetricDisplayTime(metric);
+            const timeKey = getMetricTimeKey(metric);
+            const sortTime = getMetricSortTime(metric);
+
             // 如果是最后一条数据，使用传入的coin对象的当前值
             if (index === data.length - 1) {
               return {
                 date: metric.date,
+                displayTime,
+                timeKey,
+                sortTime,
+                timestamp: metric.timestamp,
+                timePrecision: metric.time_precision,
                 blastIndex: coin.explosionIndex !== undefined ? coin.explosionIndex : metric.explosion_index || 0,
                 otcIndex: coin.otcIndex !== undefined ? coin.otcIndex : metric.otc_index || 0,
                 schellingPoint: coin.schellingPoint !== undefined ? coin.schellingPoint : metric.schelling_point || 0,
                 actionType: coin.entryExitType || metric.entry_exit_type || 'neutral',
                 actionDay: coin.entryExitDay !== undefined ? coin.entryExitDay : metric.entry_exit_day || 0,
-                nearThreshold: coin.nearThreshold !== undefined ? coin.nearThreshold : metric.near_threshold || false
+                nearThreshold: coin.nearThreshold !== undefined ? coin.nearThreshold : metric.near_threshold || false,
+                periodQuality: coin.period_quality || metric.period_quality || null,
               };
             }
             
             // 其他数据正常处理
             return {
               date: metric.date,
+              displayTime,
+              timeKey,
+              sortTime,
+              timestamp: metric.timestamp,
+              timePrecision: metric.time_precision,
               blastIndex: metric.explosion_index || 0,
               otcIndex: metric.otc_index || 0,
               schellingPoint: metric.schelling_point || 0,
               actionType: metric.entry_exit_type === 'entry' ? '进场' : metric.entry_exit_type === 'exit' ? '退场' : '中性',
               actionDay: metric.entry_exit_day || 0,
-              nearThreshold: metric.near_threshold || false
+              nearThreshold: metric.near_threshold || false,
+              periodQuality: metric.period_quality || null,
             };
           });
           
-          // 按日期排序
-          processedData.sort((a, b) => new Date(a.date) - new Date(b.date));
+          // 按发布时间排序
+          processedData.sort((a, b) => a.sortTime - b.sortTime);
           
           setMetrics(processedData);
           setDisplayData(processedData);
@@ -362,12 +422,16 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
       if (i === dayCount) {
         mockData.push({
           date: dateStr,
+          displayTime: dateStr,
+          timeKey: dateStr,
+          sortTime: new Date(dateStr).getTime(),
           blastIndex: baseExplosionIndex,
           otcIndex: baseOtcIndex,
           schellingPoint: baseSchellingPoint,
           actionType: entryExitType,
           actionDay: entryExitDay,
-          nearThreshold: coin.nearThreshold || false
+          nearThreshold: coin.nearThreshold || false,
+          periodQuality: coin.period_quality || null,
         });
         continue;
       }
@@ -378,12 +442,16 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
       
       mockData.push({
         date: dateStr,
+        displayTime: dateStr,
+        timeKey: dateStr,
+        sortTime: new Date(dateStr).getTime(),
         blastIndex: Math.max(100, Math.min(300, baseExplosionIndex + explosionChange * 0.2)),
         otcIndex: Math.max(500, Math.min(2000, baseOtcIndex + randomFactor * 5)),
         schellingPoint: Math.max(100, baseSchellingPoint * (1 + (randomFactor / 1000))),
         actionType: entryExitType,
         actionDay: entryExitType !== '中性' ? Math.max(0, entryExitDay - (dayCount - i)) : 0,
-        nearThreshold: Math.random() > 0.8 // 模拟数据中随机生成nearThreshold
+        nearThreshold: Math.random() > 0.8, // 模拟数据中随机生成nearThreshold
+        periodQuality: coin.period_quality || null,
       });
     }
     
@@ -416,14 +484,21 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
   };
 
   const getAlignedLiquidityData = () => {
+    const liquidityByTimeKey = new Map(
+      liquidityHistory.map(item => [getMetricTimeKey(item), item])
+    );
     const liquidityByDate = new Map(
       liquidityHistory.map(item => [item.date, item])
     );
 
     return displayData.map(item => {
-      const liquidity = liquidityByDate.get(item.date) || {};
+      const liquidity = liquidityByTimeKey.get(item.timeKey) || liquidityByDate.get(item.date) || {};
       return {
         date: item.date,
+        displayTime: item.displayTime,
+        timeKey: item.timeKey,
+        sortTime: item.sortTime,
+        timePrecision: item.timePrecision,
         btc: liquidity.btc_fund_change ?? null,
         eth: liquidity.eth_fund_change ?? null,
         sol: liquidity.sol_fund_change ?? null
@@ -444,7 +519,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
 
     return (
       <div className="bg-white p-3 border border-gray-200 shadow-lg rounded-md">
-        <div className="text-gray-600 text-sm mb-2">{`日期: ${label}`}</div>
+        <div className="text-gray-600 text-sm mb-2">{`时间: ${payload[0].payload.displayTime || label}`}</div>
         {visiblePayload.map(item => (
           <div key={item.dataKey} className="flex justify-between gap-4 text-sm">
             <span style={{ color: item.color }}>{item.name}</span>
@@ -459,14 +534,22 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
+      const schellingPointValue = Number(data.schellingPoint ?? 0);
       const isWarning = (data.blastIndex || 0) < 200;
+      const qualityMeta = data.periodQuality ? getPeriodQualityMeta(data.periodQuality) : null;
       const actionInfo = data.actionType === '中性' ? 
         '中性期' : 
         `${data.actionType}期第${data.actionDay}天`;
       
       return (
         <div className="bg-white p-3 border border-gray-200 shadow-lg rounded-md">
-          <div className="text-gray-600 text-sm mb-1">{`日期: ${data.date}`}</div>
+          <div className="text-gray-600 text-sm mb-1">{`时间: ${data.displayTime || data.date}`}</div>
+
+          {data.periodQuality && (
+            <div className="mb-2">
+              <Tag color={qualityMeta?.tagColor || 'default'}>{data.periodQuality}</Tag>
+            </div>
+          )}
           
           <div className={`text-sm font-bold p-1 mb-2 rounded text-center ${
             data.actionType === "进场" ? "bg-green-100 text-green-800" : 
@@ -496,7 +579,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
           </div>
           
           <div className="mt-2 text-xs">
-            <span className="text-purple-600 font-medium">谢林点: {data.schellingPoint.toLocaleString()}</span>
+            <span className="text-purple-600 font-medium">谢林点: {schellingPointValue.toLocaleString()}</span>
           </div>
         </div>
       );
@@ -610,6 +693,14 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
                 <div className="flex items-center px-2 py-1 rounded bg-red-100 text-red-800 text-xs font-medium">
                   <span className="w-2 h-2 rounded-full bg-red-500 mr-1"></span>
                   退场期
+                </div>
+                <div className="flex items-center px-2 py-1 rounded bg-white text-green-700 text-xs font-medium">
+                  <span className="w-2 h-4 rounded-sm bg-green-600 mr-1"></span>
+                  高质量节点
+                </div>
+                <div className="flex items-center px-2 py-1 rounded bg-white text-red-700 text-xs font-medium">
+                  <span className="w-2 h-4 rounded-sm bg-red-600 mr-1"></span>
+                  低质量节点
                 </div>
               </div>
               
@@ -748,14 +839,13 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
                 <CartesianGrid strokeDasharray="3 3" />
                 
                 <XAxis
-                  dataKey="date"
+                  dataKey="timeKey"
                   tick={{ fontSize: isMobile ? 10 : 12 }}
                   tickMargin={isMobile ? 5 : 10}
                   interval={isMobile ? 'preserveStartEnd' : 'preserveStart'}
                   tickFormatter={(value) => {
-                    // 格式化日期，只显示月和日
-                    const date = new Date(value);
-                    return `${date.getMonth() + 1}/${date.getDate()}`;
+                    const metric = displayData.find(item => item.timeKey === value);
+                    return formatMetricAxisTick(metric || { date: value });
                   }}
                 />
                 
@@ -883,6 +973,19 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
                     }}
                   />
                 )}
+
+                {periodQualityMarkers.map(marker => (
+                  <ReferenceLine
+                    key={`quality-${marker.type}-${marker.timeKey}`}
+                    x={marker.timeKey}
+                    yAxisId="left"
+                    stroke={marker.color}
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                    ifOverflow="extendDomain"
+                    label={(props) => renderPeriodQualityMarkerLabel({ ...props, marker })}
+                  />
+                ))}
                 
                 {/* 爆破指数线 */}
                 {(chartMode === 'blast' || chartMode === 'both') && (
@@ -982,13 +1085,13 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
                   >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
-                      dataKey="date"
+                      dataKey="timeKey"
                       tick={{ fontSize: isMobile ? 10 : 12 }}
                       tickMargin={isMobile ? 5 : 10}
                       interval={isMobile ? 'preserveStartEnd' : 'preserveStart'}
                       tickFormatter={(value) => {
-                        const date = new Date(value);
-                        return `${date.getMonth() + 1}/${date.getDate()}`;
+                        const item = liquidityChartData.find(point => point.timeKey === value);
+                        return formatMetricAxisTick(item || { date: value });
                       }}
                     />
                     <YAxis
@@ -1029,7 +1132,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
                     >
                       {liquidityChartData.map((entry) => (
                         <Cell
-                          key={`liquidity-${entry.date}`}
+                          key={`liquidity-${entry.timeKey}`}
                           fill={getLiquidityBarColor(entry[selectedLiquiditySeries.key])}
                         />
                       ))}

@@ -24,6 +24,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'coin_id',
       as: 'metrics'
     });
+    Coin.hasMany(models.BtcPricePoint, {
+      foreignKey: 'coin_id',
+      as: 'btcPricePoints'
+    });
   };
   
   return Coin;

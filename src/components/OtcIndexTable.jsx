@@ -55,6 +55,7 @@ function OtcIndexTable({ coins, marketCoins = coins, liquidity = null, loading =
     explosionIndexChangePercent: coin.explosionIndexChangePercent,
     otcIndexChangePercent: coin.otcIndexChangePercent,
     period_quality: coin.period_quality,
+    riskNotes: coin.riskNotes || coin.risk_notes || [],
     momentumIndicators: coin.momentumIndicators || [],
     nearThreshold: coin.nearThreshold || false
   }));
