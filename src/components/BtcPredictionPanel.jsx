@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Col, Row, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Collapse, Row, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
 import { ReloadOutlined, RiseOutlined, FallOutlined, MinusOutlined } from '@ant-design/icons';
 import { fetchBtcPredictionBacktest } from '../services/api';
 
@@ -139,21 +139,31 @@ function BtcPredictionPanel() {
   const latestFeature = result.latestFeature;
   const data = result.data || {};
 
-  return (
-    <Card className="mb-4" size="small">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
-        <div>
-          <Title level={5} className="m-0">BTC永续发布价预测回测</Title>
-          <Text type="secondary">
-            训练样本 {data.firstTrainingDate} 至 {data.latestTrainingFeatureDate}；
-            已缓存发布价 {data.rowsWithBtcPublishPrice} 条，缺发布价 {data.rowsWithoutBtcPublishPrice} 条
-          </Text>
-        </div>
-        <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => loadPrediction({ forceRefresh: true })}>
-          刷新预测
-        </Button>
+  const header = (
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 w-full">
+      <div>
+        <Title level={5} className="m-0">BTC永续发布价预测回测</Title>
+        <Text type="secondary">
+          训练样本 {data.firstTrainingDate} 至 {data.latestTrainingFeatureDate}；
+          已缓存发布价 {data.rowsWithBtcPublishPrice} 条，缺发布价 {data.rowsWithoutBtcPublishPrice} 条
+        </Text>
       </div>
+      <Button
+        size="small"
+        icon={<ReloadOutlined />}
+        loading={loading}
+        onClick={(event) => {
+          event.stopPropagation();
+          loadPrediction({ forceRefresh: true });
+        }}
+      >
+        刷新预测
+      </Button>
+    </div>
+  );
 
+  const content = (
+    <>
       <Row gutter={[12, 12]} className="mb-3">
         <Col xs={24} sm={12} lg={6}>
           <Statistic title="最佳模型" value={`${best.modelName} ${best.horizon}d`} />
@@ -197,7 +207,22 @@ function BtcPredictionPanel() {
         pagination={{ pageSize: 8, hideOnSinglePage: true }}
         scroll={{ x: 760 }}
       />
-    </Card>
+    </>
+  );
+
+  return (
+    <Collapse
+      className="mb-4"
+      size="small"
+      defaultActiveKey={[]}
+      items={[
+        {
+          key: 'btc-publish-price-prediction-backtest',
+          label: header,
+          children: content,
+        },
+      ]}
+    />
   );
 }
 
