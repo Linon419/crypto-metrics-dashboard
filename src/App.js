@@ -1,6 +1,6 @@
 // src/App.jsx
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { Layout, Menu } from 'antd';
 import { Provider } from 'react-redux';
 import { store } from './redux/store';
@@ -13,23 +13,37 @@ import AdminRoute from './components/AdminRoute';
 import UserManagement from './components/UserManagement';
 import { useSelector } from 'react-redux';
 import './styles/mobile.css';
+import './styles/design-system.css';
 
 const { Header, Content, Footer } = Layout;
 
 // 导航组件，只在用户已登录时显示
 const NavigationMenu = () => {
   const { isAuthenticated, user } = useSelector(state => state.auth);
+  const location = useLocation();
   
   // 如果用户未登录，不显示导航栏
   if (!isAuthenticated) {
     return null;
   }
+
+  const activeKey = location.pathname.startsWith('/input')
+    ? '2'
+    : location.pathname.startsWith('/users')
+    ? '3'
+    : location.pathname.startsWith('/dashboard') || location.pathname === '/'
+    ? '4'
+    : '4';
   
   return (
-    <Header>
-      <Menu theme="dark" mode="horizontal" defaultSelectedKeys={['1']}>
-        <Menu.Item key="1">
-          <Link to="/">首页</Link>
+    <Header className="global-nav">
+      <Link to="/dashboard" className="global-nav__brand">
+        <span className="global-nav__mark">CM</span>
+        <span>Crypto Metrics</span>
+      </Link>
+      <Menu theme="dark" mode="horizontal" selectedKeys={[activeKey]} className="global-nav__menu">
+        <Menu.Item key="4">
+          <Link to="/dashboard">数据看板</Link>
         </Menu.Item>
         {/* 只有管理员才能看到管理菜单 */}
         {user?.role === 'admin' && (
@@ -42,9 +56,6 @@ const NavigationMenu = () => {
             <Link to="/users">用户管理</Link>
           </Menu.Item>
         )}
-        <Menu.Item key="4">
-          <Link to="/dashboard">数据看板</Link>
-        </Menu.Item>
       </Menu>
     </Header>
   );
@@ -66,7 +77,7 @@ const AppContent = () => {
       <Layout className="min-h-screen">
         <NavigationMenu />
         
-        <Content className="p-6">
+        <Content className="app-route-content">
           <Routes>
             {/* Public routes - accessible without authentication */}
             <Route path="/login" element={<Login />} />
@@ -106,7 +117,7 @@ const AppContent = () => {
           </Routes>
         </Content>
         
-        <Footer className="text-center">加密货币指标看板 ©2025</Footer>
+        <Footer className="app-footer">加密货币指标看板 ©2025</Footer>
       </Layout>
     </Router>
   );

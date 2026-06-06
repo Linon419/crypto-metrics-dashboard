@@ -1,5 +1,5 @@
 // src/components/Login.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { Form, Input, Button, Card, Typography, Alert, Space } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useDispatch, useSelector } from 'react-redux';
@@ -41,8 +41,8 @@ function Login() {
   };
   
   return (
-    <div className="flex justify-center items-center min-h-screen bg-gray-100">
-      <Card className="w-full max-w-md">
+    <div className="login-shell flex justify-center items-center">
+      <Card className="login-card w-full max-w-md">
         <div className="text-center mb-6">
           <Title level={2}>加密货币指标看板</Title>
           <Text type="secondary">登录以访问系统</Text>

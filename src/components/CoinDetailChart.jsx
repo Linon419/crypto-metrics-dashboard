@@ -618,7 +618,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
   };
   
   return (
-    <Card className="w-full mt-4 mb-4 overflow-hidden">
+    <Card className="dashboard-panel chart-panel w-full mt-4 mb-4 overflow-hidden">
       {loading ? (
         <div className="flex flex-col items-center justify-center py-10">
           <Spin size="large" />
@@ -733,7 +733,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
           </div>
           
           {/* 指标选择与图表控制 */}
-          <div className="mb-4 flex flex-wrap justify-between items-center bg-gray-50 p-3 rounded-lg">
+          <div className="chart-toolbar mb-4 flex flex-wrap justify-between items-center bg-gray-50 p-3 rounded-lg">
             <div className="flex flex-wrap items-center gap-4 mb-2 sm:mb-0">
               <div className="font-medium flex items-center">
                 <LineChartOutlined className="mr-1" />
@@ -1148,7 +1148,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
           
           {/* 指标数据 */}
           {coin && (
-            <Card className="mt-4" bodyStyle={{ padding: '16px 24px' }}>
+            <Card className="dashboard-panel mt-4" bodyStyle={{ padding: '16px 24px' }}>
               <Row gutter={[32, 16]} align="middle" justify="space-around">
                 <Col xs={24} sm={12} md={8} className="text-center sm:text-left">
                   <Statistic 

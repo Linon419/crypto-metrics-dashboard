@@ -54,7 +54,6 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     schellingPoint = 0,
     otcIndexChangePercent,
     explosionIndexChangePercent,
-    period_quality,
     nearThreshold = false,
     momentumIndicators = []
   } = coin || {};
@@ -87,7 +86,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     const iconSize = isMobile ? 'w-8 h-8' : 'w-10 h-10';
     
     return (
-      <div className={`flex items-center justify-center ${iconSize} rounded-full ${bgColor} text-white font-bold text-lg`}>
+      <div className={`coin-token flex items-center justify-center ${iconSize} rounded-full ${bgColor} text-white font-bold text-lg`}>
         {displayChar}
       </div>
     );
@@ -172,7 +171,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
 
   return (
     <Card
-        className={`coin-card w-full shadow-sm hover:shadow-lg transition-shadow relative ${isMobile ? 'mb-2' : ''}`}
+        className={`coin-card w-full transition-shadow relative ${isMobile ? 'mb-2' : ''}`}
         bodyStyle={cardPadding}
         onClick={handleCardBodyClick}
         size={isMobile ? "small" : "default"}
@@ -183,7 +182,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
                     shape="circle"
                     icon={isFavorite ? <StarFilled style={{ color: '#FFD700' }} /> : <StarOutlined />}
                     onClick={handleFavoriteClick}
-                    className="absolute top-1 left-1 z-10 bg-opacity-50 hover:bg-opacity-100"
+                    className="absolute top-1 left-1 z-10"
                     size="small"
                     style={{ border: 'none', background: 'rgba(255,255,255,0.1)'}}
                 />

@@ -1,6 +1,6 @@
 // src/components/Dashboard.jsx - Mobile-friendly version
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Layout, Tag, Divider, Spin, Alert, DatePicker, Space, Typography, Button, Modal, notification, Dropdown, Menu, Avatar, Tooltip, Drawer } from 'antd';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Layout, Tag, Divider, Alert, DatePicker, Space, Typography, Button, Modal, notification, Dropdown, Menu, Tooltip, Drawer } from 'antd';
 import {
   ReloadOutlined,
   InfoCircleOutlined,
@@ -12,7 +12,6 @@ import {
   UserOutlined,
   LogoutOutlined,
   LockOutlined,
-  SettingOutlined,
   UserSwitchOutlined,
   RiseOutlined,
   FallOutlined,
@@ -27,7 +26,7 @@ import SearchBar from './SearchBar';
 import CoinList from './CoinList';
 import CoinDetailChart from './CoinDetailChart';
 import OtcIndexTable from './OtcIndexTable';
-import BtcPredictionPanel from './BtcPredictionPanel';
+import BtcVolatilityPanel from './BtcVolatilityPanel';
 import LiquidityChart from './LiquidityChart';
 import LoadingPlaceholder from './LoadingPlaceholder';
 import FavoriteDebug from './FavoriteDebug';
@@ -62,6 +61,36 @@ const getSignalSummaryText = (signals) => {
     .map(({ coin, signal }) => `${coin.symbol}(${signal.confirmed ? '已确认' : '候选'})`)
     .join('、');
 };
+
+const VIEW_MODES = [
+  {
+    key: 'all',
+    label: '全部币种',
+    icon: <DatabaseOutlined />,
+  },
+  {
+    key: 'favorites',
+    label: '收藏币种',
+    icon: <StarOutlined />,
+  },
+  {
+    key: 'popular',
+    label: '热门币种',
+    icon: <FireOutlined />,
+  },
+  {
+    key: 'long',
+    label: '做多策略',
+    icon: <RiseOutlined />,
+    tooltip: '场外指数连续3天大于1000且上升，或爆破负转正 / 进场期第一天',
+  },
+  {
+    key: 'short',
+    label: '做空策略',
+    icon: <FallOutlined />,
+    tooltip: '场外指数连续3天下降，或爆破跌破200叠加低质量进场 / 退场期第一天',
+  },
+];
 
 function Dashboard() {
   // State management
@@ -569,17 +598,29 @@ function Dashboard() {
     </Menu>
   );
 
-  // Button style
-  const buttonStyle = {
-    fontWeight: 500,
-    borderWidth: '2px',
-  };
-
   const filteredCoins = getFilteredCoins();
+  const marketCoins = useMemo(() => Array.isArray(allCoins) ? allCoins : [], [allCoins]);
   const selectedDateStr = selectedDate ? selectedDate.format('YYYY-MM-DD') : '';
   const isViewingLatest = latestAvailableDateStr
     ? latestDateStr === latestAvailableDateStr
     : Boolean(latestDateStr && selectedDateStr === latestDateStr);
+  const activeView = VIEW_MODES.find(mode => mode.key === viewMode) || VIEW_MODES[0];
+  const signalCounts = useMemo(() => ({
+    long: marketCoins.filter(coin => hasStrategyDirection(coin, 'long', {
+      marketCoins,
+      liquidity: liquidityData
+    })).length,
+    short: marketCoins.filter(coin => hasStrategyDirection(coin, 'short', {
+      marketCoins,
+      liquidity: liquidityData
+    })).length,
+  }), [marketCoins, liquidityData]);
+  const dashboardMetrics = [
+    { label: '跟踪币种', value: marketCoins.length, hint: `当前显示 ${filteredCoins.length}` },
+    { label: '做多信号', value: signalCounts.long, hint: '策略候选' },
+    { label: '做空信号', value: signalCounts.short, hint: '风险候选' },
+    { label: '收藏币种', value: favorites.length, hint: user?.username || '当前账户' },
+  ];
     // console.log("[DASHBOARD - filteredCoins for OtcIndexTable[0]]", filteredCoins && filteredCoins.length > 0 ? JSON.stringify(filteredCoins[0], null, 2) : "empty or undefined");
 
 
@@ -625,10 +666,9 @@ function Dashboard() {
   );
 
   return (
-    <Layout className="min-h-screen bg-gray-50">
-      {/* Mobile-friendly header */}
-      <Header className="bg-gray-900 px-2 sm:px-4 flex items-center justify-between shadow-sm">
-        <div className="flex items-center">
+    <Layout className="dashboard-shell">
+      <Header className="dashboard-topbar">
+        <div className="dashboard-brand">
           {isMobile && (
             <Button
               type="text"
@@ -637,7 +677,13 @@ function Dashboard() {
               className="text-white mr-2"
             />
           )}
-          <div className="text-xl font-bold text-white mr-3">加密指标</div>
+          <div>
+            <div className="dashboard-brand__title">加密指标</div>
+            <div className="dashboard-brand__meta">
+              <span className="dashboard-status-dot" />
+              <span>{apiStatus.ok ? '数据服务在线' : '等待 API 检查'}</span>
+            </div>
+          </div>
           <SearchBar
             coins={allCoins}
             onSelect={handleCoinSelect}
@@ -677,14 +723,14 @@ function Dashboard() {
               icon={<ReloadOutlined />}
               onClick={handleRefresh}
               loading={loading}
-              style={{ background: '#1890ff', borderColor: '#1890ff', ...buttonStyle }}
+              className="dashboard-action"
             >
               刷新
             </Button>
             <Button
               icon={<InfoCircleOutlined />}
               onClick={openInfoModal}
-              style={{ background: '#722ed1', borderColor: '#722ed1', color: 'white', ...buttonStyle }}
+              className="dashboard-action"
             >
               指标说明
             </Button>
@@ -692,12 +738,7 @@ function Dashboard() {
               icon={<ApiOutlined />}
               onClick={checkApiStatus}
               danger={!apiStatus.ok}
-              style={{
-                background: !apiStatus.ok ? '#ff4d4f' : '#52c41a',
-                borderColor: !apiStatus.ok ? '#ff4d4f' : '#52c41a',
-                color: 'white',
-                ...buttonStyle
-              }}
+              className="dashboard-action"
             >
               API状态
             </Button>
@@ -707,12 +748,7 @@ function Dashboard() {
               <Button
                 icon={<UserOutlined />}
                 type="primary"
-                style={{
-                  background: '#0050b3',
-                  borderColor: '#0050b3',
-                  color: 'white',
-                  ...buttonStyle
-                }}
+                className="dashboard-action"
               >
                 {user?.username || '用户'} <span className="ml-1">▼</span>
               </Button>
@@ -740,7 +776,20 @@ function Dashboard() {
         )}
       </Header>
 
-      <Content className="p-1 sm:p-4">
+      <Content className="dashboard-content">
+        <section className="dashboard-overview-strip">
+          <div className="dashboard-overview-strip__left">
+            <span className="dashboard-overview-pill is-active">{activeView.label}</span>
+            <span className="dashboard-overview-pill">日期 {latestDateStr || '加载中'}</span>
+            {dashboardMetrics.map(metric => (
+              <span className="dashboard-overview-pill" key={metric.label}>
+                {metric.label} <strong>{metric.value}</strong>
+              </span>
+            ))}
+          </div>
+          <BtcVolatilityPanel />
+        </section>
+
         {error && (
           <Alert
             message="数据加载错误"
@@ -777,87 +826,28 @@ function Dashboard() {
         )}
         {/* Desktop coin filter buttons */}
         {!isMobile && (
-          <div className="flex flex-wrap mb-4 gap-2">
-            <Button
-              type="primary"
-              icon={<DatabaseOutlined />}
-              onClick={() => setViewMode('all')}
-              style={{
-                background: viewMode === 'all' ? '#1890ff' : '#f0f0f0',
-                borderColor: viewMode === 'all' ? '#1890ff' : '#d9d9d9',
-                color: viewMode === 'all' ? 'white' : 'rgba(0, 0, 0, 0.85)',
-                ...buttonStyle
-              }}
-            >
-              全部币种
-            </Button>
+          <div className="dashboard-filterbar">
+            {VIEW_MODES.map(mode => {
+              const button = (
+                <Button
+                  key={mode.key}
+                  type={viewMode === mode.key ? 'primary' : 'default'}
+                  icon={mode.icon}
+                  onClick={() => handleViewModeChange(mode.key)}
+                >
+                  {mode.label}
+                </Button>
+              );
 
-            <Button
-              icon={<StarOutlined />}
-              onClick={() => setViewMode('favorites')}
-              style={{
-                background: viewMode === 'favorites' ? '#faad14' : '#f0f0f0',
-                borderColor: viewMode === 'favorites' ? '#faad14' : '#d9d9d9',
-                color: viewMode === 'favorites' ? 'white' : 'rgba(0, 0, 0, 0.85)',
-                ...buttonStyle
-              }}
-            >
-              收藏币种
-            </Button>
-
-            <Button
-              icon={<FireOutlined />}
-              onClick={() => setViewMode('popular')}
-              style={{
-                background: viewMode === 'popular' ? '#ff4d4f' : '#f0f0f0',
-                borderColor: viewMode === 'popular' ? '#ff4d4f' : '#d9d9d9',
-                color: viewMode === 'popular' ? 'white' : 'rgba(0, 0, 0, 0.85)',
-                ...buttonStyle
-              }}
-            >
-              热门币种
-            </Button>
-
-            {/* Long strategy button */}
-            <Tooltip title="筛选爆破指数由负转正或进入进场期的币种">
-              <Button
-                icon={<RiseOutlined />}
-                onClick={() => setViewMode('long')}
-                style={{
-                  background: viewMode === 'long' ? '#52c41a' : '#f0f0f0',
-                  borderColor: viewMode === 'long' ? '#52c41a' : '#d9d9d9',
-                  color: viewMode === 'long' ? 'white' : 'rgba(0, 0, 0, 0.85)',
-                  ...buttonStyle
-                }}
-              >
-                做多策略
-              </Button>
-            </Tooltip>
-
-            {/* Short strategy button */}
-            <Tooltip title="筛选爆破指数跌破200或新进入退场期的币种">
-              <Button
-                icon={<FallOutlined />}
-                onClick={() => setViewMode('short')}
-                style={{
-                  background: viewMode === 'short' ? '#ff4d4f' : '#f0f0f0',
-                  borderColor: viewMode === 'short' ? '#ff4d4f' : '#d9d9d9',
-                  color: viewMode === 'short' ? 'white' : 'rgba(0, 0, 0, 0.85)',
-                  ...buttonStyle
-                }}
-              >
-                做空策略
-              </Button>
-            </Tooltip>
-
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={handleRefresh}
-              loading={loading}
-              style={{ marginLeft: 'auto', ...buttonStyle }}
-            >
-              刷新
-            </Button>
+              return mode.tooltip ? (
+                <Tooltip key={mode.key} title={mode.tooltip}>
+                  {button}
+                </Tooltip>
+              ) : button;
+            })}
+            <Text type="secondary" className="dashboard-refresh-spacer">
+              {filteredCoins.length} / {marketCoins.length} 个币种
+            </Text>
           </div>
         )}
 
@@ -907,8 +897,6 @@ function Dashboard() {
               onRefresh={handleRefresh}
               viewMode={viewMode}
             />
-
-            <BtcPredictionPanel />
 
             {selectedCoin && getSelectedCoinData() ? (
               <CoinDetailChart
@@ -1120,10 +1108,10 @@ function Dashboard() {
           <div>
             <Title level={5}>策略筛选功能</Title>
             <Text className="block font-medium">做多策略：</Text>
-            <Text>筛选出爆破指数由负转正、新进入进场期或爆破指数大幅上升的币种。这些通常是抄底和加仓的好时机。</Text>
+            <Text>筛选出两类币种：场外指数连续3天大于1000且上升；爆破指数负转正或进场期第一天。</Text>
 
             <Text className="block font-medium mt-2">做空策略：</Text>
-            <Text>筛选出爆破指数跌破200、新进入退场期或爆破指数大幅下降的币种。这些通常是止盈或做空的好时机。</Text>
+            <Text>筛选出两类币种：场外指数连续3天下降；爆破指数跌破200且处于低质量进场，或退场期第一天。</Text>
           </div>
 
           <div>

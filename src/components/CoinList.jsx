@@ -1,7 +1,7 @@
 // src/components/CoinList.jsx - Mobile-friendly version
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Carousel, Pagination, Spin, Empty, Button, Alert, Card, Badge } from 'antd';
-import { ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import { Row, Col, Pagination, Spin, Empty, Button, Alert, Card, Badge } from 'antd';
+import { WarningOutlined } from '@ant-design/icons';
 import CoinCard from './CoinCard';
 import { getQualityRibbonProps } from '../utils/periodQualityMeta';
 
@@ -119,7 +119,7 @@ function CoinList({
   const currentCoinsToDisplay = getCurrentPageCoins();
 
   return (
-    <div className="mb-6">
+    <div className="coin-list-section">
       {/* Error alert */}
       {error && (
         <Alert
@@ -164,11 +164,9 @@ function CoinList({
                       color={ribbonProps.color}
                       style={{ display: ribbonProps.display, fontSize: '10px', lineHeight: '14px', height: '16px', top: '-2px', right: '10px' }}
                     >
-                      <div 
-                        className={`cursor-pointer transition-all duration-200 relative ${
-                          selectedCoin === coin.symbol 
-                            ? 'ring-2 ring-blue-500 shadow-lg rounded-lg transform scale-[1.02]' 
-                            : 'hover:shadow-lg hover:scale-[1.01] rounded-lg'
+                      <div
+                        className={`coin-card-shell cursor-pointer relative ${
+                          selectedCoin === coin.symbol ? 'is-selected' : ''
                         }`}
                       >
                         <CoinCard 
@@ -213,9 +211,9 @@ function CoinList({
                         color={ribbonProps.color}
                         style={{ display: ribbonProps.display, fontSize: '9px', lineHeight: '12px', height: '14px', top: '-1px', right: '3px' }}
                       >
-                        <div 
-                          className={`cursor-pointer relative ${
-                            selectedCoin === coin.symbol ? 'ring-2 ring-blue-500 rounded-lg' : 'rounded-lg'
+                        <div
+                          className={`coin-card-shell cursor-pointer relative ${
+                            selectedCoin === coin.symbol ? 'is-selected' : ''
                           }`}
                         >
                           <CoinCard 

@@ -27,7 +27,8 @@ function createDataSnapshot(data) {
             entry_exit_day: metric.entry_exit_day,
             period_quality: metric.period_quality,
             near_threshold: metric.near_threshold,
-            momentumIndicators: metric.momentumIndicators
+            momentumIndicators: metric.momentumIndicators,
+            strategy_signal_level: getStrategySignal(metric)?.level || null
         }))
     };
 }
@@ -57,6 +58,7 @@ function hasDataChanged(lastSnapshot, currentSnapshot) {
             current.entry_exit_type !== last.entry_exit_type ||
             current.period_quality !== last.period_quality ||
             current.near_threshold !== last.near_threshold ||
+            current.strategy_signal_level !== last.strategy_signal_level ||
             JSON.stringify(current.momentumIndicators) !== JSON.stringify(last.momentumIndicators)) {
             return true;
         }
@@ -193,6 +195,14 @@ function isExplosionTurnPositive(metric) {
 
 function isImportantMomentumIndicator(indicator) {
     return indicator === '$' || indicator === '‼';
+}
+
+function getStrategySignal(metric) {
+    return metric?.strategy_signal || metric?.strategySignal || null;
+}
+
+function isOtcTrendStrategySignal(signal) {
+    return signal?.level === 'otc_up_3' || signal?.level === 'otc_down_3';
 }
 
 function getTelegramMessageOptions() {
@@ -531,7 +541,17 @@ async function checkDataUpdates() {
                             });
                         }
 
-                        // 4. 检查动能指标
+                        // 4. 检查策略关键信息
+                        const strategySignals = await analyzeStrategySignals(data.metrics, chatId, currentDate);
+                        if (strategySignals.length > 0) {
+                            allNotifications.push({
+                                type: 'strategy_signals',
+                                title: '📌 策略关键信息',
+                                content: strategySignals
+                            });
+                        }
+
+                        // 5. 检查动能指标
                         const momentumAlerts = await analyzeMomentumIndicators(data.metrics, chatId, currentDate);
                         if (momentumAlerts.length > 0) {
                             allNotifications.push({
@@ -554,6 +574,15 @@ async function checkDataUpdates() {
                                     for (const opp of qualityOpps.content) {
                                         if (opp.notificationKey) {
                                             await recordNotification(chatId, opp.coin.symbol, opp.notificationKey, currentDate);
+                                        }
+                                    }
+                                }
+
+                                const strategySignals = allNotifications.find(n => n.type === 'strategy_signals');
+                                if (strategySignals) {
+                                    for (const signal of strategySignals.content) {
+                                        if (signal.notificationKey) {
+                                            await recordNotification(chatId, signal.coin.symbol, signal.notificationKey, currentDate);
                                         }
                                     }
                                 }
@@ -914,6 +943,42 @@ async function analyzeQualityOpportunities(metrics, chatId, currentDate, notific
     return opportunities.slice(0, 5); // 增加到最多显示5个机会
 }
 
+// 分析策略关键信息
+async function analyzeStrategySignals(metrics, chatId, currentDate, notificationSentChecker = hasNotificationSent) {
+    const alerts = [];
+
+    for (const metric of metrics) {
+        const signal = getStrategySignal(metric);
+        if (!isOtcTrendStrategySignal(signal)) {
+            continue;
+        }
+
+        const coin = metric.coin || { symbol: metric.symbol, name: metric.name };
+        const coinSymbol = coin?.symbol;
+        const notificationKey = `strategy_${signal.level}`;
+        const alreadySent = await notificationSentChecker(chatId, coinSymbol, notificationKey, currentDate);
+
+        if (alreadySent) {
+            continue;
+        }
+
+        const reasons = Array.isArray(signal.reasons) ? signal.reasons.filter(Boolean) : [];
+        alerts.push({
+            coin,
+            signalType: signal.label || (signal.level === 'otc_up_3' ? '做多：场外三连升' : '做空：场外三连降'),
+            direction: signal.direction || (signal.level === 'otc_up_3' ? 'long' : 'short'),
+            description: reasons.join(' / ') || (signal.level === 'otc_up_3' ? '场外指数连续3天大于1000且上升' : '场外指数连续3天下降'),
+            indices: {
+                explosion: metric.explosion_index,
+                otc: metric.otc_index
+            },
+            notificationKey
+        });
+    }
+
+    return alerts.slice(0, 5);
+}
+
 // 分析动能指标
 async function analyzeMomentumIndicators(metrics, chatId, currentDate) {
     const alerts = [];
@@ -1009,6 +1074,19 @@ function formatComprehensiveNotification(notifications) {
                 }
                 message += `场外：<b>${escapeHtml(formatNumber(opp.indices.otc))}</b>\n`;
                 message += `爆破：<b>${escapeHtml(formatNumber(opp.indices.explosion))}</b>\n`;
+                if (i < notification.content.length - 1) {
+                    message += `\n`;
+                }
+            });
+        } else if (notification.type === 'strategy_signals') {
+            notification.content.forEach((signal, i) => {
+                message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
+                message += `${formatCoinHeader(signal.coin)}\n`;
+                message += `触发：${escapeHtml(signal.signalType)}\n`;
+                message += `${escapeHtml(signal.description)}\n`;
+                message += `方向：${escapeHtml(signal.direction === 'long' ? '做多' : '做空')}\n`;
+                message += `场外：<b>${escapeHtml(formatNumber(signal.indices.otc))}</b>\n`;
+                message += `爆破：<b>${escapeHtml(formatNumber(signal.indices.explosion))}</b>\n`;
                 if (i < notification.content.length - 1) {
                     message += `\n`;
                 }
@@ -1114,6 +1192,7 @@ module.exports = {
     __testUtils: {
         analyzeDataChanges,
         analyzeQualityOpportunities,
+        analyzeStrategySignals,
         analyzeMomentumIndicators,
         checkUserFavoriteAlerts,
         formatComprehensiveNotification,

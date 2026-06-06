@@ -21,7 +21,7 @@ function LiquidityChart({ liquidity, loading }) {
 
   if (loading) {
     return (
-      <Card className="mt-4 bg-white rounded-lg shadow p-4 mb-4">
+      <Card className="dashboard-panel mt-4 p-4 mb-4">
         <div className="flex justify-center items-center p-6">
           <Spin size="large" />
         </div>
@@ -31,7 +31,7 @@ function LiquidityChart({ liquidity, loading }) {
 
   if (!liquidity || (!liquidity.btc_fund_change && !liquidity.eth_fund_change && !liquidity.sol_fund_change)) {
     return (
-      <Card className="mt-4 bg-white rounded-lg shadow p-4 mb-4">
+      <Card className="dashboard-panel mt-4 p-4 mb-4">
         <Title level={4} className="mb-4">流动性概况</Title>
         <Empty description="暂无流动性数据" />
       </Card>
@@ -85,7 +85,7 @@ function LiquidityChart({ liquidity, loading }) {
   );
 
   return (
-    <Card className="mt-4 bg-white rounded-lg shadow p-4 mb-4">
+    <Card className="dashboard-panel mt-4 p-4 mb-4">
       <div className="flex justify-between items-center mb-4">
         <Title level={4} className="mb-0">流动性概况</Title>
         <AntTooltip title="各主流币资金流入流出情况，单位：亿美元">

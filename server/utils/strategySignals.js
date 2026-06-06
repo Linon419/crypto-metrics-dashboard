@@ -3,6 +3,8 @@ const toNumber = (value) => {
   return Number.isFinite(number) ? number : null;
 };
 
+const getField = (row, camelKey, snakeKey) => row?.[camelKey] ?? row?.[snakeKey];
+
 const getPrevData = (coin) => coin?.previousDayData || coin?.previous_day_data || null;
 
 const getRiskNotes = (coin) => {
@@ -10,29 +12,11 @@ const getRiskNotes = (coin) => {
   return Array.isArray(notes) ? notes.filter(Boolean) : [];
 };
 
-const normalizeBackendSignal = (signal) => {
-  if (!signal || typeof signal !== 'object') return null;
-  return {
-    direction: signal.direction || 'neutral',
-    level: signal.level || null,
-    color: signal.color || (signal.direction === 'long' ? 'success' : signal.direction === 'short' ? 'error' : 'default'),
-    risk: signal.risk || 'medium',
-    confirmed: Boolean(signal.confirmed),
-    label: signal.label || '观望',
-    reasons: Array.isArray(signal.reasons) ? signal.reasons : [],
-    confirmations: Array.isArray(signal.confirmations) ? signal.confirmations : [],
-    warnings: Array.isArray(signal.warnings) ? signal.warnings : [],
-    description: signal.description || '',
-  };
-};
-
-const getField = (row, camelKey, snakeKey) => row?.[camelKey] ?? row?.[snakeKey];
-
 const normalizePeriodQuality = (quality) => String(quality || '').trim();
 
 const isLowQualityEntry = (quality) => normalizePeriodQuality(quality).includes('低质量进场');
 
-const makeSignal = ({ direction, level, label, reasons, warnings = [] }) => ({
+const makeSignal = ({ direction, level, label, reasons, confirmations = [], warnings = [] }) => ({
   direction,
   level,
   color: direction === 'long' ? 'success' : direction === 'short' ? 'error' : 'default',
@@ -40,9 +24,9 @@ const makeSignal = ({ direction, level, label, reasons, warnings = [] }) => ({
   confirmed: direction !== 'neutral',
   label,
   reasons,
-  confirmations: [],
+  confirmations,
   warnings,
-  description: reasons.slice(0, 3).join(' / '),
+  description: [...reasons, ...confirmations].slice(0, 3).join(' / '),
 });
 
 const OTC_UP_SIGNAL_MIN_INDEX = 1000;
@@ -56,6 +40,9 @@ function normalizeHistory(coin) {
     timestamp: coin?.timestamp,
     otc_index: coin?.otcIndex ?? coin?.otc_index,
     explosion_index: coin?.explosionIndex ?? coin?.explosion_index,
+    entry_exit_type: coin?.entryExitType ?? coin?.entry_exit_type,
+    entry_exit_day: coin?.entryExitDay ?? coin?.entry_exit_day,
+    period_quality: coin?.period_quality,
   });
 
   if (prevData) {
@@ -65,9 +52,17 @@ function normalizeHistory(coin) {
   const byDate = new Map();
   rows
     .filter(row => row?.date)
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+    .sort((a, b) => {
+      const dateCompare = String(b.date).localeCompare(String(a.date));
+      if (dateCompare !== 0) return dateCompare;
+      const bTime = new Date(b.timestamp || 0).getTime();
+      const aTime = new Date(a.timestamp || 0).getTime();
+      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+    })
     .forEach(row => {
-      if (!byDate.has(row.date)) byDate.set(row.date, row);
+      if (!byDate.has(row.date)) {
+        byDate.set(row.date, row);
+      }
     });
 
   return [...byDate.values()];
@@ -99,11 +94,9 @@ function isOtcUpSignal(historyRows) {
     && previous > beforePrevious;
 }
 
-export function evaluateStrategySignal(coin) {
-  const backendSignal = normalizeBackendSignal(coin?.strategySignal || coin?.strategy_signal);
-  if (backendSignal) return backendSignal;
-
+function evaluateStrategySignal(coin) {
   const riskNotes = getRiskNotes(coin);
+
   if (!coin) {
     return {
       direction: 'neutral',
@@ -116,45 +109,17 @@ export function evaluateStrategySignal(coin) {
   }
 
   const prevData = getPrevData(coin);
+  const historyRows = normalizeHistory(coin);
+  const otcTrend = getOtcTrend(historyRows);
   const prevExplosion = toNumber(getField(prevData, 'explosionIndex', 'explosion_index'));
   const currExplosion = toNumber(coin.explosionIndex ?? coin.explosion_index);
   const entryExitType = coin.entryExitType ?? coin.entry_exit_type;
   const entryExitDay = Number(coin.entryExitDay ?? coin.entry_exit_day ?? 0);
   const quality = normalizePeriodQuality(coin.period_quality);
-  const historyRows = normalizeHistory(coin);
-  const otcTrend = getOtcTrend(historyRows);
 
-  const candidates = [];
-  if (otcTrend === 'down') {
-    candidates.push(makeSignal({
-      direction: 'short',
-      level: 'otc_down_3',
-      label: '做空：场外三连降',
-      reasons: ['场外指数连续3天下降'],
-      warnings: riskNotes,
-    }));
-  }
-
-  const shortTriggerReasons = [];
-  const brokeBelow200 = prevExplosion !== null && currExplosion !== null && prevExplosion >= 200 && currExplosion < 200;
-  if (brokeBelow200 && isLowQualityEntry(quality)) {
-    shortTriggerReasons.push('爆破指数跌破200', quality);
-  }
-  if (entryExitType === 'exit' && entryExitDay === 1) {
-    shortTriggerReasons.push('退场期第一天');
-  }
-  if (shortTriggerReasons.length > 0) {
-    candidates.push(makeSignal({
-      direction: 'short',
-      level: 'short_trigger',
-      label: '做空：触发',
-      reasons: shortTriggerReasons,
-      warnings: riskNotes,
-    }));
-  }
-
+  const longCandidates = [];
   if (isOtcUpSignal(historyRows)) {
-    candidates.push(makeSignal({
+    longCandidates.push(makeSignal({
       direction: 'long',
       level: 'otc_up_3',
       label: '做多：场外三连升',
@@ -171,7 +136,7 @@ export function evaluateStrategySignal(coin) {
     longTriggerReasons.push('进场期第一天');
   }
   if (longTriggerReasons.length > 0) {
-    candidates.push(makeSignal({
+    longCandidates.push(makeSignal({
       direction: 'long',
       level: 'long_trigger',
       label: '做多：触发',
@@ -180,14 +145,49 @@ export function evaluateStrategySignal(coin) {
     }));
   }
 
+  const shortCandidates = [];
+  if (otcTrend === 'down') {
+    shortCandidates.push(makeSignal({
+      direction: 'short',
+      level: 'otc_down_3',
+      label: '做空：场外三连降',
+      reasons: ['场外指数连续3天下降'],
+      warnings: riskNotes,
+    }));
+  }
+
+  const shortTriggerReasons = [];
+  const brokeBelow200 = prevExplosion !== null
+    && currExplosion !== null
+    && prevExplosion >= 200
+    && currExplosion < 200;
+  if (brokeBelow200 && isLowQualityEntry(quality)) {
+    shortTriggerReasons.push('爆破指数跌破200', quality);
+  }
+  if (entryExitType === 'exit' && entryExitDay === 1) {
+    shortTriggerReasons.push('退场期第一天');
+  }
+  if (shortTriggerReasons.length > 0) {
+    shortCandidates.push(makeSignal({
+      direction: 'short',
+      level: 'short_trigger',
+      label: '做空：触发',
+      reasons: shortTriggerReasons,
+      warnings: riskNotes,
+    }));
+  }
+
+  const candidates = [...shortCandidates, ...longCandidates];
   if (candidates.length > 0) {
-    const priority = {
-      short_trigger: 4,
-      long_trigger: 3,
-      otc_down_3: 2,
-      otc_up_3: 2,
-    };
-    return candidates.sort((a, b) => (priority[b.level] || 0) - (priority[a.level] || 0))[0];
+    return candidates.sort((a, b) => {
+      const priority = {
+        short_trigger: 4,
+        long_trigger: 3,
+        otc_down_3: 2,
+        otc_up_3: 2,
+      };
+      return (priority[b.level] || 0) - (priority[a.level] || 0);
+    })[0];
   }
 
   return {
@@ -200,7 +200,17 @@ export function evaluateStrategySignal(coin) {
   };
 }
 
-export function hasStrategyDirection(coin, direction) {
+function hasStrategyDirection(coin, direction) {
   const signal = evaluateStrategySignal(coin);
   return signal.direction === direction;
 }
+
+module.exports = {
+  evaluateStrategySignal,
+  hasStrategyDirection,
+  __strategySignalTestUtils: {
+    getOtcTrend,
+    isOtcUpSignal,
+    normalizeHistory,
+  },
+};

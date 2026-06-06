@@ -55,6 +55,8 @@ function OtcIndexTable({ coins, marketCoins = coins, liquidity = null, loading =
     explosionIndexChangePercent: coin.explosionIndexChangePercent,
     otcIndexChangePercent: coin.otcIndexChangePercent,
     period_quality: coin.period_quality,
+    strategy_signal: coin.strategy_signal || coin.strategySignal || null,
+    strategySignal: coin.strategySignal || coin.strategy_signal || null,
     riskNotes: coin.riskNotes || coin.risk_notes || [],
     momentumIndicators: coin.momentumIndicators || [],
     nearThreshold: coin.nearThreshold || false
@@ -506,7 +508,7 @@ function OtcIndexTable({ coins, marketCoins = coins, liquidity = null, loading =
   };
 
   return (
-    <div className="mt-4 bg-white rounded-lg shadow p-4">
+    <div className="dashboard-panel mt-4 p-4">
       <div className="flex justify-between items-center mb-4">
         <Title level={4} className="mb-0">场外指数表</Title>
         <Tooltip title="点击表头可以对数据进行排序">

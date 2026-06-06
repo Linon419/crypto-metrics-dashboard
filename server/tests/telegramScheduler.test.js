@@ -5,6 +5,7 @@ const scheduler = require('../../telegram-bot/scheduler');
 const {
   analyzeDataChanges,
   analyzeQualityOpportunities,
+  analyzeStrategySignals,
   formatComprehensiveNotification,
   isExplosionDropBelow200,
   isExplosionTurnPositive,
@@ -14,6 +15,7 @@ const {
 async function run() {
   assert.strictEqual(typeof analyzeDataChanges, 'function');
   assert.strictEqual(typeof analyzeQualityOpportunities, 'function');
+  assert.strictEqual(typeof analyzeStrategySignals, 'function');
   assert.strictEqual(typeof formatComprehensiveNotification, 'function');
 
   const percentOnlyMove = {
@@ -137,16 +139,67 @@ async function run() {
     'quality setup and real zero-crossing should notify, percent-only positive move should not'
   );
 
+  const strategySignals = await analyzeStrategySignals([
+    {
+      coin: { symbol: 'BTC', name: 'Bitcoin' },
+      otc_index: 1600,
+      explosion_index: 120,
+      strategy_signal: {
+        direction: 'long',
+        level: 'otc_up_3',
+        label: '做多：场外三连升',
+        reasons: ['场外指数连续3天大于1000且上升'],
+      },
+    },
+    {
+      coin: { symbol: 'ETH', name: 'Ethereum' },
+      otc_index: 1100,
+      explosion_index: 90,
+      strategy_signal: {
+        direction: 'short',
+        level: 'otc_down_3',
+        label: '做空：场外三连降',
+        reasons: ['场外指数连续3天下降'],
+      },
+    },
+    {
+      coin: { symbol: 'SOL', name: 'Solana' },
+      otc_index: 1500,
+      explosion_index: 8,
+      strategy_signal: {
+        direction: 'long',
+        level: 'long_trigger',
+        label: '做多：触发',
+        reasons: ['爆破指数负转正'],
+      },
+    },
+  ], 1, '2026-05-20', async () => false);
+
+  assert.deepStrictEqual(
+    strategySignals.map(item => item.coin.symbol),
+    ['BTC', 'ETH'],
+    'otc three-day trend strategy signals should push to TG'
+  );
+  assert.strictEqual(strategySignals[0].notificationKey, 'strategy_otc_up_3');
+  assert.strictEqual(strategySignals[1].notificationKey, 'strategy_otc_down_3');
+
   const message = formatComprehensiveNotification([
     {
       type: 'quality_opportunities',
       title: '重要机会',
       content: opportunities.slice(0, 1),
     },
+    {
+      type: 'strategy_signals',
+      title: '策略关键信息',
+      content: strategySignals,
+    },
   ]);
 
   assert.ok(message.includes('<b>Crypto Metrics</b>'));
   assert.ok(message.includes('<b>SOL</b>'));
+  assert.ok(message.includes('场外三连升'));
+  assert.ok(message.includes('场外三连降'));
   assert.ok(!message.includes('**SOL**'));
 
   console.log('telegramScheduler.test.js passed');

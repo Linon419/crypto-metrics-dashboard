@@ -1,9 +1,7 @@
 // src/components/SearchBar.jsx - Mobile-friendly version
 import React, { useState, useEffect, useRef } from 'react';
-import { Input, Divider, Typography, Skeleton, Drawer } from 'antd';
+import { Input, Divider, Skeleton, Drawer } from 'antd';
 import { SearchOutlined, StarFilled, StarOutlined, LoadingOutlined, CloseOutlined } from '@ant-design/icons';
-
-const { Text } = Typography;
 
 function SearchBar({ coins, onSelect, favorites = [], onToggleFavorite, loading = false }) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -192,10 +190,10 @@ function SearchBar({ coins, onSelect, favorites = [], onToggleFavorite, loading 
   );
   
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="market-search relative" ref={dropdownRef}>
       {/* Search button/input */}
-      <div 
-        className="bg-gray-800 rounded-md flex items-center p-2 cursor-pointer"
+      <div
+        className="market-search-trigger"
         onClick={handleSearchIconClick}
       >
         {loading ? (
@@ -222,7 +220,7 @@ function SearchBar({ coins, onSelect, favorites = [], onToggleFavorite, loading 
       
       {/* Desktop dropdown */}
       {!isMobile && isDropdownOpen && (
-        <div className="absolute top-full left-0 mt-1 w-64 max-h-96 overflow-y-auto bg-gray-800 rounded-md shadow-lg z-50">
+        <div className="market-search-dropdown absolute top-full left-0 mt-2 w-72 max-h-96 overflow-y-auto z-50">
           {loading ? renderLoadingSkeleton() : renderCoinList()}
         </div>
       )}

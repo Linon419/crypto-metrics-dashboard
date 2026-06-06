@@ -13,6 +13,7 @@ const {
 } = require('../utils/periodQuality');
 const { buildPeriodRiskNotes } = require('../utils/periodRiskNotes');
 const { parseFlexibleDateTime, validateTimePrecision } = require('../utils/timeParser');
+const { evaluateStrategySignal } = require('../utils/strategySignals');
 
 // --- 辅助函数：计算百分比变化 ---
 function calculateChangePercent(current, previous) {
@@ -94,6 +95,71 @@ function buildDateVersionWhere(date, version) {
   }
 
   return where;
+}
+
+async function getRecentMetricHistoryMap(coinIds, date, limitPerCoin = 4) {
+  if (!Array.isArray(coinIds) || coinIds.length === 0 || !date) {
+    return new Map();
+  }
+
+  const rows = await DailyMetric.findAll({
+    where: {
+      coin_id: { [Op.in]: coinIds },
+      date: { [Op.lte]: date },
+    },
+    order: [
+      ['coin_id', 'ASC'],
+      ['date', 'DESC'],
+      ['timestamp', 'DESC'],
+      ['id', 'DESC'],
+    ],
+    raw: true,
+  });
+
+  const historyMap = new Map();
+  const seenDateMap = new Map();
+
+  rows.forEach(row => {
+    const coinId = row.coin_id;
+    if (!historyMap.has(coinId)) {
+      historyMap.set(coinId, []);
+      seenDateMap.set(coinId, new Set());
+    }
+
+    const history = historyMap.get(coinId);
+    const seenDates = seenDateMap.get(coinId);
+    if (history.length >= limitPerCoin || seenDates.has(row.date)) {
+      return;
+    }
+
+    history.push(row);
+    seenDates.add(row.date);
+  });
+
+  return historyMap;
+}
+
+function buildStrategyInput(metric, history = []) {
+  return {
+    symbol: metric.symbol || metric.coin?.symbol,
+    date: metric.date,
+    timestamp: metric.timestamp,
+    otcIndex: metric.otcIndex ?? metric.otc_index,
+    explosionIndex: metric.explosionIndex ?? metric.explosion_index,
+    entryExitType: metric.entryExitType ?? metric.entry_exit_type,
+    entryExitDay: metric.entryExitDay ?? metric.entry_exit_day,
+    period_quality: metric.period_quality,
+    previousDayData: metric.previousDayData || metric.previous_day_data || null,
+    riskNotes: metric.riskNotes || metric.risk_notes || [],
+    history,
+  };
+}
+
+function attachStrategySignal(metric, history = []) {
+  return {
+    ...metric,
+    strategy_signal: evaluateStrategySignal(buildStrategyInput(metric, history)),
+  };
 }
 
 // --- 路由：处理原始数据输入并存储 ---
@@ -473,6 +539,16 @@ router.get('/latest', async (req, res) => {
         metric.period_quality = calculatedQuality;
     }));
 
+    const latestHistoryMap = await getRecentMetricHistoryMap(
+      metricsWithComparison.map(metric => metric.coin_id),
+      latestDate
+    );
+    metricsWithComparison.forEach(metric => {
+      metric.strategy_signal = evaluateStrategySignal(buildStrategyInput(
+        metric,
+        latestHistoryMap.get(metric.coin_id) || []
+      ));
+    });
 
     let liquidity = await LiquidityOverview.findOne({
       where: buildDateVersionWhere(latestDate, latestMetricDateEntry),
@@ -1511,9 +1587,10 @@ router.get('/by-date/:date', async (req, res) => {
 
       // 计算完整的历史质量判断
       let periodQuality = '数据不足';
+      let historicalMetrics = [];
       try {
         // 获取该币种截止到指定日期的历史数据
-        const historicalMetrics = await DailyMetric.findAll({
+        historicalMetrics = await DailyMetric.findAll({
           where: {
             coin_id: coin.id,
             date: { [Op.lte]: date } // 只使用指定日期及之前的数据
@@ -1532,7 +1609,14 @@ router.get('/by-date/:date', async (req, res) => {
         periodQuality = '计算出错';
       }
 
-      return {
+      const previousDayData = previousData ? {
+        otc_index: previousData.otc_index,
+        explosion_index: previousData.explosion_index,
+        schelling_point: previousData.schelling_point,
+        date: previousData.date
+      } : null;
+
+      return attachStrategySignal({
         id: coin.id,
         symbol: coin.symbol,
         name: coin.name,
@@ -1554,12 +1638,13 @@ router.get('/by-date/:date', async (req, res) => {
           explosionIndex: previousData.explosion_index,
           date: previousData.date
         } : null,
+        previousDayData: previousDayData,
         otcChangePercent,
         explosionChangePercent,
         // 完整的质量判断
         period_quality: periodQuality,
         risk_notes: buildPeriodRiskNotes(metric)
-      };
+      }, historicalMetrics);
     }));
 
     // 获取流动性概况

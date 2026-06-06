@@ -36,7 +36,9 @@ const dataCache = {
   allDatabaseData: null,
   lastDatabaseFetchTime: 0,
   favorites: null,
-  lastFavoritesFetchTime: 0
+  lastFavoritesFetchTime: 0,
+  btcVolatility: null,
+  lastBtcVolatilityFetchTime: 0
 };
 
 function parseMomentumIndicators(value) {
@@ -381,7 +383,9 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
           time_precision: metric.time_precision || metric.timePrecision || 'day',
           previousDayData: metric.previous_day_data, // Ensure this is passed through
           period_quality: metric.period_quality,
-          riskNotes: Array.isArray(metric.risk_notes) ? metric.risk_notes : []
+          riskNotes: Array.isArray(metric.risk_notes) ? metric.risk_notes : [],
+          strategySignal: metric.strategy_signal || metric.strategySignal || null,
+          strategy_signal: metric.strategy_signal || metric.strategySignal || null,
         };
       });
       // if (coinsWithMetrics.length > 0) {
@@ -420,7 +424,9 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
               time_precision: trendingCoin.time_precision || trendingCoin.timePrecision || 'day',
               previousDayData: trendingCoin.previous_day_data, // Also pass for trending coins if available
               period_quality: trendingCoin.period_quality,
-              riskNotes: Array.isArray(trendingCoin.risk_notes) ? trendingCoin.risk_notes : []
+              riskNotes: Array.isArray(trendingCoin.risk_notes) ? trendingCoin.risk_notes : [],
+              strategySignal: trendingCoin.strategy_signal || trendingCoin.strategySignal || null,
+              strategy_signal: trendingCoin.strategy_signal || trendingCoin.strategySignal || null,
             });
           }
         }
@@ -456,18 +462,25 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
   }
 };
 
-export const fetchBtcPredictionBacktest = async ({ refresh = false } = {}) => {
+export const fetchBtcVolatility = async ({ refresh = false } = {}) => {
+  const now = Date.now();
+  if (!refresh && dataCache.btcVolatility && (now - dataCache.lastBtcVolatilityFetchTime < 60 * 1000)) {
+    return dataCache.btcVolatility;
+  }
+
   try {
-    const response = await callApiWithRetry(() => api.get('/predictions/btc/backtest', {
+    const response = await callApiWithRetry(() => api.get('/volatility/btc', {
       params: refresh ? { refresh: 1 } : undefined,
     }));
     if (response.data && response.data.success) {
+      dataCache.btcVolatility = response.data;
+      dataCache.lastBtcVolatilityFetchTime = now;
       return response.data;
     }
-    throw new Error(response.data?.error || '获取BTC预测回测失败');
+    throw new Error(response.data?.error || '获取BTC波动率失败');
   } catch (error) {
-    console.error('获取BTC预测回测失败:', error.displayMessage || error.message);
-    throw new Error(error.displayMessage || '获取BTC预测回测失败');
+    console.error('获取BTC波动率失败:', error.displayMessage || error.message);
+    throw new Error(error.displayMessage || '获取BTC波动率失败');
   }
 };
 
