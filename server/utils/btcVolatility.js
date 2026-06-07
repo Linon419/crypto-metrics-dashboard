@@ -153,16 +153,71 @@ async function fetchDeribitDvol({ currency = 'BTC', fetchImpl = global.fetch, no
   }
 
   const latest = rows[rows.length - 1];
-  if (!Array.isArray(latest) || latest.length < 5) {
+  return parseDeribitDvolCandle(latest);
+}
+
+function parseDeribitDvolCandle(row) {
+  if (!Array.isArray(row) || row.length < 5) {
     throw new Error('Invalid Deribit DVOL candle payload');
   }
 
   return {
-    timestamp: new Date(toNumber(latest[0], 'dvolTimestamp')),
-    open: toNumber(latest[1], 'dvolOpen'),
-    high: toNumber(latest[2], 'dvolHigh'),
-    low: toNumber(latest[3], 'dvolLow'),
-    close: toNumber(latest[4], 'dvolClose'),
+    timestamp: new Date(toNumber(row[0], 'dvolTimestamp')).toISOString(),
+    open: toNumber(row[1], 'dvolOpen'),
+    high: toNumber(row[2], 'dvolHigh'),
+    low: toNumber(row[3], 'dvolLow'),
+    close: toNumber(row[4], 'dvolClose'),
+  };
+}
+
+async function fetchDeribitDvolCandles({
+  currency = 'BTC',
+  fetchImpl = global.fetch,
+  lookbackHours = 24 * 30,
+  now = Date.now(),
+  resolution = '60',
+} = {}) {
+  const params = new URLSearchParams({
+    currency,
+    start_timestamp: String(now - lookbackHours * ONE_HOUR_MS),
+    end_timestamp: String(now),
+    resolution: String(resolution),
+  });
+  const url = `${DERIBIT_API_URL}?${params.toString()}`;
+  const payload = await fetchJson(url, fetchImpl);
+  const rows = payload?.result?.data;
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error('Deribit DVOL history response is empty');
+  }
+
+  return rows.map(parseDeribitDvolCandle);
+}
+
+async function buildBtcVolatilityHistory({
+  fetchImpl = global.fetch,
+  lookbackHours = 24 * 30,
+  now = Date.now(),
+  resolution = '60',
+} = {}) {
+  const candles = await fetchDeribitDvolCandles({
+    fetchImpl,
+    lookbackHours,
+    now,
+    resolution,
+  });
+
+  return {
+    symbol: 'BTC',
+    source: 'Deribit BTC DVOL',
+    resolution: String(resolution),
+    lookbackHours,
+    candles,
+    timestamps: {
+      generatedAt: new Date(now).toISOString(),
+      firstCandleAt: candles[0]?.timestamp || null,
+      lastCandleAt: candles[candles.length - 1]?.timestamp || null,
+    },
   };
 }
 
@@ -196,7 +251,7 @@ async function buildBtcVolatilitySnapshot({ fetchImpl = global.fetch, period = D
       generatedAt: new Date(now).toISOString(),
       latestKlineOpenTime: latestKline.openTime.toISOString(),
       latestKlineCloseTime: latestKline.closeTime.toISOString(),
-      dvolTimestamp: dvol.timestamp.toISOString(),
+      dvolTimestamp: dvol.timestamp,
     },
   };
 }
@@ -206,6 +261,7 @@ module.exports = {
   DERIBIT_API_URL,
   DEFAULT_ATR_PERIOD,
   buildBinanceDailyKlinesUrl,
+  buildBtcVolatilityHistory,
   buildBtcVolatilitySnapshot,
   buildDeribitDvolUrl,
   calculateAtr,
@@ -215,5 +271,7 @@ module.exports = {
   classifyVolatilityComparison,
   fetchBinanceDailyKlines,
   fetchDeribitDvol,
+  fetchDeribitDvolCandles,
   parseBinanceDailyKline,
+  parseDeribitDvolCandle,
 };

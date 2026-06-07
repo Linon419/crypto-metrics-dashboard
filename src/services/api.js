@@ -38,7 +38,9 @@ const dataCache = {
   favorites: null,
   lastFavoritesFetchTime: 0,
   btcVolatility: null,
-  lastBtcVolatilityFetchTime: 0
+  lastBtcVolatilityFetchTime: 0,
+  btcVolatilityHistory: null,
+  lastBtcVolatilityHistoryFetchTime: 0
 };
 
 function parseMomentumIndicators(value) {
@@ -481,6 +483,32 @@ export const fetchBtcVolatility = async ({ refresh = false } = {}) => {
   } catch (error) {
     console.error('获取BTC波动率失败:', error.displayMessage || error.message);
     throw new Error(error.displayMessage || '获取BTC波动率失败');
+  }
+};
+
+export const fetchBtcVolatilityHistory = async ({ refresh = false, lookbackHours = 24 * 30, resolution = '60' } = {}) => {
+  const now = Date.now();
+  if (!refresh && dataCache.btcVolatilityHistory && (now - dataCache.lastBtcVolatilityHistoryFetchTime < 60 * 1000)) {
+    return dataCache.btcVolatilityHistory;
+  }
+
+  try {
+    const response = await callApiWithRetry(() => api.get('/volatility/btc/history', {
+      params: {
+        lookbackHours,
+        resolution,
+        ...(refresh ? { refresh: 1 } : {}),
+      },
+    }));
+    if (response.data && response.data.success) {
+      dataCache.btcVolatilityHistory = response.data;
+      dataCache.lastBtcVolatilityHistoryFetchTime = now;
+      return response.data;
+    }
+    throw new Error(response.data?.error || '获取BTC隐含波动率历史失败');
+  } catch (error) {
+    console.error('获取BTC隐含波动率历史失败:', error.displayMessage || error.message);
+    throw new Error(error.displayMessage || '获取BTC隐含波动率历史失败');
   }
 };
 

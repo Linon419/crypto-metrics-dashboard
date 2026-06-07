@@ -1,11 +1,13 @@
 const assert = require('assert');
 
 const {
+  buildBtcVolatilityHistory,
   buildBtcVolatilitySnapshot,
   calculateAtr,
   calculateDailyIvFromDvol,
   calculateDailyRv,
   classifyVolatilityComparison,
+  parseDeribitDvolCandle,
 } = require('../utils/btcVolatility');
 
 function buildKline(index) {
@@ -86,6 +88,39 @@ async function run() {
   assert.ok(Math.abs(snapshot.dailyIv - 0.029984) < 0.00001);
   assert.strictEqual(snapshot.comparison.label, 'RV高于IV');
   assert.strictEqual(snapshot.timestamps.dvolTimestamp, '2026-01-15T12:00:00.000Z');
+
+  const parsedDvol = parseDeribitDvolCandle([Date.UTC(2026, 0, 15, 12), 50, 52, 49, 51]);
+  assert.strictEqual(parsedDvol.timestamp, '2026-01-15T12:00:00.000Z');
+  assert.strictEqual(parsedDvol.open, 50);
+  assert.strictEqual(parsedDvol.high, 52);
+  assert.strictEqual(parsedDvol.low, 49);
+  assert.strictEqual(parsedDvol.close, 51);
+
+  const historyFetchImpl = async () => ({
+    ok: true,
+    json: async () => ({
+      jsonrpc: '2.0',
+      result: {
+        data: [
+          [Date.UTC(2026, 0, 15, 10), 48, 51, 47, 50],
+          [Date.UTC(2026, 0, 15, 11), 50, 53, 49, 52],
+        ],
+      },
+    }),
+  });
+
+  const history = await buildBtcVolatilityHistory({
+    fetchImpl: historyFetchImpl,
+    now: Date.UTC(2026, 0, 15, 12),
+    lookbackHours: 2,
+    resolution: '60',
+  });
+
+  assert.strictEqual(history.symbol, 'BTC');
+  assert.strictEqual(history.resolution, '60');
+  assert.strictEqual(history.candles.length, 2);
+  assert.strictEqual(history.candles[1].close, 52);
+  assert.strictEqual(history.timestamps.generatedAt, '2026-01-15T12:00:00.000Z');
 
   console.log('btcVolatility.test.js passed');
 }
