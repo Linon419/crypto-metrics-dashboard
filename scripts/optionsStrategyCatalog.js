@@ -230,7 +230,7 @@ const OPTIONS_STRATEGY_CATALOG = [
     coreGreeks: ['delta', 'theta', 'gamma'],
     risks: ['更深下跌保护被截断', '方向不到时净成本消耗', '保护区间选窄'],
     sourceLessons: ['day10'],
-    keywords: ['bear put spread', '熊市认沽', '认沽熊市价差', 'bear spread'],
+    keywords: ['bear put spread', '熊市认沽', '认沽熊市价差', '熊市价差', '做空的价差', '买高卖低', 'bear spread'],
     imageHints: ['assets/payoffs/bullish-bearish-spreads-grid.png'],
   },
   {

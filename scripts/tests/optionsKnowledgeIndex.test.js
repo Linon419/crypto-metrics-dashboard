@@ -51,4 +51,26 @@ function testTextMatching() {
 testCatalogIntegrity();
 testTextMatching();
 
+const { buildIndexFromSourceTexts } = require('../build-options-knowledge-index');
+
+function testBuildIndexFromSourceTexts() {
+  const index = buildIndexFromSourceTexts({
+    sourceTexts: [
+      {
+        sourceFile: 'day11微信录音 魔方_20260414225958_原文.docx',
+        text: '铁鹰策略就是 iron condor，下方做 bull put spread，上方做 bear call spread，目标是在区间内收租。',
+      },
+    ],
+    maxExcerptChars: 500,
+  });
+
+  const ironCondor = index.find(item => item.id === 'iron-condor');
+  assert.ok(ironCondor);
+  assert.strictEqual(ironCondor.quotes.length, 1);
+  assert.strictEqual(ironCondor.quotes[0].sourceFile, 'day11微信录音 魔方_20260414225958_原文.docx');
+  assert.ok(ironCondor.quotes[0].excerpt.includes('iron condor'));
+}
+
+testBuildIndexFromSourceTexts();
+
 console.log('optionsKnowledgeIndex.test.js passed');
