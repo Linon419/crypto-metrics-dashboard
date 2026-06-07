@@ -8,6 +8,7 @@ import DataInputForm from './components/DataInputForm';
 import Dashboard from './components/Dashboard';
 import Login from './components/Login';
 import Register from './components/Register';
+import OptionsPage from './components/OptionsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import UserManagement from './components/UserManagement';
@@ -31,6 +32,8 @@ const NavigationMenu = () => {
     ? '2'
     : location.pathname.startsWith('/users')
     ? '3'
+    : location.pathname.startsWith('/options')
+    ? '5'
     : location.pathname.startsWith('/dashboard') || location.pathname === '/'
     ? '4'
     : '4';
@@ -44,6 +47,9 @@ const NavigationMenu = () => {
       <Menu theme="dark" mode="horizontal" selectedKeys={[activeKey]} className="global-nav__menu">
         <Menu.Item key="4">
           <Link to="/dashboard">数据看板</Link>
+        </Menu.Item>
+        <Menu.Item key="5">
+          <Link to="/options">期权</Link>
         </Menu.Item>
         {/* 只有管理员才能看到管理菜单 */}
         {user?.role === 'admin' && (
@@ -109,6 +115,12 @@ const AppContent = () => {
             <Route path="/dashboard" element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/options" element={
+              <ProtectedRoute>
+                <OptionsPage />
               </ProtectedRoute>
             } />
             
