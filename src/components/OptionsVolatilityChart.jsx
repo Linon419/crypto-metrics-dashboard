@@ -37,7 +37,7 @@ function OptionsVolatilityChart() {
     loadHistory();
   }, [loadHistory]);
 
-  const candles = history?.candles || [];
+  const candles = useMemo(() => history?.candles || [], [history?.candles]);
   const latest = candles[candles.length - 1];
 
   const option = useMemo(() => ({
