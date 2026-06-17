@@ -256,6 +256,43 @@ body {
   color: #fbf7ed;
 }
 
+.option-tuning-panel {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid rgba(29, 78, 216, 0.16);
+  border-radius: 8px;
+  background: rgba(239, 246, 255, 0.74);
+  color: #1e3a8a;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.option-tuning-panel__title {
+  font-weight: 800;
+}
+
+.option-tuning-panel__items {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.option-tuning-panel__chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.74);
+  font-weight: 750;
+}
+
 .dashboard-kline-backfill {
   margin-bottom: 10px;
   padding: 10px;
@@ -724,6 +761,27 @@ body {
 
 .dashboard-shell .ant-table-tbody > tr:hover > td {
   background: rgba(214, 161, 58, 0.08);
+}
+
+.otc-index-table__coin-link.ant-btn-link {
+  height: auto;
+  padding: 0 2px;
+  color: #1d4ed8;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.otc-index-table__coin-link.ant-btn-link:hover,
+.otc-index-table__coin-link.ant-btn-link:focus {
+  color: #0f766e;
+  text-decoration: underline;
+}
+
+.otc-index-table__coin-link.ant-btn-link.is-active {
+  color: #0f172a;
+  background: rgba(37, 99, 235, 0.1);
+  border-radius: 5px;
+  text-decoration: underline;
 }
 
 .coin-list-section {

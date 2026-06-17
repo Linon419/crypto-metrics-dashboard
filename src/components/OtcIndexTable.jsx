@@ -14,7 +14,14 @@ import { evaluateStrategySignal } from '../utils/strategySignals';
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
 
-function OtcIndexTable({ coins, marketCoins = coins, liquidity = null, loading = false }) {
+function OtcIndexTable({
+  coins,
+  marketCoins = coins,
+  liquidity = null,
+  loading = false,
+  onCoinSelect = null,
+  selectedCoin = null,
+}) {
   //console.log("OtcIndexTable received coins data:", coins); // <--- 添加这行来进行调试
   const [sortedInfo, setSortedInfo] = useState({
     columnKey: 'otcIndex',
@@ -62,6 +69,24 @@ function OtcIndexTable({ coins, marketCoins = coins, liquidity = null, loading =
     nearThreshold: coin.nearThreshold || false
   }));
   const strategyContext = { marketCoins, liquidity };
+
+  const renderSymbolControl = (symbol) => {
+    const isSelected = selectedCoin === symbol;
+    if (typeof onCoinSelect !== 'function') {
+      return <span className="font-medium">{symbol}</span>;
+    }
+
+    return (
+      <Button
+        type="link"
+        size="small"
+        className={`otc-index-table__coin-link${isSelected ? ' is-active' : ''}`}
+        onClick={() => onCoinSelect(symbol)}
+      >
+        {symbol}
+      </Button>
+    );
+  };
 
   const renderStrategySignal = (coin, compact = false) => {
     const signal = evaluateStrategySignal(coin, strategyContext);
@@ -162,7 +187,7 @@ function OtcIndexTable({ coins, marketCoins = coins, liquidity = null, loading =
       width: 140,
       render: (text, record) => (
         <div className="flex items-center">
-          <span className="font-medium">{text}</span>
+          {renderSymbolControl(text)}
           {record.entryExitType && record.entryExitType !== 'neutral' && (
             <Tag
               color={record.entryExitType === 'entry' ? 'success' : 'error'}
@@ -399,7 +424,7 @@ function OtcIndexTable({ coins, marketCoins = coins, liquidity = null, loading =
         <div className="w-full">
           <div className="flex justify-between items-center">
             <div className="flex items-center">
-              <span className="font-medium">{coin.symbol}</span>
+              {renderSymbolControl(coin.symbol)}
               {coin.entryExitType && coin.entryExitType !== 'neutral' && (
                 <Tag
                   color={coin.entryExitType === 'entry' ? 'success' : 'error'}

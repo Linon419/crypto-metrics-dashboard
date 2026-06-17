@@ -227,6 +227,20 @@ ${processedText}
 
 ---
 
+### 5. 期权调参识别
+
+当输入出现“期权调参”“delta调为中性”“vega正数”“组成 iron condor”等内容时，输出独立的 optionTuning 对象。
+
+| 原文描述 | 输出字段 |
+|----------|----------|
+| delta调为中性 / delta 中性 / delta neutral | optionTuning.deltaTarget = "neutral" |
+| vega 正数 / vega为正 / positive vega | optionTuning.vegaTarget = "positive" |
+| 组成 iron condor / 铁鹰 / iron condor | optionTuning.strategy = "iron_condor" |
+
+保留期权调参相关原文到 optionTuning.rawText。没有期权调参板块时，optionTuning 返回 null。
+
+---
+
 ## 输出格式（JSON Schema）
 
 {
@@ -250,6 +264,12 @@ ${processedText}
     "totalMarketFundChange": 0.5,
     "comments": "..."
   },
+  "optionTuning": {
+    "deltaTarget": "neutral",
+    "vegaTarget": "positive",
+    "strategy": "iron_condor",
+    "rawText": "期权调参原文"
+  },
   "dailyReminder": "..."
 }
 
@@ -265,6 +285,11 @@ ${processedText}
 - momentumIndicators: 动能指标数组，无则为[]
 - liquidity.btcFundChange: 单位亿美元
 - liquidity.comments: 原文描述，保持完整不遗漏
+- optionTuning: 期权调参板块；无该板块时返回null
+- optionTuning.deltaTarget: "neutral"
+- optionTuning.vegaTarget: "positive"
+- optionTuning.strategy: "iron_condor"
+- optionTuning.rawText: 期权调参原文
 - dailyReminder: 每日提醒原文
 
 ---
@@ -552,6 +577,7 @@ module.exports = {
   __testUtils: {
     filterMomentumIndicatorsByRawText,
     getCoinEvidenceBlock,
+    getDefaultPrompt,
     hasIndicatorSource,
     normalizeMomentumIndicators,
     validateAndFixDate,

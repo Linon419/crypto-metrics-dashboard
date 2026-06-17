@@ -61,6 +61,22 @@ describe('OtcIndexTable', () => {
     expect(document.querySelector('.ant-spin-spinning')).toBeInTheDocument();
   });
 
+  test('calls onCoinSelect when symbol is clicked', () => {
+    const onCoinSelect = jest.fn();
+    render(
+      <OtcIndexTable
+        coins={mockCoins.slice(0, 3)}
+        onCoinSelect={onCoinSelect}
+        selectedCoin="COIN2"
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'COIN2' }));
+
+    expect(onCoinSelect).toHaveBeenCalledWith('COIN2');
+    expect(screen.getByRole('button', { name: 'COIN2' })).toHaveClass('is-active');
+  });
+
   test('renders asterisk momentum indicator', () => {
     render(
       <OtcIndexTable

@@ -107,6 +107,47 @@ const KLINE_BACKFILL_INTERVAL_LABELS = {
 
 const KLINE_BACKFILL_DONE_STATUSES = new Set(['completed', 'completed_with_errors', 'failed']);
 
+const OPTION_TUNING_LABELS = {
+  deltaTarget: {
+    neutral: 'Delta 中性',
+  },
+  vegaTarget: {
+    positive: 'Vega 正',
+    negative: 'Vega 负',
+  },
+  strategy: {
+    iron_condor: 'Iron Condor',
+  },
+};
+
+function getOptionTuningLabel(group, value) {
+  if (!value) return null;
+  return OPTION_TUNING_LABELS[group]?.[value] || String(value).replace(/_/g, ' ');
+}
+
+function OptionTuningPanel({ optionTuning }) {
+  if (!optionTuning) return null;
+
+  const items = [
+    getOptionTuningLabel('deltaTarget', optionTuning.deltaTarget),
+    getOptionTuningLabel('vegaTarget', optionTuning.vegaTarget),
+    getOptionTuningLabel('strategy', optionTuning.strategy),
+  ].filter(Boolean);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="option-tuning-panel" title={optionTuning.rawText || undefined}>
+      <span className="option-tuning-panel__title">期权调参</span>
+      <span className="option-tuning-panel__items">
+        {items.map(item => (
+          <span className="option-tuning-panel__chip" key={item}>{item}</span>
+        ))}
+      </span>
+    </div>
+  );
+}
+
 function Dashboard() {
   // State management
   const [selectedDate, setSelectedDate] = useState(dayjs());
@@ -130,6 +171,7 @@ function Dashboard() {
   const [apiStatus, setApiStatus] = useState({ ok: false, message: '正在检查API状态...' });
   const [viewMode, setViewMode] = useState('all'); // 'all', 'favorites', 'popular', 'long', 'short'
   const [liquidityData, setLiquidityData] = useState(null);
+  const [optionTuningData, setOptionTuningData] = useState(null);
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [debugModalVisible, setDebugModalVisible] = useState(false);
@@ -143,6 +185,7 @@ function Dashboard() {
   const initialLoadCompleteRef = useRef(false);
   const activeDataRequestRef = useRef(0);
   const klineBackfillPollRef = useRef(null);
+  const selectedCoinDetailRef = useRef(null);
 
   // Authentication related
   const dispatch = useDispatch();
@@ -269,6 +312,7 @@ function Dashboard() {
         if (result.liquidity) {
           setLiquidityData(result.liquidity);
         }
+        setOptionTuningData(result.optionTuning || null);
 
         setApiStatus({ ok: true, message: '数据加载成功，API连接正常' });
         showStrategyNotification(result.coins, result.liquidity, result.date);
@@ -364,6 +408,7 @@ function Dashboard() {
     setAllCoins(historicalCoins);
     setLatestDateStr(selectedDateStr);
     setLiquidityData(historicalData.liquidityOverview || historicalData.liquidity || null);
+    setOptionTuningData(historicalData.optionTuning || null);
     setViewMode('all');
     setSelectedCoin(btcCoin ? btcCoin.symbol : historicalCoins[0]?.symbol || null);
 
@@ -468,11 +513,19 @@ function Dashboard() {
   };
 
   // Handle coin selection
-  const handleCoinSelect = (symbol) => {
+  const handleCoinSelect = (symbol, options = {}) => {
     if (symbol) {
       setSelectedCoin(symbol);
       if (isMobile) {
         setMenuDrawerVisible(false);
+      }
+      if (options.scrollToDetail) {
+        requestAnimationFrame(() => {
+          selectedCoinDetailRef.current?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+        });
       }
     }
   };
@@ -876,6 +929,7 @@ function Dashboard() {
               </span>
             ))}
           </div>
+          <OptionTuningPanel optionTuning={optionTuningData} />
           <BtcVolatilityPanel />
         </section>
 
@@ -1012,12 +1066,14 @@ function Dashboard() {
             />
 
             {selectedCoin && getSelectedCoinData() ? (
-              <CoinDetailChart
-                coin={getSelectedCoinData()}
-                onRefresh={handleRefresh}
-                selectedDate={selectedDate}
-                useLatestKlineWindow={isViewingLatest}
-              />
+              <div ref={selectedCoinDetailRef}>
+                <CoinDetailChart
+                  coin={getSelectedCoinData()}
+                  onRefresh={handleRefresh}
+                  selectedDate={selectedDate}
+                  useLatestKlineWindow={isViewingLatest}
+                />
+              </div>
             ) : (
               !loading && ( // Only show placeholder if not loading and no coin selected
                 <div className={`text-center ${isMobile ? 'py-6' : 'py-10'} bg-white rounded-lg shadow mb-4`}>
@@ -1043,6 +1099,8 @@ function Dashboard() {
               liquidity={liquidityData}
               loading={loading && (!allCoins || allCoins.length === 0)} // Show loading in Table only if allCoins is truly empty
               onRefresh={handleRefresh}
+              selectedCoin={selectedCoin}
+              onCoinSelect={(symbol) => handleCoinSelect(symbol, { scrollToDetail: true })}
             />
           </>
         )}

@@ -511,6 +511,7 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
       date: latestDate,
       coins: coinsWithMetrics,
       liquidity: response.data.liquidity || getDefaultLiquidity(),
+      optionTuning: response.data.optionTuning || null,
       trendingCoins: Array.isArray(response.data.trendingCoins) ? response.data.trendingCoins.map(tc => tc.coin || tc) : []
     };
 
@@ -1179,6 +1180,7 @@ function getFallbackMetricsData() {
     date: new Date().toISOString().split('T')[0],
     coins: getFallbackCoins(),
     liquidity: getDefaultLiquidity(),
+    optionTuning: null,
     trendingCoins: []
   };
 }

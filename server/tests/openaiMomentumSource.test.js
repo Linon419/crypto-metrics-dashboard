@@ -2,7 +2,7 @@ const assert = require('assert');
 
 const { __testUtils } = require('../services/openaiService');
 
-const { filterMomentumIndicatorsByRawText, validateAndFixDate } = __testUtils || {};
+const { filterMomentumIndicatorsByRawText, getDefaultPrompt, validateAndFixDate } = __testUtils || {};
 
 function run() {
   assert.strictEqual(
@@ -62,6 +62,18 @@ function run() {
     validateAndFixDate('2026-05-20 00:01', '2026-05-20\nBTC场外指数1200', 2026),
     '2026-05-20 00:01'
   );
+
+  assert.strictEqual(
+    typeof getDefaultPrompt,
+    'function',
+    'getDefaultPrompt should be exported for tests'
+  );
+
+  const prompt = getDefaultPrompt('期权调参\ndelta调为中性\nvega 正数\n组成 iron condor');
+  assert.ok(prompt.includes('optionTuning'));
+  assert.ok(prompt.includes('deltaTarget'));
+  assert.ok(prompt.includes('vegaTarget'));
+  assert.ok(prompt.includes('iron_condor'));
 
   console.log('openaiMomentumSource.test.js passed');
 }

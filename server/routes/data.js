@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../models');
-const { Coin, DailyMetric, LiquidityOverview, TrendingCoin, sequelize } = db; // 从 db 中获取 sequelize
+const { Coin, DailyMetric, LiquidityOverview, OptionTuning, TrendingCoin, sequelize } = db; // 从 db 中获取 sequelize
 const { Op } = require('sequelize');
 
 const openaiService = require('../services/openaiService');
@@ -49,6 +49,62 @@ function normalizeMomentumIndicators(value) {
 function serializeMomentumIndicators(value) {
   const indicators = normalizeMomentumIndicators(value);
   return indicators.length > 0 ? JSON.stringify(indicators) : null;
+}
+
+function normalizeOptionEnum(value, rules) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+
+  for (const rule of rules) {
+    if (rule.patterns.some(pattern => normalized.includes(pattern))) {
+      return rule.value;
+    }
+  }
+
+  return normalized.replace(/[\s-]+/g, '_');
+}
+
+function normalizeOptionTuning(value) {
+  if (!value || typeof value !== 'object') return null;
+
+  const deltaSource = value.deltaTarget ?? value.delta_target ?? '';
+  const vegaSource = value.vegaTarget ?? value.vega_target ?? '';
+  const strategySource = value.strategy ?? '';
+  const rawText = value.rawText ?? value.raw_text ?? null;
+
+  const normalized = {
+    delta_target: normalizeOptionEnum(deltaSource, [
+      { value: 'neutral', patterns: ['neutral', '中性'] },
+    ]),
+    vega_target: normalizeOptionEnum(vegaSource, [
+      { value: 'positive', patterns: ['positive', '正数', '为正', '正'] },
+      { value: 'negative', patterns: ['negative', '负数', '为负', '负'] },
+    ]),
+    strategy: normalizeOptionEnum(strategySource, [
+      { value: 'iron_condor', patterns: ['iron condor', 'iron_condor', '铁鹰'] },
+    ]),
+    raw_text: typeof rawText === 'string' && rawText.trim() ? rawText.trim() : null,
+  };
+
+  const hasValue = normalized.delta_target
+    || normalized.vega_target
+    || normalized.strategy
+    || normalized.raw_text;
+
+  return hasValue ? normalized : null;
+}
+
+function serializeOptionTuning(value) {
+  const normalized = normalizeOptionTuning(value);
+  if (!normalized) return null;
+
+  return {
+    deltaTarget: normalized.delta_target,
+    vegaTarget: normalized.vega_target,
+    strategy: normalized.strategy,
+    rawText: normalized.raw_text,
+  };
 }
 
 function parseRecordTime(date, timestamp, precision) {
@@ -259,8 +315,13 @@ async function storeProcessedData(data) {
   console.log('======== [STORE_DATA] STARTING DATA STORAGE ========');
   // console.log('[STORE_DATA] Received data:', JSON.stringify(data, null, 2));
 
-  const { date, coins = [], liquidity, trendingCoins = [] } = data;
-  const storageResult = { coins: [], liquidityUpdated: false, trendingCoins: [] };
+  const { date, coins = [], liquidity, trendingCoins = [], optionTuning } = data;
+  const storageResult = {
+    coins: [],
+    liquidityUpdated: false,
+    optionTuningUpdated: false,
+    trendingCoins: [],
+  };
   const transaction = await sequelize.transaction(); // 使用事务
 
   try {
@@ -376,6 +437,28 @@ async function storeProcessedData(data) {
         await liqInstance.update(liquidityPayload, { transaction });
       }
       storageResult.liquidityUpdated = true;
+    }
+
+    const normalizedOptionTuning = normalizeOptionTuning(optionTuning);
+    if (normalizedOptionTuning && OptionTuning) {
+      const optionTuningPayload = {
+        date: timeInfo.date,
+        timestamp: timeInfo.timestamp,
+        time_precision: validateTimePrecision(timeInfo.precision),
+        ...normalizedOptionTuning,
+      };
+
+      const [optionTuningInstance, optionTuningCreated] = await OptionTuning.findOrCreate({
+        where: buildVersionWhere({}, timeInfo),
+        defaults: optionTuningPayload,
+        transaction,
+      });
+
+      if (!optionTuningCreated) {
+        await optionTuningInstance.update(optionTuningPayload, { transaction });
+      }
+
+      storageResult.optionTuningUpdated = true;
     }
 
     if (Array.isArray(trendingCoins) && trendingCoins.length > 0) {
@@ -561,6 +644,20 @@ router.get('/latest', async (req, res) => {
       });
     }
 
+    let optionTuning = null;
+    if (OptionTuning) {
+      optionTuning = await OptionTuning.findOne({
+        where: buildDateVersionWhere(latestDate, latestMetricDateEntry),
+        order: [['timestamp', 'DESC'], ['id', 'DESC']],
+      });
+      if (!optionTuning) {
+        optionTuning = await OptionTuning.findOne({
+          where: { date: latestDate },
+          order: [['timestamp', 'DESC'], ['id', 'DESC']],
+        });
+      }
+    }
+
     let trendingCoinsRaw = await TrendingCoin.findAll({
       where: buildDateVersionWhere(latestDate, latestMetricDateEntry),
       order: [['timestamp', 'DESC'], ['symbol', 'ASC']],
@@ -594,6 +691,7 @@ router.get('/latest', async (req, res) => {
       date: latestDate,
       metrics: metricsWithComparison,
       liquidity: liquidity || null, // 确保是 null 如果未找到
+      optionTuning: serializeOptionTuning(optionTuning),
       trendingCoins: trendingCoins,
     });
 
@@ -1272,12 +1370,14 @@ router.get('/export-all', async (req, res) => {
         allCoinsInfo,
         allHistoricalMetricsRaw,
         allLiquidityHistory,
+        allOptionTunings,
         allTrendingCoinsHistory,
         dateRange
     ] = await Promise.all([
         Coin.findAll({ order: [['symbol', 'ASC']] }),
         DailyMetric.findAll({ include: [{ model: Coin, as: 'coin', attributes: ['symbol'] }], order: [['date', 'DESC'], ['coin_id', 'ASC']] }),
         LiquidityOverview.findAll({ order: [['date', 'DESC']] }),
+        OptionTuning ? OptionTuning.findAll({ order: [['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']] }) : [],
         TrendingCoin.findAll({ order: [['date', 'DESC'], ['symbol', 'ASC']] }),
         DailyMetric.findOne({
             attributes: [
@@ -1296,11 +1396,13 @@ router.get('/export-all', async (req, res) => {
         // 简单的模拟 /latest 的输出结构，实际中应更精确
         const latestMetricsForExport = allHistoricalMetricsRaw.filter(m => m.date === dateRange.endDate);
         const latestLiquidityForExport = allLiquidityHistory.find(l => l.date === dateRange.endDate);
+        const latestOptionTuningForExport = allOptionTunings.find(t => t.date === dateRange.endDate);
         const latestTrendingForExport = allTrendingCoinsHistory.filter(t => t.date === dateRange.endDate);
         latestProcessedData = {
             date: dateRange.endDate,
             metrics: latestMetricsForExport.map(m => ({ ...m.toJSON(), coin: m.coin.toJSON() })), // 确保 coin 被正确序列化
             liquidity: latestLiquidityForExport || null,
+            optionTuning: serializeOptionTuning(latestOptionTuningForExport),
             trendingCoins: latestTrendingForExport,
         };
     }
@@ -1344,6 +1446,7 @@ router.get('/export-all', async (req, res) => {
       allCoinsInfo,
       allHistoricalMetricsRaw,
       allLiquidityHistory,
+      allOptionTunings,
       allTrendingCoinsHistory,
       latestProcessedData: latestProcessedData || {}, // 确保有默认值
       historicalChartData,
@@ -1371,7 +1474,7 @@ router.post('/import-database', async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    let counts = { coins: 0, metrics: 0, liquidity: 0, trending: 0 };
+    let counts = { coins: 0, metrics: 0, liquidity: 0, optionTunings: 0, trending: 0 };
 
     // 1. 导入/更新 Coins
     if (dumpData.allCoinsInfo.length > 0) {
@@ -1457,7 +1560,28 @@ router.post('/import-database', async (req, res) => {
         }
     }
 
-    // 4. 导入/更新 TrendingCoins
+    // 4. 导入/更新 OptionTunings
+    if (OptionTuning && Array.isArray(dumpData.allOptionTunings) && dumpData.allOptionTunings.length > 0) {
+        console.log(`[IMPORT_DB] Processing ${dumpData.allOptionTunings.length} option tuning entries...`);
+        for (const optionData of dumpData.allOptionTunings) {
+            if (!optionData || !optionData.date) { console.warn('[IMPORT_DB] Skipping option tuning entry with no date.'); continue; }
+            const optionTimeInfo = parseRecordTime(optionData.date, optionData.timestamp, optionData.time_precision || optionData.timePrecision);
+            const normalizedOptionTuning = normalizeOptionTuning(optionData);
+            if (!normalizedOptionTuning) { console.warn('[IMPORT_DB] Skipping empty option tuning entry.'); continue; }
+
+            const optionTuningPayload = {
+                date: optionTimeInfo.date,
+                timestamp: optionTimeInfo.timestamp,
+                time_precision: optionTimeInfo.precision,
+                ...normalizedOptionTuning,
+            };
+            const [instance, created] = await OptionTuning.findOrCreate({ where: buildVersionWhere({}, optionTimeInfo), defaults: optionTuningPayload, transaction });
+            if (!created) await instance.update(optionTuningPayload, { transaction });
+            counts.optionTunings++;
+        }
+    }
+
+    // 5. 导入/更新 TrendingCoins
     if (Array.isArray(dumpData.allTrendingCoinsHistory) && dumpData.allTrendingCoinsHistory.length > 0) {
         console.log(`[IMPORT_DB] Processing ${dumpData.allTrendingCoinsHistory.length} trending coin entries...`);
         for (const tData of dumpData.allTrendingCoinsHistory) {
@@ -1653,6 +1777,11 @@ router.get('/by-date/:date', async (req, res) => {
       order: [['timestamp', 'DESC'], ['id', 'DESC']]
     });
 
+    const optionTuning = OptionTuning ? await OptionTuning.findOne({
+      where: buildDateVersionWhere(date, selectedVersion),
+      order: [['timestamp', 'DESC'], ['id', 'DESC']]
+    }) : null;
+
     // 获取热门币种
     const trendingCoins = await TrendingCoin.findAll({
       where: buildDateVersionWhere(date, selectedVersion),
@@ -1667,6 +1796,7 @@ router.get('/by-date/:date', async (req, res) => {
       previousDate: previousDateStr,
       coins: processedCoins,
       liquidityOverview,
+      optionTuning: serializeOptionTuning(optionTuning),
       trendingCoins,
       totalCoins: processedCoins.length
     };
@@ -1786,6 +1916,11 @@ router.__qualityTestUtils = {
   normalizeMomentumIndicators,
   serializeMomentumIndicators,
   buildPeriodRiskNotes,
+};
+router.__optionTuningTestUtils = {
+  normalizeOptionTuning,
+  serializeOptionTuning,
+  storeProcessedData,
 };
 
 module.exports = router;
