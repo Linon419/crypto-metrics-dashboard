@@ -1,11 +1,56 @@
 const assert = require('assert');
+const { EventEmitter } = require('events');
 
+const { attachKlineWebSocketServer } = require('../services/klineWebSocketServer');
 const {
   buildBinanceKlineStreamName,
   buildBinanceKlineStreamUrl,
   buildCoinKlineUpsertPayload,
   parseBinanceKlineStreamMessage,
 } = require('../utils/binanceKlineStream');
+
+class FakeClientSocket extends EventEmitter {
+  constructor() {
+    super();
+    this.readyState = 1;
+    this.sentMessages = [];
+    this.closeCalls = [];
+  }
+
+  send(message) {
+    this.sentMessages.push(message);
+  }
+
+  close(code, reason) {
+    this.closeCalls.push({ code, reason });
+  }
+}
+
+class FakeUpstreamSocket extends EventEmitter {
+  constructor(url) {
+    super();
+    this.url = url;
+    this.readyState = 0;
+    this.terminated = false;
+  }
+
+  close() {
+    throw new Error('WebSocket was closed before the connection was established');
+  }
+
+  terminate() {
+    this.terminated = true;
+    this.readyState = 3;
+    this.emit('error', new Error('WebSocket was closed before the connection was established'));
+  }
+}
+
+class FakeWebSocketServer extends EventEmitter {
+  constructor(options) {
+    super();
+    this.options = options;
+  }
+}
 
 async function run() {
   assert.strictEqual(
@@ -75,6 +120,36 @@ async function run() {
     quote_volume: 100000000.12,
     trade_count: 9876,
   });
+
+  let upstreamSocket;
+  const db = {
+    Coin: {
+      findOne: async () => ({ id: 79, symbol: 'AXTI' }),
+    },
+    CoinKline: {
+      upsert: async () => {},
+    },
+  };
+  const wss = attachKlineWebSocketServer({
+    server: {},
+    db,
+    WebSocketCtor: class extends FakeUpstreamSocket {
+      constructor(url) {
+        super(url);
+        upstreamSocket = this;
+      }
+    },
+    WebSocketServerCtor: FakeWebSocketServer,
+    logger: { warn: () => {} },
+  });
+  const client = new FakeClientSocket();
+  wss.emit('connection', client, { url: '/ws/klines?symbol=AXTI&interval=4h' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.doesNotThrow(() => {
+    client.emit('close');
+  });
+  assert.strictEqual(upstreamSocket.terminated, true);
 
   console.log('klineWebSocket.test.js passed');
 }

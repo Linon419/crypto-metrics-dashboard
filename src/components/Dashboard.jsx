@@ -1,6 +1,6 @@
 // src/components/Dashboard.jsx - Mobile-friendly version
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Layout, Tag, Divider, Alert, DatePicker, Space, Typography, Button, Modal, notification, Dropdown, Menu, Tooltip, Drawer } from 'antd';
+import { Layout, Tag, Divider, Alert, DatePicker, Space, Typography, Button, Modal, notification, Dropdown, Menu, Tooltip, Drawer, Progress } from 'antd';
 import {
   ReloadOutlined,
   InfoCircleOutlined,
@@ -17,7 +17,8 @@ import {
   FallOutlined,
   MenuOutlined,
   AppstoreOutlined,
-  BugOutlined
+  BugOutlined,
+  CloudDownloadOutlined
 } from '@ant-design/icons';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
@@ -30,7 +31,13 @@ import BtcVolatilityPanel from './BtcVolatilityPanel';
 import LiquidityChart from './LiquidityChart';
 import LoadingPlaceholder from './LoadingPlaceholder';
 import FavoriteDebug from './FavoriteDebug';
-import { fetchLatestMetrics, fetchDataByDate, fetchAvailableDataDates } from '../services/api'; // Keep this
+import {
+  fetchLatestMetrics,
+  fetchDataByDate,
+  fetchAvailableDataDates,
+  fetchKlineBackfillStatus,
+  startKlineBackfill,
+} from '../services/api'; // Keep this
 import { logout } from '../redux/slices/authSlice';
 import ChangePassword from './ChangePassword';
 import UserProfile from './UserProfile';
@@ -92,6 +99,16 @@ const VIEW_MODES = [
   },
 ];
 
+const KLINE_BACKFILL_INTERVALS = ['15m', '1h', '4h', '1d'];
+const KLINE_BACKFILL_INTERVAL_LABELS = {
+  '15m': '15min',
+  '1h': '1h',
+  '4h': '4h',
+  '1d': '日',
+};
+
+const KLINE_BACKFILL_DONE_STATUSES = new Set(['completed', 'completed_with_errors', 'failed']);
+
 function Dashboard() {
   // State management
   const [selectedDate, setSelectedDate] = useState(dayjs());
@@ -118,6 +135,7 @@ function Dashboard() {
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [debugModalVisible, setDebugModalVisible] = useState(false);
+  const [klineBackfillJob, setKlineBackfillJob] = useState(null);
 
   // Mobile-specific state
   const [menuDrawerVisible, setMenuDrawerVisible] = useState(false);
@@ -126,6 +144,7 @@ function Dashboard() {
   const notifiedStrategyDatesRef = useRef(new Set());
   const initialLoadCompleteRef = useRef(false);
   const activeDataRequestRef = useRef(0);
+  const klineBackfillPollRef = useRef(null);
 
   // Authentication related
   const dispatch = useDispatch();
@@ -467,6 +486,85 @@ function Dashboard() {
     refreshFavorites();
   };
 
+  const stopKlineBackfillPolling = useCallback(() => {
+    if (klineBackfillPollRef.current) {
+      clearInterval(klineBackfillPollRef.current);
+      klineBackfillPollRef.current = null;
+    }
+  }, []);
+
+  const refreshKlineBackfillStatus = useCallback(async () => {
+    try {
+      const result = await fetchKlineBackfillStatus();
+      const job = result?.job || null;
+      setKlineBackfillJob(job);
+
+      if (job && KLINE_BACKFILL_DONE_STATUSES.has(job.status)) {
+        stopKlineBackfillPolling();
+        if (job.status === 'completed') {
+          notification.success({
+            message: 'K线回补完成',
+            description: `已保存 ${job.saved || 0} 根K线，处理 ${job.completedCoins || 0} 个币种周期`,
+            duration: 4,
+          });
+        } else if (job.status === 'completed_with_errors') {
+          notification.warning({
+            message: 'K线回补完成，有部分失败',
+            description: `成功 ${job.completedCoins || 0} 个币种周期，失败 ${job.failedCoins || 0} 个`,
+            duration: 6,
+          });
+        } else {
+          notification.error({
+            message: 'K线回补失败',
+            description: job.error || '后台任务异常',
+            duration: 6,
+          });
+        }
+      }
+    } catch (error) {
+      stopKlineBackfillPolling();
+      notification.error({
+        message: '回补进度获取失败',
+        description: error.message || '无法读取后台任务状态',
+        duration: 5,
+      });
+    }
+  }, [stopKlineBackfillPolling]);
+
+  const startKlineBackfillPolling = useCallback(() => {
+    stopKlineBackfillPolling();
+    refreshKlineBackfillStatus();
+    klineBackfillPollRef.current = setInterval(refreshKlineBackfillStatus, 2000);
+  }, [refreshKlineBackfillStatus, stopKlineBackfillPolling]);
+
+  const handleStartKlineBackfill = useCallback(async () => {
+    try {
+      const result = await startKlineBackfill({
+        intervals: KLINE_BACKFILL_INTERVALS,
+        delayMs: 5000,
+        limit: 1500,
+        maxChunksPerCoin: 40,
+      });
+      setKlineBackfillJob(result?.job || null);
+      notification.info({
+        message: result?.reused ? 'K线回补正在运行' : 'K线回补已启动',
+        description: '后台会慢速顺序回补，进度会自动更新',
+        duration: 4,
+      });
+      startKlineBackfillPolling();
+    } catch (error) {
+      notification.error({
+        message: 'K线回补启动失败',
+        description: error.message || '请检查后端服务',
+        duration: 5,
+      });
+    }
+  }, [startKlineBackfillPolling]);
+
+  useEffect(() => () => {
+    stopKlineBackfillPolling();
+  }, [stopKlineBackfillPolling]);
+
   const handleBackToLatest = () => {
     loadData(true);
   };
@@ -621,6 +719,16 @@ function Dashboard() {
     { label: '做空信号', value: signalCounts.short, hint: '风险候选' },
     { label: '收藏币种', value: favorites.length, hint: user?.username || '当前账户' },
   ];
+  const klineBackfillRunning = klineBackfillJob
+    ? ['queued', 'running'].includes(klineBackfillJob.status)
+    : false;
+  const klineBackfillProgress = klineBackfillJob?.progress || 0;
+  const klineBackfillLatestLog = Array.isArray(klineBackfillJob?.logs)
+    ? klineBackfillJob.logs[klineBackfillJob.logs.length - 1]?.message
+    : '';
+  const klineBackfillProgressStatus = ['failed', 'completed_with_errors'].includes(klineBackfillJob?.status)
+    ? 'exception'
+    : (klineBackfillJob?.status === 'completed' ? 'success' : 'active');
     // console.log("[DASHBOARD - filteredCoins for OtcIndexTable[0]]", filteredCoins && filteredCoins.length > 0 ? JSON.stringify(filteredCoins[0], null, 2) : "empty or undefined");
 
 
@@ -790,6 +898,39 @@ function Dashboard() {
           <BtcVolatilityPanel />
         </section>
 
+        <section className="dashboard-kline-backfill">
+          <div className="dashboard-kline-backfill__controls">
+            <Space wrap align="center">
+              <Text strong>K线回补</Text>
+              <Button
+                icon={<CloudDownloadOutlined />}
+                onClick={handleStartKlineBackfill}
+                loading={klineBackfillRunning}
+              >
+                一键回补全部周期
+              </Button>
+              {klineBackfillJob && (
+                <Text type="secondary">
+                  {klineBackfillJob.status} · {klineBackfillJob.completedChunks || 0}/{klineBackfillJob.totalChunks || 0} 段 · 保存 {klineBackfillJob.saved || 0} 根
+                </Text>
+              )}
+            </Space>
+          </div>
+          {klineBackfillJob && (
+            <div className="dashboard-kline-backfill__progress">
+              <Progress
+                percent={klineBackfillProgress}
+                size="small"
+                status={klineBackfillProgressStatus}
+              />
+              <Text type="secondary">
+                当前：{KLINE_BACKFILL_INTERVAL_LABELS[klineBackfillJob.currentInterval] || klineBackfillJob.currentInterval || '等待'} · {klineBackfillJob.currentCoin || '等待'} {klineBackfillJob.currentChunk || ''}
+                {klineBackfillLatestLog ? ` · ${klineBackfillLatestLog}` : ''}
+              </Text>
+            </div>
+          )}
+        </section>
+
         {error && (
           <Alert
             message="数据加载错误"
@@ -903,6 +1044,7 @@ function Dashboard() {
                 coin={getSelectedCoinData()}
                 onRefresh={handleRefresh}
                 selectedDate={selectedDate}
+                useLatestKlineWindow={isViewingLatest}
               />
             ) : (
               !loading && ( // Only show placeholder if not loading and no coin selected

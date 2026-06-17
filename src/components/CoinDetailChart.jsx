@@ -41,7 +41,7 @@ const getLiquidityBarColor = (value) => {
   return '#94a3b8';
 };
 
-function CoinDetailChart({ coin, onRefresh, selectedDate }) {
+function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow = false }) {
   console.log('[CoinDetailChart] Component rendered with props:', {
     coinSymbol: coin?.symbol,
     selectedDate: selectedDate ? selectedDate.format('YYYY-MM-DD') : 'null'
@@ -821,6 +821,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
               symbol={coin?.symbol}
               startDate={effectiveStartDateStr}
               endDate={effectiveEndDateStr}
+              useLatestKlineWindow={useLatestKlineWindow && !customDateRange}
               embedded
               height={isMobile ? 560 : 780}
             />

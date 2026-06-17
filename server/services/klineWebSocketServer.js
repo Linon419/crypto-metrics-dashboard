@@ -5,7 +5,9 @@ const {
   parseBinanceKlineStreamMessage,
 } = require('../utils/binanceKlineStream');
 
+const CLIENT_CONNECTING = 0;
 const CLIENT_OPEN = 1;
+const CLIENT_CLOSING = 2;
 const DEFAULT_RECONNECT_DELAY_MS = 1500;
 
 function sendJson(socket, payload) {
@@ -19,6 +21,30 @@ function readSubscriptionFromRequest(requestUrl) {
     symbol: String(url.searchParams.get('symbol') || 'BTC').trim().toUpperCase(),
     interval: String(url.searchParams.get('interval') || '1d').trim(),
   };
+}
+
+function detachUpstreamListeners(socket) {
+  if (!socket?.removeAllListeners) return;
+  socket.removeAllListeners('open');
+  socket.removeAllListeners('message');
+  socket.removeAllListeners('close');
+  socket.removeAllListeners('error');
+}
+
+function closeWebSocket(socket) {
+  if (!socket) return;
+  const readyState = socket.readyState;
+  detachUpstreamListeners(socket);
+
+  if (readyState === CLIENT_CONNECTING) {
+    socket.once?.('error', () => {});
+    socket.terminate?.();
+    return;
+  }
+
+  if (readyState === CLIENT_OPEN || readyState === CLIENT_CLOSING) {
+    socket.close?.();
+  }
 }
 
 async function findCoin(db, symbol) {
@@ -60,8 +86,7 @@ function attachKlineWebSocketServer({
         state.reconnectTimer = null;
       }
       if (state.upstream) {
-        state.upstream.removeAllListeners?.();
-        state.upstream.close?.();
+        closeWebSocket(state.upstream);
         state.upstream = null;
       }
     };
@@ -147,6 +172,7 @@ function attachKlineWebSocketServer({
 
 module.exports = {
   attachKlineWebSocketServer,
+  closeWebSocket,
   readSubscriptionFromRequest,
   sendJson,
 };

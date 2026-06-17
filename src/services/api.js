@@ -785,6 +785,37 @@ export const fetchCoinKlines = async (symbol, {
   }
 };
 
+export const startKlineBackfill = async ({
+  intervals = ['15m', '1h', '4h', '1d'],
+  delayMs = 5000,
+  limit = 1500,
+  maxChunksPerCoin = 40,
+} = {}) => {
+  try {
+    const response = await callApiWithRetry(() => api.post('/coins/klines/backfill', {
+      intervals,
+      delayMs,
+      limit,
+      maxChunksPerCoin,
+    }));
+    dataCache.coinKlines.clear();
+    return response.data;
+  } catch (error) {
+    console.error('启动K线回补失败:', error.displayMessage || error.message);
+    throw new Error(error.displayMessage || '启动K线回补失败');
+  }
+};
+
+export const fetchKlineBackfillStatus = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/coins/klines/backfill/status'));
+    return response.data;
+  } catch (error) {
+    console.error('获取K线回补进度失败:', error.displayMessage || error.message);
+    throw new Error(error.displayMessage || '获取K线回补进度失败');
+  }
+};
+
 export const fetchLiquidityHistory = async ({ startDate, endDate } = {}) => {
   try {
     const params = {};

@@ -11,6 +11,7 @@ const DERIBIT_BTC_DVOL_SYMBOL = 'BTC-DVOL';
 const DEFAULT_INTERVAL = '1d';
 const DEFAULT_LIMIT = 365;
 const MAX_LIMIT = 1500;
+const YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
 const { buildBtcVolatilityHistory } = require('./btcVolatility');
 
 const SUPPORTED_INTERVALS = new Set([
@@ -51,6 +52,25 @@ const YAHOO_SYMBOL_ALIASES = {
 };
 
 const DERIBIT_BTC_DVOL_COIN_SYMBOLS = new Set(['VEGA']);
+const yahooSyncCache = new Map();
+const YAHOO_FINANCE_COIN_SYMBOLS = new Set([
+  ...Object.keys(YAHOO_SYMBOL_ALIASES),
+  'AAOI',
+  'AAPL',
+  'AMZN',
+  'AXTI',
+  'BABA',
+  'COIN',
+  'GOOG',
+  'HOOD',
+  'MSFT',
+  'MU',
+  'NVDA',
+  'ORCL',
+  'PLTR',
+  'SNDK',
+  'TSLA',
+]);
 
 const INTERVAL_MS = {
   '1m': 60 * 1000,
@@ -76,6 +96,80 @@ function toNumber(value, fieldName) {
     throw new Error(`Invalid ${fieldName}: ${value}`);
   }
   return number;
+}
+
+function toTimestampMs(value, fieldName = 'timestamp') {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    if (Number.isFinite(time)) return time;
+  }
+  return toNumber(value, fieldName);
+}
+
+function readResponseHeader(headers, name) {
+  if (!headers || typeof headers.get !== 'function') return null;
+  return headers.get(name)
+    || headers.get(String(name).toLowerCase())
+    || headers.get(String(name).toUpperCase())
+    || null;
+}
+
+function parseRetryAfterMs(headers) {
+  const value = readResponseHeader(headers, 'retry-after');
+  if (!value) return null;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.ceil(seconds * 1000);
+  }
+
+  const dateTime = Date.parse(value);
+  if (Number.isFinite(dateTime)) {
+    return Math.max(0, dateTime - Date.now());
+  }
+
+  return null;
+}
+
+function parseBinanceRateLimitHeaders(headers) {
+  const usedWeight1m = Number(readResponseHeader(headers, 'x-mbx-used-weight-1m'));
+  const usedWeight = Number(readResponseHeader(headers, 'x-mbx-used-weight'));
+  const retryAfterMs = parseRetryAfterMs(headers);
+  const rateLimit = {};
+
+  if (Number.isFinite(usedWeight1m)) {
+    rateLimit.usedWeight1m = usedWeight1m;
+  }
+  if (Number.isFinite(usedWeight)) {
+    rateLimit.usedWeight = usedWeight;
+  }
+  if (Number.isFinite(retryAfterMs)) {
+    rateLimit.retryAfterMs = retryAfterMs;
+  }
+
+  return Object.keys(rateLimit).length > 0 ? rateLimit : null;
+}
+
+function attachRateLimitMetadata(payload, rateLimit) {
+  if (!payload || !rateLimit) return payload;
+  Object.defineProperty(payload, '__rateLimit', {
+    value: rateLimit,
+    enumerable: false,
+    configurable: true,
+  });
+  return payload;
+}
+
+function createKlineRequestError(message, response, body) {
+  const error = new Error(`${message}: ${response.status} ${body || ''}`.trim());
+  error.status = response.status;
+  error.retryAfterMs = parseRetryAfterMs(response.headers);
+  error.rateLimit = parseBinanceRateLimitHeaders(response.headers);
+  return error;
+}
+
+function isRateLimitStatusCode(status) {
+  return status === 429 || status === 418;
 }
 
 function normalizeInterval(interval = DEFAULT_INTERVAL) {
@@ -106,8 +200,14 @@ function shouldUseDeribitBtcDvol(symbol) {
   return DERIBIT_BTC_DVOL_COIN_SYMBOLS.has(String(symbol || '').trim().toUpperCase());
 }
 
+function shouldUseYahooFinance(symbol) {
+  return YAHOO_FINANCE_COIN_SYMBOLS.has(String(symbol || '').trim().toUpperCase());
+}
+
 function getPreferredKlineMarket(symbol) {
-  return shouldUseDeribitBtcDvol(symbol) ? DERIBIT_BTC_DVOL_MARKET : null;
+  if (shouldUseDeribitBtcDvol(symbol)) return DERIBIT_BTC_DVOL_MARKET;
+  if (shouldUseYahooFinance(symbol)) return YAHOO_FINANCE_MARKET;
+  return null;
 }
 
 function normalizeYahooInterval(interval = DEFAULT_INTERVAL) {
@@ -122,6 +222,256 @@ function normalizeLimit(limit = DEFAULT_LIMIT) {
   const parsed = Number(limit);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_LIMIT;
   return Math.min(Math.floor(parsed), MAX_LIMIT);
+}
+
+function buildYahooSyncCacheKey({
+  coinSymbol,
+  interval = DEFAULT_INTERVAL,
+  limit = DEFAULT_LIMIT,
+  startTime,
+  endTime,
+} = {}) {
+  return [
+    String(coinSymbol || '').trim().toUpperCase(),
+    normalizeInterval(interval),
+    normalizeLimit(limit),
+    startTime ? String(toTimestampMs(startTime, 'startTime')) : '',
+    endTime ? String(toTimestampMs(endTime, 'endTime')) : '',
+  ].join(':');
+}
+
+function shouldSkipYahooSync({
+  coinSymbol,
+  interval = DEFAULT_INTERVAL,
+  limit = DEFAULT_LIMIT,
+  startTime,
+  endTime,
+  minSyncIntervalMs = 0,
+  now = Date.now(),
+} = {}) {
+  const minInterval = Number(minSyncIntervalMs);
+  if (!shouldUseYahooFinance(coinSymbol) || !Number.isFinite(minInterval) || minInterval <= 0) {
+    return { skip: false };
+  }
+
+  const key = buildYahooSyncCacheKey({ coinSymbol, interval, limit, startTime, endTime });
+  const nowMs = toTimestampMs(now, 'now');
+  const lastSyncedAt = yahooSyncCache.get(key);
+  if (Number.isFinite(lastSyncedAt) && nowMs - lastSyncedAt < minInterval) {
+    return {
+      skip: true,
+      key,
+      lastSyncedAt,
+      nextAllowedAt: lastSyncedAt + minInterval,
+    };
+  }
+
+  return { skip: false, key };
+}
+
+function rememberYahooSync(cacheKey, now = Date.now()) {
+  if (!cacheKey) return;
+  yahooSyncCache.set(cacheKey, toTimestampMs(now, 'now'));
+}
+
+function clearYahooSyncCache() {
+  yahooSyncCache.clear();
+}
+
+function shouldRefreshStoredCoinKlines({
+  rows = [],
+  interval = DEFAULT_INTERVAL,
+  endTime,
+  now = Date.now(),
+} = {}) {
+  if (endTime !== undefined && endTime !== null) return false;
+  if (!Array.isArray(rows) || rows.length === 0) return true;
+
+  const intervalMs = INTERVAL_MS[normalizeInterval(interval)];
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) return false;
+
+  const nowMs = toTimestampMs(now, 'now');
+  const currentBucketStart = Math.floor(nowMs / intervalMs) * intervalMs;
+  const latestOpenTime = rows.reduce((latest, row) => {
+    const value = row?.open_time ?? row?.openTime;
+    const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
+    return Number.isFinite(time) && time > latest ? time : latest;
+  }, -Infinity);
+
+  return Number.isFinite(latestOpenTime) && latestOpenTime < currentBucketStart;
+}
+
+function toPlainRow(row) {
+  if (!row) return null;
+  if (typeof row.get === 'function') return row.get({ plain: true });
+  return row;
+}
+
+function resolveMetricTimestampMs(metric = {}) {
+  if (metric.timestamp) {
+    const timestampTime = new Date(metric.timestamp).getTime();
+    if (Number.isFinite(timestampTime)) return timestampTime;
+  }
+
+  if (typeof metric.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(metric.date)) {
+    const dateTime = new Date(`${metric.date}T00:00:00.000Z`).getTime();
+    if (Number.isFinite(dateTime)) return dateTime;
+  }
+
+  if (metric.date) {
+    const dateTime = new Date(metric.date).getTime();
+    if (Number.isFinite(dateTime)) return dateTime;
+  }
+
+  return null;
+}
+
+function alignTimestampToIntervalStart(timestampMs, interval = DEFAULT_INTERVAL) {
+  const intervalMs = INTERVAL_MS[normalizeInterval(interval)];
+  const parsedTimestamp = toTimestampMs(timestampMs, 'timestamp');
+  return Math.floor(parsedTimestamp / intervalMs) * intervalMs;
+}
+
+async function findCoinKlineBackfillGaps({
+  interval = DEFAULT_INTERVAL,
+  CoinModel,
+  DailyMetricModel,
+  CoinKlineModel,
+} = {}) {
+  if (!CoinModel?.findAll) {
+    throw new Error('Coin model is required');
+  }
+  if (!DailyMetricModel?.findOne) {
+    throw new Error('DailyMetric model is required');
+  }
+  if (!CoinKlineModel?.findOne) {
+    throw new Error('CoinKline model is required');
+  }
+
+  const normalizedInterval = normalizeInterval(interval);
+  const coins = await CoinModel.findAll({
+    attributes: ['id', 'symbol', 'name'],
+    order: [['symbol', 'ASC']],
+    raw: true,
+  });
+  const items = [];
+  let skippedCovered = 0;
+  let skippedNoMetrics = 0;
+  let skippedInvalidMetrics = 0;
+
+  for (const rawCoin of coins) {
+    const coin = toPlainRow(rawCoin);
+    if (!coin?.id || !coin?.symbol) continue;
+
+    const rawMetric = await DailyMetricModel.findOne({
+      where: { coin_id: coin.id },
+      order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']],
+      raw: true,
+    });
+    const metric = toPlainRow(rawMetric);
+
+    if (!metric) {
+      skippedNoMetrics += 1;
+      continue;
+    }
+
+    const metricTimestamp = resolveMetricTimestampMs(metric);
+    if (!Number.isFinite(metricTimestamp)) {
+      skippedInvalidMetrics += 1;
+      continue;
+    }
+
+    const startTime = alignTimestampToIntervalStart(metricTimestamp, normalizedInterval);
+    const intervalMs = INTERVAL_MS[normalizedInterval];
+    const rawLatestMetric = await DailyMetricModel.findOne({
+      where: { coin_id: coin.id },
+      order: [['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']],
+      raw: true,
+    });
+    const latestMetric = toPlainRow(rawLatestMetric) || metric;
+    const latestMetricTimestamp = resolveMetricTimestampMs(latestMetric);
+    const metricEndTime = Number.isFinite(latestMetricTimestamp)
+      ? alignTimestampToIntervalStart(latestMetricTimestamp, normalizedInterval) + intervalMs - 1
+      : startTime + intervalMs - 1;
+    const market = getPreferredKlineMarket(coin.symbol);
+    const klineWhere = {
+      coin_id: coin.id,
+      interval: normalizedInterval,
+    };
+    if (market) {
+      klineWhere.market = market;
+    }
+
+    const rawEarliestKline = await CoinKlineModel.findOne({
+      where: klineWhere,
+      order: [['open_time', 'ASC']],
+      raw: true,
+    });
+    const earliestKline = toPlainRow(rawEarliestKline);
+    const earliestKlineTime = earliestKline?.open_time
+      ? new Date(earliestKline.open_time).getTime()
+      : null;
+
+    if (Number.isFinite(earliestKlineTime) && earliestKlineTime <= startTime) {
+      skippedCovered += 1;
+      continue;
+    }
+
+    items.push({
+      coinId: coin.id,
+      coinSymbol: String(coin.symbol).toUpperCase(),
+      coinName: coin.name || String(coin.symbol).toUpperCase(),
+      market: market || null,
+      interval: normalizedInterval,
+      startTime,
+      endTime: Number.isFinite(earliestKlineTime) ? earliestKlineTime - 1 : metricEndTime,
+      metricStartTime: startTime,
+      earliestKlineTime: Number.isFinite(earliestKlineTime) ? earliestKlineTime : null,
+    });
+  }
+
+  return {
+    interval: normalizedInterval,
+    totalCoins: coins.length,
+    items,
+    skippedCovered,
+    skippedNoMetrics,
+    skippedInvalidMetrics,
+  };
+}
+
+function buildCoinKlineBackfillChunks({
+  startTime,
+  endTime,
+  interval = DEFAULT_INTERVAL,
+  limit = MAX_LIMIT,
+  maxChunks = 100,
+} = {}) {
+  const normalizedInterval = normalizeInterval(interval);
+  const normalizedLimit = normalizeLimit(limit);
+  const intervalMs = INTERVAL_MS[normalizedInterval];
+  const start = alignTimestampToIntervalStart(startTime, normalizedInterval);
+  const parsedMaxChunks = Number(maxChunks);
+  const chunkLimit = Number.isFinite(parsedMaxChunks) && parsedMaxChunks > 0
+    ? Math.floor(parsedMaxChunks)
+    : 100;
+
+  if (endTime === undefined || endTime === null) {
+    return [{ startTime: start, endTime: null }];
+  }
+
+  const end = toTimestampMs(endTime, 'endTime');
+  if (end < start) return [];
+
+  const chunks = [];
+  let cursor = start;
+  while (cursor <= end && chunks.length < chunkLimit) {
+    const chunkEnd = Math.min(end, cursor + intervalMs * normalizedLimit - 1);
+    chunks.push({ startTime: cursor, endTime: chunkEnd });
+    cursor = alignTimestampToIntervalStart(chunkEnd + 1, normalizedInterval);
+  }
+
+  return chunks;
 }
 
 function resolveDvolResolutionForInterval(interval = DEFAULT_INTERVAL) {
@@ -254,17 +604,18 @@ async function fetchKlinesFromUrl(url, fetchImpl, errorPrefix) {
       'user-agent': 'crypto-metrics-dashboard/0.1',
     },
   });
+  const rateLimit = parseBinanceRateLimitHeaders(response.headers);
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw new Error(`${errorPrefix}: ${response.status} ${body}`.trim());
+    throw createKlineRequestError(errorPrefix, response, body);
   }
 
   const payload = await response.json();
   if (!Array.isArray(payload)) {
     throw new Error(`${errorPrefix}: invalid response`);
   }
-  return payload;
+  return attachRateLimitMetadata(payload, rateLimit);
 }
 
 async function fetchBinanceUsdmKlines({
@@ -449,6 +800,21 @@ function parseYahooChartResult(result, {
 }
 
 async function fetchMarketKlinesWithFallback(options) {
+  if (shouldUseYahooFinance(options.coinSymbol)) {
+    const yahooSymbol = resolveYahooSymbol(options.coinSymbol);
+    const rows = await fetchYahooFinanceChart({
+      ...options,
+      symbol: yahooSymbol,
+    });
+    return {
+      rows,
+      market: YAHOO_FINANCE_MARKET,
+      tradingSymbol: yahooSymbol,
+      normalizedRows: true,
+      fallbackReason: null,
+    };
+  }
+
   try {
     const rows = await fetchBinanceUsdmKlines({
       ...options,
@@ -456,6 +822,9 @@ async function fetchMarketKlinesWithFallback(options) {
     });
     return { rows, market: DEFAULT_MARKET, tradingSymbol: options.binanceSymbol };
   } catch (futuresError) {
+    if (isRateLimitStatusCode(futuresError.status)) {
+      throw futuresError;
+    }
     try {
       const rows = await fetchBinanceSpotKlines({
         ...options,
@@ -468,6 +837,9 @@ async function fetchMarketKlinesWithFallback(options) {
         fallbackReason: futuresError.message,
       };
     } catch (spotError) {
+      if (isRateLimitStatusCode(spotError.status)) {
+        throw spotError;
+      }
       const yahooSymbol = resolveYahooSymbol(options.coinSymbol);
       const rows = await fetchYahooFinanceChart({
         ...options,
@@ -490,6 +862,9 @@ async function syncCoinKlines({
   limit = DEFAULT_LIMIT,
   startTime,
   endTime,
+  force = false,
+  minSyncIntervalMs = 0,
+  now = Date.now(),
   fetchImpl = global.fetch,
   CoinKlineModel,
 } = {}) {
@@ -501,10 +876,36 @@ async function syncCoinKlines({
   }
 
   const normalizedInterval = normalizeInterval(interval);
+  const normalizedLimit = normalizeLimit(limit);
+  const yahooSyncCheck = shouldSkipYahooSync({
+    coinSymbol: coin.symbol,
+    interval: normalizedInterval,
+    limit: normalizedLimit,
+    startTime,
+    endTime,
+    minSyncIntervalMs,
+    now,
+  });
+
+  if (!force && yahooSyncCheck.skip) {
+    return {
+      coinId: coin.id,
+      coinSymbol: String(coin.symbol).toUpperCase(),
+      tradingSymbol: resolveYahooSymbol(coin.symbol),
+      market: YAHOO_FINANCE_MARKET,
+      fallbackReason: null,
+      interval: normalizedInterval,
+      fetched: 0,
+      saved: 0,
+      skipped: true,
+      nextAllowedAt: new Date(yahooSyncCheck.nextAllowedAt).toISOString(),
+    };
+  }
+
   if (shouldUseDeribitBtcDvol(coin.symbol)) {
     const parsedRows = await fetchDeribitBtcDvolKlines({
       interval: normalizedInterval,
-      limit,
+      limit: normalizedLimit,
       startTime,
       endTime,
       fetchImpl,
@@ -527,6 +928,7 @@ async function syncCoinKlines({
       interval: normalizedInterval,
       fetched: parsedRows.length,
       saved: parsedRows.length,
+      skipped: false,
     };
   }
 
@@ -535,7 +937,7 @@ async function syncCoinKlines({
     coinSymbol: coin.symbol,
     binanceSymbol,
     interval: normalizedInterval,
-    limit,
+    limit: normalizedLimit,
     startTime,
     endTime,
     fetchImpl,
@@ -559,6 +961,17 @@ async function syncCoinKlines({
     await CoinKlineModel.upsert(payload);
   }
 
+  if (shouldUseYahooFinance(coin.symbol)) {
+    const cacheKey = yahooSyncCheck.key || buildYahooSyncCacheKey({
+      coinSymbol: coin.symbol,
+      interval: normalizedInterval,
+      limit: normalizedLimit,
+      startTime,
+      endTime,
+    });
+    rememberYahooSync(cacheKey, now);
+  }
+
   return {
     coinId: coin.id,
     coinSymbol: String(coin.symbol).toUpperCase(),
@@ -568,6 +981,8 @@ async function syncCoinKlines({
     interval: normalizedInterval,
     fetched: fetched.rows.length,
     saved: parsedRows.length,
+    skipped: false,
+    rateLimit: fetched.rows.__rateLimit || null,
   };
 }
 
@@ -625,6 +1040,7 @@ function serializeCoinKline(row) {
 
 module.exports = {
   YAHOO_FINANCE_CHART_URL,
+  YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
   BINANCE_USDM_KLINES_URL,
   BINANCE_SPOT_KLINES_URL,
   BINANCE_SPOT_MARKET,
@@ -633,23 +1049,30 @@ module.exports = {
   DEFAULT_INTERVAL,
   DEFAULT_LIMIT,
   DEFAULT_MARKET,
+  MAX_LIMIT,
   YAHOO_FINANCE_MARKET,
+  buildCoinKlineBackfillChunks,
   buildBinanceSpotKlinesUrl,
   buildBinanceUsdmKlinesUrl,
   buildYahooFinanceChartUrl,
+  clearYahooSyncCache,
   fetchBinanceSpotKlines,
   fetchBinanceUsdmKlines,
   fetchDeribitBtcDvolKlines,
   fetchMarketKlinesWithFallback,
   fetchYahooFinanceChart,
+  findCoinKlineBackfillGaps,
   findStoredCoinKlines,
   getPreferredKlineMarket,
+  alignTimestampToIntervalStart,
   normalizeInterval,
   normalizeLimit,
   normalizeTradingSymbol,
   parseBinanceKlineRow,
   parseYahooChartResult,
   resolveYahooSymbol,
+  shouldRefreshStoredCoinKlines,
+  shouldUseYahooFinance,
   serializeCoinKline,
   syncCoinKlines,
 };

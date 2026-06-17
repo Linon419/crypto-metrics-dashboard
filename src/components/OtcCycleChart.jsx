@@ -23,6 +23,40 @@ const CHART_PERIODS = [
 
 const DEFAULT_CHART_INTERVAL = '4h';
 const LEFT_EXPAND_LIMIT = 1500;
+const YAHOO_FINANCE_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+const YAHOO_FINANCE_KLINE_SYMBOLS = new Set([
+  'AAOI',
+  'AAPL',
+  'A_SHARES',
+  'A_SHARES_INDEX',
+  'AMZN',
+  'AXTI',
+  'BABA',
+  'BRENT',
+  'BRENT_OIL',
+  'CIRCLE',
+  'CN_AI_ETF',
+  'CN_INDEX',
+  'CN_ROBOT',
+  'COIN',
+  'ESTATE',
+  'GOOG',
+  'GOLD',
+  'HOOD',
+  'MSFT',
+  'MU',
+  'NASDAQ',
+  'NASDAO',
+  'NVDA',
+  'OIL',
+  'ORCL',
+  'PLTR',
+  'RE',
+  'REAL_ESTATE',
+  'SILVER',
+  'SNDK',
+  'TSLA',
+]);
 const GREEN = '#22c55e';
 const RED = '#ef4444';
 const ORANGE = '#f59e0b';
@@ -30,6 +64,11 @@ const BLUE = '#2563eb';
 const PURPLE = '#8b5cf6';
 const TEXT = '#2f3337';
 const RIGHT_PRICE_SCALE_WIDTH = 72;
+const ANNOTATION_TRACK_LAYOUT = [
+  { key: 'otc', top: 10 },
+  { key: 'explosion', top: 34 },
+  { key: 'period', top: 58 },
+];
 
 function formatMetricDateKey(value) {
   if (!value) return '';
@@ -49,6 +88,10 @@ function toChartTime(value) {
 
 function getMetricValue(metric, camelKey, snakeKey) {
   return toNumber(metric?.[camelKey] ?? metric?.[snakeKey]);
+}
+
+function shouldUseYahooFinanceKlines(symbol) {
+  return YAHOO_FINANCE_KLINE_SYMBOLS.has(String(symbol || '').trim().toUpperCase());
 }
 
 function getMetricDate(metric) {
@@ -81,6 +124,25 @@ function formatPublishTime(value) {
   const hour = String(date.getUTCHours()).padStart(2, '0');
   const minute = String(date.getUTCMinutes()).padStart(2, '0');
   return `${month}/${day} ${hour}:${minute}`;
+}
+
+export function formatChartAxisTime(value) {
+  const timestamp = typeof value === 'number'
+    ? value * 1000
+    : value?.timestamp
+      ? value.timestamp * 1000
+      : value?.year
+        ? Date.UTC(value.year, (value.month || 1) - 1, value.day || 1)
+        : null;
+  const date = timestamp ? new Date(timestamp) : null;
+  if (!date || Number.isNaN(date.getTime())) return '';
+
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hour = String(date.getUTCHours()).padStart(2, '0');
+  const minute = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hour}:${minute}`;
 }
 
 function getMetricPublishedAt(metric) {
@@ -345,19 +407,69 @@ function buildPhaseRanges(rows) {
 
 function pushUniqueTradingViewMarker(markers, seen, marker) {
   const key = marker.dedupeKey || `${marker.time}:${marker.text}`;
-  if (seen.has(key)) return;
-  seen.add(key);
   const { dedupeKey, ...viewMarker } = marker;
+  if (seen.has(key)) {
+    markers[seen.get(key)] = viewMarker;
+    return;
+  }
+  seen.set(key, markers.length);
   markers.push(viewMarker);
+}
+
+function normalizePeriodDay(day) {
+  const parsed = Number(day);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : null;
+}
+
+function formatMarkerMetric(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  if (Number.isInteger(number)) return String(number);
+  return number.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function getExplosionSignals(previousExplosion, currentExplosion) {
+  if (previousExplosion === null || currentExplosion === null) return [];
+
+  const signals = [];
+  if (previousExplosion < 200 && currentExplosion >= 200) {
+    signals.push({
+      type: 'up200',
+      text: '↑200',
+      color: ORANGE,
+      position: 'atPriceTop',
+      priceKey: 'markerPriceAbove',
+    });
+  }
+  if (previousExplosion >= 200 && currentExplosion < 200) {
+    signals.push({
+      type: 'down200',
+      text: '↓200',
+      color: RED,
+      position: 'atPriceBottom',
+      priceKey: 'markerPriceBelow',
+    });
+  }
+  if (previousExplosion < 0 && currentExplosion > 0) {
+    signals.push({
+      type: 'negativeToPositive',
+      text: '转正',
+      color: PURPLE,
+      position: 'atPriceBottom',
+      priceKey: 'markerPriceBelow',
+    });
+  }
+
+  return signals;
 }
 
 function buildTradingViewMarkers(metricEvents) {
   const markers = [];
-  const seen = new Set();
+  const seen = new Map();
 
   metricEvents.forEach((event, index) => {
     const phase = event.phase;
-    const day = event.day;
+    const day = normalizePeriodDay(event.day);
     const currentExplosion = event.explosionIndex;
     const previousEvent = metricEvents
       .slice(0, index)
@@ -365,65 +477,126 @@ function buildTradingViewMarkers(metricEvents) {
       .find(item => item.explosionIndex !== null);
     const previousExplosion = previousEvent?.explosionIndex ?? null;
 
-    if (phase === 'entry' && Number(day) === 1) {
+    if (phase === 'entry' && day !== null) {
       pushUniqueTradingViewMarker(markers, seen, {
         time: event.alignedTime,
         position: 'atPriceBottom',
         price: event.markerPriceBelow,
         color: GREEN,
-        shape: 'arrowUp',
-        text: '进1',
-        dedupeKey: `${event.metricDate}:entry:1`,
+        shape: day === 1 ? 'arrowUp' : 'circle',
+        dedupeKey: `${event.metricDate}:entry:${day}`,
       });
     }
 
-    if (phase === 'exit' && Number(day) === 1) {
+    if (phase === 'exit' && day !== null) {
       pushUniqueTradingViewMarker(markers, seen, {
         time: event.alignedTime,
         position: 'atPriceTop',
         price: event.markerPriceAbove,
         color: RED,
-        shape: 'arrowDown',
-        text: '退1',
-        dedupeKey: `${event.metricDate}:exit:1`,
+        shape: day === 1 ? 'arrowDown' : 'circle',
+        dedupeKey: `${event.metricDate}:exit:${day}`,
       });
     }
 
-    if (previousExplosion !== null && currentExplosion !== null && previousExplosion < 200 && currentExplosion >= 200) {
+    getExplosionSignals(previousExplosion, currentExplosion).forEach((signal) => {
       pushUniqueTradingViewMarker(markers, seen, {
         time: event.alignedTime,
-        position: 'atPriceTop',
-        price: event.markerPriceAbove,
-        color: ORANGE,
+        position: signal.position,
+        price: event[signal.priceKey],
+        color: signal.color,
         shape: 'circle',
-        text: '爆破上200',
+        dedupeKey: `${event.alignedTime}:explosion:${signal.type}`,
       });
-    }
-
-    if (previousExplosion !== null && currentExplosion !== null && previousExplosion >= 200 && currentExplosion < 200) {
-      pushUniqueTradingViewMarker(markers, seen, {
-        time: event.alignedTime,
-        position: 'atPriceBottom',
-        price: event.markerPriceBelow,
-        color: RED,
-        shape: 'circle',
-        text: '爆破下破200',
-      });
-    }
-
-    if (previousExplosion !== null && currentExplosion !== null && previousExplosion < 0 && currentExplosion > 0) {
-      pushUniqueTradingViewMarker(markers, seen, {
-        time: event.alignedTime,
-        position: 'atPriceBottom',
-        price: event.markerPriceBelow,
-        color: PURPLE,
-        shape: 'circle',
-        text: '爆破负转正',
-      });
-    }
+    });
   });
 
   return markers;
+}
+
+function pushTrackLabel(trackMap, label) {
+  trackMap.set(label.time, label);
+}
+
+function pushExplosionTrackLabel(trackMap, label) {
+  const existing = trackMap.get(label.time);
+  if (!existing) {
+    trackMap.set(label.time, label);
+    return;
+  }
+
+  const parts = existing.text.split('/');
+  if (!parts.includes(label.text)) parts.push(label.text);
+  trackMap.set(label.time, {
+    ...existing,
+    text: parts.join('/'),
+    color: parts.includes('转正') ? PURPLE : label.color,
+    sourceTime: Math.max(existing.sourceTime || 0, label.sourceTime || 0),
+  });
+}
+
+function pushOtcTrackLabel(trackMap, event) {
+  const otcValue = formatMarkerMetric(event?.otcIndex);
+  if (otcValue === null) return;
+
+  pushTrackLabel(trackMap, {
+    id: `otc-${event.alignedTime}`,
+    time: event.alignedTime,
+    sourceTime: event.publishedTime,
+    text: `场外${otcValue}`,
+    color: BLUE,
+  });
+}
+
+function toSortedTrack(trackMap) {
+  return Array.from(trackMap.values()).sort((left, right) => (
+    left.time - right.time || (left.sourceTime || 0) - (right.sourceTime || 0)
+  ));
+}
+
+function buildAnnotationTracks(metricEvents) {
+  const period = new Map();
+  const explosion = new Map();
+  const otc = new Map();
+
+  metricEvents.forEach((event, index) => {
+    const day = normalizePeriodDay(event.day);
+    const currentExplosion = event.explosionIndex;
+    const previousEvent = metricEvents
+      .slice(0, index)
+      .reverse()
+      .find(item => item.explosionIndex !== null);
+    const previousExplosion = previousEvent?.explosionIndex ?? null;
+    const phaseText = event.phase === 'entry' ? '进' : event.phase === 'exit' ? '退' : null;
+
+    if (phaseText && day !== null) {
+      pushTrackLabel(period, {
+        id: `period-${event.alignedTime}`,
+        time: event.alignedTime,
+        sourceTime: event.publishedTime,
+        text: `${phaseText}${day}`,
+        color: event.phase === 'entry' ? GREEN : RED,
+      });
+      if (day === 1) pushOtcTrackLabel(otc, event);
+    }
+
+    getExplosionSignals(previousExplosion, currentExplosion).forEach((signal) => {
+      pushExplosionTrackLabel(explosion, {
+        id: `explosion-${event.alignedTime}-${signal.type}`,
+        time: event.alignedTime,
+        sourceTime: event.publishedTime,
+        text: signal.text,
+        color: signal.color,
+      });
+      pushOtcTrackLabel(otc, event);
+    });
+  });
+
+  return {
+    otc: toSortedTrack(otc),
+    explosion: toSortedTrack(explosion),
+    period: toSortedTrack(period),
+  };
 }
 
 function buildMetricPointMarkers(metricEvents, valueKey, color) {
@@ -523,6 +696,7 @@ export function buildTradingViewCycleModel({ klines = [], metrics = [] }) {
     otcPointMarkers: buildMetricPointMarkers(latestEvents, 'otcIndex', BLUE),
     explosionPointMarkers: buildMetricPointMarkers(latestEvents, 'explosionIndex', PURPLE),
     markers: buildTradingViewMarkers(metricEvents),
+    annotationTracks: buildAnnotationTracks(metricEvents),
     phaseRanges: buildPhaseRanges(rows),
     latest: latest ? {
       close: latest.close,
@@ -536,7 +710,7 @@ export function buildOtcCycleChartOption(args) {
   return buildTradingViewCycleModel(args);
 }
 
-function createBaseChart(container, height, showTimeScale = false, showAttribution = false) {
+function createBaseChart(container, height, showTimeScale = false, showAttribution = false, priceScaleMargins = null) {
   return createChart(container, {
     width: container.clientWidth || 800,
     height,
@@ -546,6 +720,9 @@ function createBaseChart(container, height, showTimeScale = false, showAttributi
       fontSize: 12,
       fontFamily: '"DIN Alternate", "Avenir Next", sans-serif',
       attributionLogo: showAttribution,
+    },
+    localization: {
+      timeFormatter: formatChartAxisTime,
     },
     grid: {
       vertLines: { color: 'rgba(226, 232, 240, 0.74)' },
@@ -558,6 +735,7 @@ function createBaseChart(container, height, showTimeScale = false, showAttributi
       visible: true,
       borderColor: '#d1d5db',
       minimumWidth: RIGHT_PRICE_SCALE_WIDTH,
+      scaleMargins: priceScaleMargins || { top: 0.1, bottom: 0.12 },
     },
     leftPriceScale: {
       visible: false,
@@ -618,6 +796,52 @@ function applyReviewRange(charts, rows, visibleBars, metricEvents = []) {
   });
 }
 
+function buildPositionedAnnotationLabels(annotationTracks = {}, chartWidth = 800, timeToX = () => null) {
+  if (chartWidth <= 0) return [];
+
+  const positioned = [];
+  const maxX = Math.max(40, chartWidth - RIGHT_PRICE_SCALE_WIDTH - 24);
+
+  ANNOTATION_TRACK_LAYOUT.forEach((track) => {
+    const labels = annotationTracks?.[track.key] || [];
+    let lastRight = -Infinity;
+
+    labels.forEach((label) => {
+      const coordinate = Number(timeToX(label.time));
+      if (!Number.isFinite(coordinate) || coordinate < -80 || coordinate > chartWidth + 80) return;
+
+      const safeX = Math.max(36, Math.min(maxX, coordinate));
+      const estimatedWidth = Math.max(34, label.text.length * 8 + 14);
+      const leftEdge = safeX - estimatedWidth / 2;
+      const rightEdge = safeX + estimatedWidth / 2;
+      if (leftEdge < lastRight + 6) return;
+      lastRight = rightEdge;
+
+      positioned.push({
+        ...label,
+        id: `${track.key}-${label.id}-${label.text}`,
+        track: track.key,
+        left: safeX,
+        top: track.top,
+      });
+    });
+  });
+
+  return positioned;
+}
+
+function buildFallbackAnnotationLabels(annotationTracks = {}, rows = [], visibleBars = 0, chartWidth = 800) {
+  const range = buildReviewVisibleTimeRange(rows, visibleBars);
+  if (!range) return [];
+
+  const plotWidth = Math.max(1, chartWidth - RIGHT_PRICE_SCALE_WIDTH - 72);
+  const span = Math.max(1, range.to - range.from);
+  return buildPositionedAnnotationLabels(annotationTracks, chartWidth, (time) => {
+    if (time < range.from || time > range.to) return null;
+    return 36 + ((time - range.from) / span) * plotWidth;
+  });
+}
+
 function syncTimeRange(targets, syncingRef) {
   return (range) => {
     if (!range || syncingRef.current) return;
@@ -633,6 +857,7 @@ function OtcCycleChart({
   symbol = 'BTC',
   startDate,
   endDate,
+  useLatestKlineWindow = false,
   embedded = false,
   height = 640,
 }) {
@@ -646,6 +871,8 @@ function OtcCycleChart({
   const [showMetricEvents, setShowMetricEvents] = useState(true);
   const [hoveredMetricEvent, setHoveredMetricEvent] = useState(null);
   const [hoverValueLabels, setHoverValueLabels] = useState(null);
+  const [hoverAxisLabel, setHoverAxisLabel] = useState(null);
+  const [annotationLabels, setAnnotationLabels] = useState([]);
   const priceRootRef = useRef(null);
   const otcRootRef = useRef(null);
   const explosionRootRef = useRef(null);
@@ -653,36 +880,46 @@ function OtcCycleChart({
   const syncingRef = useRef(false);
 
   const selectedPeriod = CHART_PERIODS.find(period => period.value === interval) || CHART_PERIODS[0];
+  const isYahooFinanceSource = shouldUseYahooFinanceKlines(normalizedSymbol);
 
-  const loadChartData = useCallback(async ({ refresh = false } = {}) => {
-    setLoading(true);
+  const loadChartData = useCallback(async ({ refresh = false, silent = false } = {}) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
-      const [klineResult, metricResult] = await Promise.all([
-        fetchCoinKlines(symbol, {
-          interval: selectedPeriod.value,
-          limit: selectedPeriod.limit,
-          refresh,
-          startTime: startDate ? new Date(startDate).getTime() : undefined,
-          endTime: endDate ? new Date(`${endDate}T23:59:59.999Z`).getTime() : undefined,
-        }),
-        fetchCoinMetrics(symbol, {
-          startDate,
-          endDate,
-        }),
-      ]);
+      const klineResult = await fetchCoinKlines(symbol, {
+        interval: selectedPeriod.value,
+        limit: selectedPeriod.limit,
+        refresh,
+        startTime: !useLatestKlineWindow && startDate ? new Date(startDate).getTime() : undefined,
+        endTime: !useLatestKlineWindow && endDate ? new Date(`${endDate}T23:59:59.999Z`).getTime() : undefined,
+      });
+      const klineRange = useLatestKlineWindow ? getKlineDateRange(klineResult?.klines || []) : null;
+      const metricResult = await fetchCoinMetrics(symbol, {
+        startDate: klineRange?.startDate || startDate,
+        endDate,
+      });
       setKlines(klineResult?.klines || []);
       setMetrics(Array.isArray(metricResult) ? metricResult : []);
     } catch (err) {
       setError(err.message || '新版场外周期图加载失败');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  }, [endDate, selectedPeriod.limit, selectedPeriod.value, startDate, symbol]);
+  }, [endDate, selectedPeriod.limit, selectedPeriod.value, startDate, symbol, useLatestKlineWindow]);
 
   useEffect(() => {
     loadChartData();
   }, [loadChartData]);
+
+  useEffect(() => {
+    if (!isYahooFinanceSource) return () => {};
+
+    const timer = window.setInterval(() => {
+      loadChartData({ refresh: true, silent: true });
+    }, YAHOO_FINANCE_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+  }, [isYahooFinanceSource, loadChartData]);
 
   const loadOlderKlines = useCallback(async () => {
     if (expandingLeft || klines.length === 0) return;
@@ -724,12 +961,16 @@ function OtcCycleChart({
   }, [endDate, expandingLeft, klines, selectedPeriod.value, symbol]);
 
   useEffect(() => {
-    if (normalizedSymbol === 'VEGA') return () => {};
+    if (normalizedSymbol === 'VEGA' || isYahooFinanceSource) return () => {};
 
     return subscribeCoinKlineStream(symbol, {
       interval: selectedPeriod.value,
       onMessage: (message) => {
-        if (message?.interval !== selectedPeriod.value || !message?.kline?.openTime) return;
+        if (
+          message?.interval !== selectedPeriod.value ||
+          !message?.kline?.openTime ||
+          message.isClosed !== true
+        ) return;
         setKlines(current => mergeKlinesByOpenTime(current, [message.kline]));
       },
       onError: (event) => {
@@ -737,7 +978,7 @@ function OtcCycleChart({
         console.warn('[OtcCycleChart] live kline stream error:', message);
       },
     });
-  }, [normalizedSymbol, selectedPeriod.value, symbol]);
+  }, [isYahooFinanceSource, normalizedSymbol, selectedPeriod.value, symbol]);
 
   const model = useMemo(
     () => buildTradingViewCycleModel({ klines, metrics }),
@@ -747,13 +988,23 @@ function OtcCycleChart({
   const priceChartHeight = Math.max(430, Math.round((height - 86) * 0.66));
   const indicatorChartHeight = Math.max(128, Math.round((height - 86) * 0.17));
   const hoverSnapSeconds = Math.max(60, Math.round(getMedianRowTimeGap(model.rows) * 1.5));
+  const fallbackAnnotationLabels = useMemo(
+    () => (showMetricEvents
+      ? buildFallbackAnnotationLabels(model.annotationTracks, model.rows, visibleBars)
+      : []),
+    [model.annotationTracks, model.rows, showMetricEvents, visibleBars],
+  );
+  const renderedAnnotationLabels = annotationLabels.length > 0
+    ? annotationLabels
+    : fallbackAnnotationLabels;
 
   useEffect(() => {
     if (!priceRootRef.current || !otcRootRef.current || !explosionRootRef.current || model.rows.length === 0) {
+      setAnnotationLabels([]);
       return undefined;
     }
 
-    const priceChart = createBaseChart(priceRootRef.current, priceChartHeight, false, true);
+    const priceChart = createBaseChart(priceRootRef.current, priceChartHeight, false, true, { top: 0.22, bottom: 0.08 });
     const otcChart = createBaseChart(otcRootRef.current, indicatorChartHeight, false);
     const explosionChart = createBaseChart(explosionRootRef.current, indicatorChartHeight, true);
     const phaseLayer = phaseLayerRef.current;
@@ -773,7 +1024,9 @@ function OtcCycleChart({
       lastValueVisible: true,
     });
     candleSeries.setData(model.candles);
-    createSeriesMarkers(candleSeries, model.markers, { zOrder: 'top' });
+    if (showMetricEvents) {
+      createSeriesMarkers(candleSeries, model.markers, { zOrder: 'top' });
+    }
 
     const emaSeries = priceChart.addSeries(LineSeries, {
       color: BLUE,
@@ -816,7 +1069,6 @@ function OtcCycleChart({
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: symbol,
       });
     }
 
@@ -890,6 +1142,16 @@ function OtcCycleChart({
     applyReviewRange(charts, model.rows, visibleBars, model.metricEvents);
 
     const updateMetricHover = (param) => {
+      const axisText = formatChartAxisTime(param?.time);
+      const axisX = toFiniteCoordinate(param?.point?.x);
+      if (axisText && axisX !== null) {
+        const axisWidth = explosionRootRef.current?.clientWidth || priceRootRef.current?.clientWidth || 800;
+        const left = Math.max(54, Math.min(axisWidth - RIGHT_PRICE_SCALE_WIDTH - 56, axisX));
+        setHoverAxisLabel({ text: axisText, left });
+      } else {
+        setHoverAxisLabel(null);
+      }
+
       const event = findNearestMetricEventForTime(model.metricEvents, param?.time, hoverSnapSeconds);
       setHoveredMetricEvent(event || null);
       if (!event) {
@@ -948,8 +1210,24 @@ function OtcCycleChart({
       });
     };
 
+    const updateAnnotationLayer = () => {
+      const chartWidth = priceRootRef.current?.clientWidth || 800;
+      if (!showMetricEvents || chartWidth <= 0) {
+        setAnnotationLabels([]);
+        return;
+      }
+
+      setAnnotationLabels(buildPositionedAnnotationLabels(
+        model.annotationTracks,
+        chartWidth,
+        time => priceChart.timeScale().timeToCoordinate(time),
+      ));
+    };
+
     priceChart.timeScale().subscribeVisibleTimeRangeChange(updatePhaseLayer);
+    priceChart.timeScale().subscribeVisibleTimeRangeChange(updateAnnotationLayer);
     updatePhaseLayer();
+    updateAnnotationLayer();
 
     const resize = () => {
       const priceWidth = priceRootRef.current?.clientWidth || 800;
@@ -960,6 +1238,7 @@ function OtcCycleChart({
       explosionChart.applyOptions({ width: explosionWidth, height: indicatorChartHeight });
       applyReviewRange(charts, model.rows, visibleBars, model.metricEvents);
       updatePhaseLayer();
+      updateAnnotationLayer();
     };
 
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
@@ -971,6 +1250,7 @@ function OtcCycleChart({
     return () => {
       priceChart.timeScale().unsubscribeVisibleTimeRangeChange(priceSync);
       priceChart.timeScale().unsubscribeVisibleTimeRangeChange(updatePhaseLayer);
+      priceChart.timeScale().unsubscribeVisibleTimeRangeChange(updateAnnotationLayer);
       priceChart.unsubscribeCrosshairMove(updateMetricHover);
       otcChart.timeScale().unsubscribeVisibleTimeRangeChange(otcSync);
       otcChart.unsubscribeCrosshairMove(updateMetricHover);
@@ -981,6 +1261,7 @@ function OtcCycleChart({
       charts.forEach(chart => chart.remove());
       if (phaseLayer) phaseLayer.innerHTML = '';
       setHoverValueLabels(null);
+      setHoverAxisLabel(null);
     };
   }, [hoverSnapSeconds, indicatorChartHeight, model, priceChartHeight, showMetricEvents, symbol, visibleBars]);
 
@@ -1067,6 +1348,23 @@ function OtcCycleChart({
             <div className="tv-cycle-chart__plots">
               <div className="tv-cycle-chart__plot tv-cycle-chart__plot--price" ref={priceRootRef} style={{ height: priceChartHeight }}>
                 <div className="tv-cycle-chart__phase-layer" ref={phaseLayerRef} />
+                <div className="tv-cycle-chart__annotation-layer">
+                  {renderedAnnotationLabels.map(label => (
+                    <div
+                      key={label.id}
+                      className={`tv-cycle-chart__annotation-label tv-cycle-chart__annotation-label--${label.track}`}
+                      style={{
+                        left: `${label.left}px`,
+                        top: `${label.top}px`,
+                        color: label.color,
+                        borderColor: `${label.color}33`,
+                        background: `${label.color}10`,
+                      }}
+                    >
+                      {label.text}
+                    </div>
+                  ))}
+                </div>
                 <div className="tv-cycle-chart__pane-label">Price / BOLL / EMA10</div>
               </div>
               <div className="tv-cycle-chart__plot tv-cycle-chart__plot--otc" ref={otcRootRef} style={{ height: indicatorChartHeight }}>
@@ -1085,6 +1383,14 @@ function OtcCycleChart({
               </div>
               <div className="tv-cycle-chart__plot tv-cycle-chart__plot--explosion" ref={explosionRootRef} style={{ height: indicatorChartHeight }}>
                 <div className="tv-cycle-chart__pane-label">爆破指数 / 200 / 0</div>
+                {hoverAxisLabel ? (
+                  <div
+                    className="tv-cycle-chart__axis-time-label"
+                    style={{ left: `${hoverAxisLabel.left}px` }}
+                  >
+                    {hoverAxisLabel.text}
+                  </div>
+                ) : null}
                 {showMetricEvents && hoveredMetricEvent && Number.isFinite(hoverValueLabels?.explosion?.top) ? (
                   <div
                     className="tv-cycle-chart__hover-value tv-cycle-chart__hover-value--explosion"

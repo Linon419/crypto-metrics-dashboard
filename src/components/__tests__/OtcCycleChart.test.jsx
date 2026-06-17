@@ -9,43 +9,53 @@ import OtcCycleChart, {
   buildSynchronizedVisibleTimeRange,
   buildTradingViewCycleModel,
   findNearestMetricEventForTime,
+  formatChartAxisTime,
 } from '../OtcCycleChart';
 import { fetchCoinKlines, fetchCoinMetrics, subscribeCoinKlineStream } from '../../services/api';
 
-jest.mock('lightweight-charts', () => {
-  const makeSeries = () => ({
+const mockChartInstances = [];
+const mockSeriesInstances = [];
+const mockMakeSeries = () => {
+  const series = {
     setData: jest.fn(),
     createPriceLine: jest.fn(),
-  });
-
-  const makeChart = () => {
-    const scale = {
-      fitContent: jest.fn(),
-      subscribeVisibleLogicalRangeChange: jest.fn(),
-      unsubscribeVisibleLogicalRangeChange: jest.fn(),
-      setVisibleLogicalRange: jest.fn(),
-      subscribeVisibleTimeRangeChange: jest.fn(),
-      unsubscribeVisibleTimeRangeChange: jest.fn(),
-      setVisibleRange: jest.fn(),
-      timeToCoordinate: jest.fn(() => 10),
-    };
-    return {
-      addSeries: jest.fn(() => makeSeries()),
-      applyOptions: jest.fn(),
-      remove: jest.fn(),
-      subscribeCrosshairMove: jest.fn(),
-      unsubscribeCrosshairMove: jest.fn(),
-      timeScale: jest.fn(() => scale),
-    };
+    priceToCoordinate: jest.fn(() => 40),
   };
+  mockSeriesInstances.push(series);
+  return series;
+};
 
+const mockMakeChart = () => {
+  const scale = {
+    fitContent: jest.fn(),
+    subscribeVisibleLogicalRangeChange: jest.fn(),
+    unsubscribeVisibleLogicalRangeChange: jest.fn(),
+    setVisibleLogicalRange: jest.fn(),
+    subscribeVisibleTimeRangeChange: jest.fn(),
+    unsubscribeVisibleTimeRangeChange: jest.fn(),
+    setVisibleRange: jest.fn(),
+    timeToCoordinate: jest.fn(() => 10),
+  };
+  const chart = {
+    addSeries: jest.fn(() => mockMakeSeries()),
+    applyOptions: jest.fn(),
+    remove: jest.fn(),
+    subscribeCrosshairMove: jest.fn(),
+    unsubscribeCrosshairMove: jest.fn(),
+    timeScale: jest.fn(() => scale),
+  };
+  mockChartInstances.push(chart);
+  return chart;
+};
+
+jest.mock('lightweight-charts', () => {
   return {
     CandlestickSeries: 'CandlestickSeries',
     ColorType: { Solid: 'solid' },
     CrosshairMode: { Normal: 0 },
     LineSeries: 'LineSeries',
     LineStyle: { Dashed: 2, Dotted: 1 },
-    createChart: jest.fn(() => makeChart()),
+    createChart: jest.fn(() => globalThis.__otcMakeChart()),
     createSeriesMarkers: jest.fn(),
   };
 });
@@ -70,6 +80,10 @@ const metrics = [
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockChartInstances.length = 0;
+  mockSeriesInstances.length = 0;
+  globalThis.__otcMakeChart = mockMakeChart;
+  createChart.mockImplementation(() => globalThis.__otcMakeChart());
 });
 
 test('renders BTC cycle chart with TradingView-style panels', async () => {
@@ -91,6 +105,59 @@ test('renders BTC cycle chart with TradingView-style panels', async () => {
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('爆破指数');
   await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
   expect(createChart.mock.calls.map(([, options]) => options.rightPriceScale.minimumWidth)).toEqual([72, 72, 72]);
+  await waitFor(() => expect(screen.getByText('场外900')).toBeInTheDocument());
+  expect(screen.getByText('↑200/转正')).toBeInTheDocument();
+  expect(screen.getByText('进1')).toBeInTheDocument();
+});
+
+test('does not add a symbol title to the current price axis label', async () => {
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+
+  render(<OtcCycleChart symbol="BTC" />);
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+
+  const candleSeries = mockSeriesInstances[0];
+  const currentPriceLine = candleSeries.createPriceLine.mock.calls[0][0];
+  expect(currentPriceLine).not.toHaveProperty('title');
+});
+
+test('formats the crosshair x-axis label with exact date and time', async () => {
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+
+  render(<OtcCycleChart symbol="BTC" />);
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+
+  const [, options] = createChart.mock.calls[2];
+  expect(options.localization.timeFormatter(Math.floor(new Date('2026-01-02T04:30:00.000Z').getTime() / 1000))).toBe('2026-01-02 04:30');
+  expect(formatChartAxisTime(Math.floor(new Date('2026-01-02T04:30:00.000Z').getTime() / 1000))).toBe('2026-01-02 04:30');
+});
+
+test('shows exact bottom-axis time while hovering the price kline pane', async () => {
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+
+  render(<OtcCycleChart symbol="BTC" />);
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+
+  const priceChart = mockChartInstances[0];
+  const handlePriceCrosshair = priceChart.subscribeCrosshairMove.mock.calls[0][0];
+
+  act(() => {
+    handlePriceCrosshair({
+      time: Math.floor(new Date('2026-01-02T04:30:00.000Z').getTime() / 1000),
+      point: { x: 240, y: 180 },
+    });
+  });
+
+  expect(await screen.findByText('2026-01-02 04:30')).toBeInTheDocument();
 });
 
 test('loads 1500 older candles to the left and merges them with current candles', async () => {
@@ -133,7 +200,7 @@ test('loads 1500 older candles to the left and merges them with current candles'
   await waitFor(() => expect(screen.getByText('最近 5 根')).toBeInTheDocument());
 });
 
-test('updates the latest candle from the live kline stream', async () => {
+test('updates the latest candle only when the live kline closes', async () => {
   let handleLiveKline;
   fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
   fetchCoinMetrics.mockResolvedValue(metrics);
@@ -168,7 +235,97 @@ test('updates the latest candle from the live kline stream', async () => {
     });
   });
 
+  expect(screen.getByText('Close 98.00')).toBeInTheDocument();
+  expect(screen.queryByText('Close 128.50')).not.toBeInTheDocument();
+
+  act(() => {
+    handleLiveKline({
+      type: 'kline',
+      symbol: 'BTC',
+      interval: '4h',
+      isClosed: true,
+      kline: {
+        openTime: '2026-01-03T00:00:00.000Z',
+        closeTime: '2026-01-03T03:59:59.999Z',
+        open: 98,
+        high: 132,
+        low: 96,
+        close: 128.5,
+        volume: 18,
+      },
+    });
+  });
+
   await waitFor(() => expect(screen.getByText('Close 128.50')).toBeInTheDocument());
+});
+
+test('can load latest kline window while keeping metric date range', async () => {
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+
+  await act(async () => {
+    render(
+      <OtcCycleChart
+        symbol="BTC"
+        startDate="2026-05-07"
+        endDate="2026-06-06"
+        useLatestKlineWindow
+      />
+    );
+  });
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledWith('BTC', expect.objectContaining({
+    interval: '4h',
+    limit: 500,
+  })));
+  expect(fetchCoinKlines).toHaveBeenCalledWith('BTC', expect.not.objectContaining({
+    startTime: expect.any(Number),
+    endTime: expect.any(Number),
+  }));
+  expect(fetchCoinMetrics).toHaveBeenCalledWith('BTC', {
+    startDate: '2026-01-01',
+    endDate: '2026-06-06',
+  });
+  await waitFor(() => expect(screen.getByText('最近 3 根')).toBeInTheDocument());
+});
+
+test('polls Yahoo Finance sources every 15 minutes without opening a kline stream', async () => {
+  jest.useFakeTimers();
+  try {
+    fetchCoinKlines.mockResolvedValue({
+      symbol: 'AXTI',
+      interval: '4h',
+      market: 'yahoo_finance',
+      klines,
+    });
+    fetchCoinMetrics.mockResolvedValue(metrics);
+
+    await act(async () => {
+      render(<OtcCycleChart symbol="AXTI" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await screen.findByText('量化 K 线');
+    await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledTimes(1));
+    expect(subscribeCoinKlineStream).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(15 * 60 * 1000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledTimes(2));
+    expect(fetchCoinKlines).toHaveBeenLastCalledWith('AXTI', expect.objectContaining({
+      interval: '4h',
+      refresh: true,
+    }));
+    expect(subscribeCoinKlineStream).not.toHaveBeenCalled();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test('builds TradingView model with signal markers and quant panels', () => {
@@ -179,13 +336,62 @@ test('builds TradingView model with signal markers and quant panels', () => {
   expect(model.otcIndex.map(point => point.value)).toEqual([900, 1200, 800]);
   expect(model.explosionIndex.map(point => point.value)).toEqual([-10, 220, 150]);
   expect(model.phaseRanges.length).toBeGreaterThan(0);
-  expect(model.markers.map(marker => marker.text)).toEqual(expect.arrayContaining([
-    '进1',
-    '退1',
-    '爆破上200',
-    '爆破下破200',
-    '爆破负转正',
-  ]));
+  expect(model.markers.every(marker => !marker.text)).toBe(true);
+  expect(model.annotationTracks.period.map(label => label.text)).toEqual(['进1', '进2', '退1']);
+  expect(model.annotationTracks.explosion.map(label => label.text)).toEqual(['↑200/转正', '↓200']);
+  expect(model.annotationTracks.otc.map(label => label.text)).toEqual(['场外900', '场外1200', '场外800']);
+});
+
+test('keeps early daily metrics visible across a wider four-hour kline window', () => {
+  const fourHourKlines = Array.from({ length: 264 }, (_, index) => {
+    const openTime = new Date(Date.UTC(2026, 2, 26, 4 + index * 4));
+    return {
+      openTime: openTime.toISOString(),
+      open: 70000 + index,
+      high: 70100 + index,
+      low: 69900 + index,
+      close: 70050 + index,
+      volume: 10,
+    };
+  });
+  const wideMetrics = [
+    {
+      date: '2026-03-26',
+      timestamp: '2026-03-26 10:12:17.374 +00:00',
+      time_precision: 'minute',
+      otc_index: 1264,
+      explosion_index: 77,
+      entry_exit_type: 'entry',
+      entry_exit_day: 20,
+    },
+    {
+      date: '2026-04-01',
+      timestamp: '2026-04-01 08:12:51.448 +00:00',
+      time_precision: 'minute',
+      otc_index: 1178,
+      explosion_index: 73,
+      entry_exit_type: 'exit',
+      entry_exit_day: 6,
+    },
+    {
+      date: '2026-05-07',
+      timestamp: '2026-05-07 09:53:08.964 +00:00',
+      time_precision: 'minute',
+      otc_index: 1608,
+      explosion_index: 238,
+      entry_exit_type: 'entry',
+      entry_exit_day: 25,
+    },
+  ];
+
+  const model = buildTradingViewCycleModel({ klines: fourHourKlines, metrics: wideMetrics });
+  const valuedOtcPoints = model.otcIndex.filter(point => point.value !== undefined);
+  const valuedExplosionPoints = model.explosionIndex.filter(point => point.value !== undefined);
+
+  expect(valuedOtcPoints.map(point => point.value)).toEqual([1264, 1178, 1608]);
+  expect(valuedExplosionPoints.map(point => point.value)).toEqual([77, 73, 238]);
+  expect(valuedOtcPoints[0].time).toBeLessThan(valuedOtcPoints[2].time);
+  expect(model.annotationTracks.period.map(label => label.text)).toEqual(['进20', '退6', '进25']);
 });
 
 test('builds visible range from real candle time instead of sparse indicator logical index', () => {
@@ -252,10 +458,10 @@ test('marks each explosion down-cross below 200 and negative-to-positive cross',
   }));
 
   const model = buildTradingViewCycleModel({ klines: signalKlines, metrics: signalMetrics });
-  const markerTexts = model.markers.map(marker => marker.text);
+  const explosionTexts = model.annotationTracks.explosion.map(label => label.text);
 
-  expect(markerTexts.filter(text => text === '爆破下破200')).toHaveLength(2);
-  expect(markerTexts.filter(text => text === '爆破负转正')).toHaveLength(1);
+  expect(explosionTexts.filter(text => text.includes('↓200'))).toHaveLength(2);
+  expect(explosionTexts.filter(text => text.includes('转正'))).toHaveLength(1);
 });
 
 test('aligns metric timestamps to nearest kline while keeping original publish time', () => {
@@ -307,7 +513,8 @@ test('aligns metric timestamps to nearest kline while keeping original publish t
   ]);
   expect(model.otcPointMarkers).toHaveLength(2);
   expect(model.explosionPointMarkers).toHaveLength(2);
-  expect(model.markers.map(marker => marker.text)).toEqual(expect.arrayContaining(['爆破负转正']));
+  expect(model.annotationTracks.explosion.map(label => label.text)).toEqual(expect.arrayContaining(['转正']));
+  expect(model.annotationTracks.otc.map(label => label.text)).toEqual(expect.arrayContaining(['场外1180']));
 });
 
 test('plots the latest intrabar metric update on the candle timeline', () => {
@@ -335,7 +542,8 @@ test('plots the latest intrabar metric update on the candle timeline', () => {
       price: -30,
     }),
   ]);
-  expect(model.markers.filter(marker => marker.text === '退1')).toHaveLength(1);
+  expect(model.annotationTracks.period.filter(label => label.text === '退1')).toHaveLength(1);
+  expect(model.annotationTracks.otc.filter(label => label.text === '场外1200')).toHaveLength(1);
 });
 
 test('uses the candle timeline for price and indicator panes', () => {
@@ -361,8 +569,9 @@ test('uses the candle timeline for price and indicator panes', () => {
   expect(model.otcIndex[0]).toEqual({ time: timeline[0] });
   expect(model.otcIndex[1]).toEqual({ time: timeline[1], value: 1300 });
   expect(model.explosionIndex[1]).toEqual({ time: timeline[1], value: 8 });
-  expect(model.markers.find(marker => marker.text === '退1')).toEqual(expect.objectContaining({ time: timeline[1] }));
-  expect(model.markers.find(marker => marker.text === '爆破负转正')).toEqual(expect.objectContaining({ time: timeline[1] }));
+  expect(model.annotationTracks.period.find(label => label.text === '退1')).toEqual(expect.objectContaining({ time: timeline[1] }));
+  expect(model.annotationTracks.explosion.find(label => label.text === '转正')).toEqual(expect.objectContaining({ time: timeline[1] }));
+  expect(model.annotationTracks.otc.find(label => label.text === '场外1300')).toEqual(expect.objectContaining({ time: timeline[1] }));
 });
 
 test('snaps hover time to the nearest nearby metric event', () => {
