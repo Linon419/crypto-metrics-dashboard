@@ -181,9 +181,12 @@ export function findNearestMetricEventForTime(metricEvents, time, maxDistanceSec
   if (!Number.isFinite(targetTime)) return null;
 
   const nearest = metricEvents.reduce((best, event) => {
-    const eventTime = Number(event.time);
-    if (!Number.isFinite(eventTime)) return best;
-    const distance = Math.abs(eventTime - targetTime);
+    const candidateTimes = [event.alignedTime, event.time]
+      .map(candidate => Number(candidate))
+      .filter(Number.isFinite);
+    if (candidateTimes.length === 0) return best;
+
+    const distance = Math.min(...candidateTimes.map(candidate => Math.abs(candidate - targetTime)));
     if (!best || distance < best.distance) {
       return { event, distance };
     }
