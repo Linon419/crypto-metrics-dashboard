@@ -9,7 +9,14 @@ function OptionsStrategyCard({ strategy, onOpen }) {
           <h3>{strategy.nameZh}</h3>
           <p>{strategy.nameEn}</p>
         </div>
-        <Button type="primary" onClick={() => onOpen(strategy)}>查看原文</Button>
+        <Button
+          className="options-strategy-card__action"
+          data-strategy-id={strategy.id}
+          type="primary"
+          onClick={() => onOpen(strategy)}
+        >
+          查看详情
+        </Button>
       </div>
 
       <div className="options-strategy-card__tags">

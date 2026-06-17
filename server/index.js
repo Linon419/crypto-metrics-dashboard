@@ -138,6 +138,7 @@ safelyLoadRoutes('./routes/data', '/api/data');
 safelyLoadRoutes('./routes/dashboard', '/api/dashboard');
 safelyLoadRoutes('./routes/liquidity', '/api/liquidity');
 safelyLoadRoutes('./routes/volatility', '/api/volatility');
+safelyLoadRoutes('./routes/options', '/api/options');
 safelyLoadRoutes('./routes/favorites', '/api/favorites');
 safelyLoadRoutes('./routes/debug', '/api/debug');
 safelyLoadRoutes('./routes/admin', '/api/admin');

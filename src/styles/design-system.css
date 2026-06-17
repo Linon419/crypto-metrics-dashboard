@@ -1132,6 +1132,32 @@ body {
   font-family: "DIN Alternate", "Avenir Next", sans-serif;
 }
 
+.options-strategy-card__action.ant-btn-primary {
+  flex: 0 0 auto;
+  min-width: 86px;
+  border-color: var(--cm-graphite);
+  background: var(--cm-graphite);
+  box-shadow: 0 8px 18px rgba(31, 36, 33, 0.16);
+  color: #fbf7ed;
+  font-weight: 750;
+}
+
+.options-strategy-card__action.ant-btn-primary > span {
+  color: #fbf7ed;
+}
+
+.options-strategy-card__action.ant-btn-primary:hover,
+.options-strategy-card__action.ant-btn-primary:focus-visible {
+  border-color: #d6a13a;
+  background: #d6a13a;
+  color: #1f2421;
+}
+
+.options-strategy-card__action.ant-btn-primary:hover > span,
+.options-strategy-card__action.ant-btn-primary:focus-visible > span {
+  color: #1f2421;
+}
+
 .options-strategy-card__tags {
   display: flex;
   flex-wrap: wrap;
@@ -1157,6 +1183,171 @@ body {
 
 .options-drawer section + section {
   margin-top: 22px;
+}
+
+.options-drawer-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.85fr) minmax(320px, 1.15fr) minmax(360px, 1.25fr);
+  gap: 14px;
+}
+
+.options-drawer-column {
+  min-width: 0;
+}
+
+.options-drawer-column h3 {
+  margin: 0 0 10px;
+  color: var(--cm-ink);
+}
+
+.options-drawer-column h3 + ol {
+  margin-top: 0;
+}
+
+.options-live-alert {
+  margin-bottom: 12px;
+}
+
+.options-live-panel {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid rgba(78, 68, 50, 0.13);
+  border-radius: 8px;
+  background: #fbfaf6;
+}
+
+.options-live-panel__head,
+.options-payoff-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.options-live-panel__head p {
+  margin: 2px 0 0;
+  color: var(--cm-muted);
+  font-size: 12px;
+}
+
+.options-live-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.options-live-controls label,
+.options-live-controls > div {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(78, 68, 50, 0.12);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.options-live-controls span,
+.options-metric span {
+  color: var(--cm-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.options-live-controls input {
+  width: 100%;
+  min-height: 24px;
+  border: 1px solid rgba(78, 68, 50, 0.2);
+  border-radius: 6px;
+  padding: 3px 7px;
+}
+
+.options-live-rationale {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.options-live-rationale span {
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: rgba(55, 82, 103, 0.1);
+  color: var(--cm-graphite);
+  font-size: 12px;
+}
+
+.options-live-empty {
+  padding: 12px;
+  border: 1px dashed rgba(78, 68, 50, 0.2);
+  border-radius: 8px;
+  color: var(--cm-muted);
+}
+
+.options-leg-table-wrap {
+  overflow-x: auto;
+}
+
+.options-leg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.options-leg-table th,
+.options-leg-table td {
+  padding: 8px 7px;
+  border-bottom: 1px solid rgba(78, 68, 50, 0.1);
+  text-align: left;
+  vertical-align: top;
+}
+
+.options-leg-table th {
+  color: var(--cm-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.options-leg-table td strong {
+  display: block;
+  color: var(--cm-ink);
+  font-size: 12px;
+}
+
+.options-leg-table td span {
+  color: var(--cm-muted);
+}
+
+.options-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.options-metric {
+  padding: 9px;
+  border: 1px solid rgba(78, 68, 50, 0.13);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.options-metric strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--cm-ink);
+}
+
+.options-payoff-chart {
+  border: 1px solid rgba(78, 68, 50, 0.13);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.options-payoff-note {
+  margin-top: 10px;
+  color: var(--cm-muted);
+  font-size: 12px;
 }
 
 .options-quote {
@@ -1192,6 +1383,12 @@ body {
 
   .options-filter-grid,
   .options-strategy-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .options-drawer-grid,
+  .options-live-controls,
+  .options-metric-grid {
     grid-template-columns: 1fr;
   }
 }
