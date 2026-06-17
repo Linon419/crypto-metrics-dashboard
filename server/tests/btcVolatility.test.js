@@ -122,6 +122,91 @@ async function run() {
   assert.strictEqual(history.candles[1].close, 52);
   assert.strictEqual(history.timestamps.generatedAt, '2026-01-15T12:00:00.000Z');
 
+  const aggregateUrls = [];
+  const aggregateFetchImpl = async (url) => {
+    aggregateUrls.push(String(url));
+    return {
+      ok: true,
+      json: async () => ({
+        jsonrpc: '2.0',
+        result: {
+          data: [
+            [Date.UTC(2026, 0, 15, 10, 0), 10, 12, 9, 11],
+            [Date.UTC(2026, 0, 15, 10, 1), 11, 13, 10, 12],
+            [Date.UTC(2026, 0, 15, 10, 14), 12, 14, 8, 9],
+            [Date.UTC(2026, 0, 15, 10, 15), 9, 15, 7, 14],
+            [Date.UTC(2026, 0, 15, 10, 29), 14, 16, 13, 15],
+          ],
+        },
+      }),
+    };
+  };
+
+  const fifteenMinuteHistory = await buildBtcVolatilityHistory({
+    fetchImpl: aggregateFetchImpl,
+    now: Date.UTC(2026, 0, 15, 12),
+    lookbackHours: 2,
+    resolution: '900',
+  });
+
+  assert.match(aggregateUrls[0], /resolution=60/);
+  assert.strictEqual(fifteenMinuteHistory.resolution, '900');
+  assert.strictEqual(fifteenMinuteHistory.sourceResolution, '60');
+  assert.strictEqual(fifteenMinuteHistory.candles.length, 2);
+  assert.deepStrictEqual(fifteenMinuteHistory.candles[0], {
+    timestamp: '2026-01-15T10:00:00.000Z',
+    open: 10,
+    high: 14,
+    low: 8,
+    close: 9,
+  });
+  assert.deepStrictEqual(fifteenMinuteHistory.candles[1], {
+    timestamp: '2026-01-15T10:15:00.000Z',
+    open: 9,
+    high: 16,
+    low: 7,
+    close: 15,
+  });
+
+  const fourHourUrls = [];
+  const fourHourFetchImpl = async (url) => {
+    fourHourUrls.push(String(url));
+    return {
+      ok: true,
+      json: async () => ({
+        jsonrpc: '2.0',
+        result: {
+          data: [
+            [Date.UTC(2026, 0, 15, 0), 40, 42, 39, 41],
+            [Date.UTC(2026, 0, 15, 1), 41, 43, 40, 42],
+            [Date.UTC(2026, 0, 15, 2), 42, 44, 38, 39],
+            [Date.UTC(2026, 0, 15, 3), 39, 45, 37, 44],
+            [Date.UTC(2026, 0, 15, 4), 44, 46, 43, 45],
+          ],
+        },
+      }),
+    };
+  };
+
+  const fourHourHistory = await buildBtcVolatilityHistory({
+    fetchImpl: fourHourFetchImpl,
+    now: Date.UTC(2026, 0, 15, 12),
+    lookbackHours: 12,
+    resolution: '14400',
+  });
+
+  assert.match(fourHourUrls[0], /resolution=3600/);
+  assert.strictEqual(fourHourHistory.resolution, '14400');
+  assert.strictEqual(fourHourHistory.sourceResolution, '3600');
+  assert.strictEqual(fourHourHistory.candles.length, 2);
+  assert.deepStrictEqual(fourHourHistory.candles[0], {
+    timestamp: '2026-01-15T00:00:00.000Z',
+    open: 40,
+    high: 45,
+    low: 37,
+    close: 44,
+  });
+
   console.log('btcVolatility.test.js passed');
 }
 

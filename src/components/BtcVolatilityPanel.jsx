@@ -1,9 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Spin, Tag, Typography } from 'antd';
+import { Alert, Button, Segmented, Spin, Tag, Typography } from 'antd';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { fetchBtcVolatility } from '../services/api';
 
 const { Text } = Typography;
+const ANNUALIZATION_FACTOR = Math.sqrt(365);
+
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
 
 function formatPercent(value, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'n/a';
@@ -32,10 +38,42 @@ function getComparisonTag(comparison) {
   return <Tag>{label}</Tag>;
 }
 
+function annualizeDaily(value) {
+  const number = toFiniteNumber(value);
+  return number === null ? null : number * ANNUALIZATION_FACTOR;
+}
+
+function getAnnualizedIv(result) {
+  const dvol = toFiniteNumber(result?.dvolAnnualizedPercent);
+  if (dvol !== null) return dvol / 100;
+  return annualizeDaily(result?.dailyIv);
+}
+
+function buildDisplayMetrics(result, mode) {
+  const dailyRv = toFiniteNumber(result?.dailyRv);
+  const dailyIv = toFiniteNumber(result?.dailyIv);
+  const annualRv = annualizeDaily(dailyRv);
+  const annualIv = getAnnualizedIv(result);
+  const rv = mode === 'annual' ? annualRv : dailyRv;
+  const iv = mode === 'annual' ? annualIv : dailyIv;
+  const spread = rv !== null && iv !== null ? iv - rv : null;
+  const ratio = rv !== null && rv > 0 && iv !== null ? iv / rv : null;
+
+  return {
+    rv,
+    iv,
+    spread,
+    ratio,
+    secondaryIvLabel: mode === 'annual' ? '日化IV' : '年化IV',
+    secondaryIv: mode === 'annual' ? dailyIv : annualIv,
+  };
+}
+
 function BtcVolatilityPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [volatilityMode, setVolatilityMode] = useState('daily');
 
   const loadVolatility = useCallback(async ({ refresh = false } = {}) => {
     setLoading(true);
@@ -54,12 +92,17 @@ function BtcVolatilityPanel() {
     loadVolatility();
   }, [loadVolatility]);
 
+  const displayMetrics = useMemo(
+    () => buildDisplayMetrics(result, volatilityMode),
+    [result, volatilityMode]
+  );
+
   const spreadText = useMemo(() => {
-    const spread = result?.comparison?.spread;
+    const spread = displayMetrics.spread;
     if (spread === null || spread === undefined || Number.isNaN(Number(spread))) return 'n/a';
     const prefix = Number(spread) > 0 ? '+' : '';
     return `${prefix}${formatPercent(spread)}`;
-  }, [result]);
+  }, [displayMetrics.spread]);
 
   if (loading && !result) {
     return (
@@ -90,16 +133,27 @@ function BtcVolatilityPanel() {
         <div className="btc-vol-panel__title">
           <ThunderboltOutlined /> BTC RV/IV
         </div>
+        <Segmented
+          className="btc-vol-panel__mode"
+          size="small"
+          aria-label="RV/IV口径"
+          value={volatilityMode}
+          onChange={setVolatilityMode}
+          options={[
+            { label: '日化', value: 'daily' },
+            { label: '年化', value: 'annual' },
+          ]}
+        />
         {getComparisonTag(result.comparison)}
       </div>
 
       <div className="btc-vol-panel__metrics">
-        <span>RV <strong>{formatPercent(result.dailyRv)}</strong></span>
-        <span>IV <strong>{formatPercent(result.dailyIv)}</strong></span>
+        <span>RV <strong>{formatPercent(displayMetrics.rv)}</strong></span>
+        <span>IV <strong>{formatPercent(displayMetrics.iv)}</strong></span>
         <span>差值 <strong>{spreadText}</strong></span>
-        <span>比值 <strong>{formatNumber(result.comparison?.ratio, 2)}</strong></span>
+        <span>比值 <strong>{formatNumber(displayMetrics.ratio, 2)}</strong></span>
         <span className="btc-vol-panel__muted">ATR14 {formatNumber(result.atr)}</span>
-        <span className="btc-vol-panel__muted">DVOL {formatNumber(result.dvolAnnualizedPercent)}%</span>
+        <span className="btc-vol-panel__muted">{displayMetrics.secondaryIvLabel} {formatPercent(displayMetrics.secondaryIv)}</span>
         <Button
           type="text"
           size="small"

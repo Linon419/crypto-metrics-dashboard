@@ -41,6 +41,7 @@ const dataCache = {
   lastBtcVolatilityFetchTime: 0,
   btcVolatilityHistory: null,
   lastBtcVolatilityHistoryFetchTime: 0,
+  btcVolatilityHistories: new Map(),
   coinKlines: new Map()
 };
 
@@ -551,8 +552,10 @@ export const fetchBtcVolatility = async ({ refresh = false } = {}) => {
 
 export const fetchBtcVolatilityHistory = async ({ refresh = false, lookbackHours = 24 * 30, resolution = '60' } = {}) => {
   const now = Date.now();
-  if (!refresh && dataCache.btcVolatilityHistory && (now - dataCache.lastBtcVolatilityHistoryFetchTime < 60 * 1000)) {
-    return dataCache.btcVolatilityHistory;
+  const cacheKey = `${lookbackHours}:${resolution}`;
+  const cached = dataCache.btcVolatilityHistories.get(cacheKey);
+  if (!refresh && cached && (now - cached.fetchTime < 60 * 1000)) {
+    return cached.data;
   }
 
   try {
@@ -564,8 +567,10 @@ export const fetchBtcVolatilityHistory = async ({ refresh = false, lookbackHours
       },
     }));
     if (response.data && response.data.success) {
-      dataCache.btcVolatilityHistory = response.data;
-      dataCache.lastBtcVolatilityHistoryFetchTime = now;
+      dataCache.btcVolatilityHistories.set(cacheKey, {
+        fetchTime: now,
+        data: response.data,
+      });
       return response.data;
     }
     throw new Error(response.data?.error || '获取BTC隐含波动率历史失败');

@@ -256,6 +256,238 @@ body {
   color: #fbf7ed;
 }
 
+.otc-cycle-chart-panel {
+  margin-bottom: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(219, 223, 229, 0.95);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(57, 63, 72, 0.12);
+}
+
+.otc-cycle-chart-panel--embedded {
+  margin-bottom: 0;
+  box-shadow: none;
+}
+
+.otc-cycle-chart-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.otc-cycle-chart-panel__eyebrow {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.otc-cycle-chart-panel h2 {
+  margin: 2px 0 0;
+  color: #1f2937;
+  font-family: "DIN Alternate", "Avenir Next", sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.otc-cycle-chart-panel__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.otc-cycle-chart-panel__actions .ant-segmented {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.otc-cycle-chart-panel__actions .ant-segmented-item-selected {
+  background: #1f2937;
+  color: #ffffff;
+}
+
+.otc-cycle-chart-panel__actions .ant-btn {
+  border-color: #d1d5db;
+  background: #ffffff;
+  color: #1f2937;
+}
+
+.otc-cycle-chart-panel__time-switch {
+  background: #cbd5e1;
+}
+
+.otc-cycle-chart-panel__time-switch.ant-switch-checked {
+  background: #1f2937;
+}
+
+.otc-cycle-chart-panel__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 360px;
+  color: #64748b;
+}
+
+.tv-cycle-chart {
+  background: #ffffff;
+}
+
+.tv-cycle-chart__summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  color: #526071;
+  font-size: 12px;
+}
+
+.tv-cycle-chart__summary span {
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.tv-cycle-chart__summary b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.tv-cycle-chart__legend-line {
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  border-top: 2px solid #64748b;
+}
+
+.tv-cycle-chart__legend-line--boll {
+  border-top-style: dashed;
+}
+
+.tv-cycle-chart__legend-line--ema,
+.tv-cycle-chart__legend-line--otc {
+  border-color: #2563eb;
+}
+
+.tv-cycle-chart__legend-line--explosion {
+  border-color: #8b5cf6;
+}
+
+.tv-cycle-chart__metric-time {
+  border-color: rgba(37, 99, 235, 0.18);
+  background: rgba(37, 99, 235, 0.08);
+  color: #1e3a8a;
+}
+
+.tv-cycle-chart__workspace {
+  display: block;
+  padding: 12px 14px 14px;
+}
+
+.tv-cycle-chart__plots {
+  min-width: 0;
+}
+
+.tv-cycle-chart__plot {
+  position: relative;
+  min-width: 0;
+  background: #ffffff;
+}
+
+.tv-cycle-chart__plot--price {
+  min-height: 430px;
+}
+
+.tv-cycle-chart__plot--otc,
+.tv-cycle-chart__plot--explosion {
+  min-height: 128px;
+  border-top: 1px solid #d1d5db;
+}
+
+.tv-cycle-chart__phase-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.tv-cycle-chart__phase-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.tv-cycle-chart__phase-band--entry {
+  background: rgba(34, 197, 94, 0.045);
+}
+
+.tv-cycle-chart__phase-band--exit {
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.tv-cycle-chart__pane-label {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  left: 10px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  background: rgba(255, 255, 255, 0.90);
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.tv-cycle-chart__hover-value {
+  position: absolute;
+  z-index: 4;
+  transform: translate(10px, -50%);
+  pointer-events: none;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #ffffff;
+  font-family: "DIN Alternate", "Avenir Next", sans-serif;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  white-space: nowrap;
+}
+
+.tv-cycle-chart__hover-value--otc {
+  background: #2563eb;
+}
+
+.tv-cycle-chart__hover-value--explosion {
+  background: #8b5cf6;
+}
+
+.tv-cycle-chart__plot--price a#tv-attr-logo {
+  opacity: 0.45;
+  transform: scale(0.82);
+  transform-origin: left bottom;
+}
+
 .dashboard-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
@@ -520,6 +752,10 @@ body {
   white-space: nowrap;
 }
 
+.btc-vol-panel__mode {
+  flex: 0 0 auto;
+}
+
 .btc-vol-panel__metrics {
   display: inline-flex;
   align-items: center;
@@ -650,6 +886,38 @@ body {
     font-size: 11px;
   }
 
+  .otc-cycle-chart-panel__header {
+    display: block;
+    padding: 10px;
+  }
+
+  .otc-cycle-chart-panel__actions {
+    justify-content: flex-start;
+    margin-top: 10px;
+  }
+
+  .otc-cycle-chart-panel h2 {
+    font-size: 16px;
+  }
+
+  .tv-cycle-chart__workspace {
+    display: block;
+    padding: 8px;
+  }
+
+  .tv-cycle-chart__plots {
+    min-width: 0;
+  }
+
+  .tv-cycle-chart__plot--price {
+    min-height: 300px;
+  }
+
+  .tv-cycle-chart__plot--otc,
+  .tv-cycle-chart__plot--explosion {
+    min-height: 108px;
+  }
+
   .btc-vol-panel {
     justify-content: flex-start;
     min-width: 0;
@@ -748,6 +1016,47 @@ body {
 
 .options-vol-panel__meta strong {
   color: var(--cm-ink);
+}
+
+.options-vol-periods {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(78, 68, 50, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.74);
+}
+
+.options-vol-period {
+  min-width: 48px;
+  min-height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cm-muted);
+  cursor: pointer;
+  font-family: "DIN Alternate", "Avenir Next", sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.options-vol-period.is-active {
+  background: var(--cm-graphite);
+  color: #fbf7ed;
+  box-shadow: 0 6px 14px rgba(31, 36, 33, 0.16);
+}
+
+.options-vol-period:hover,
+.options-vol-period:focus-visible {
+  background: rgba(214, 161, 58, 0.18);
+  color: var(--cm-graphite);
+}
+
+.options-vol-period.is-active:hover,
+.options-vol-period.is-active:focus-visible {
+  background: var(--cm-graphite);
+  color: #fbf7ed;
 }
 
 .options-page__header {

@@ -2,6 +2,7 @@ const BINANCE_USDM_KLINES_URL = 'https://fapi.binance.com/fapi/v1/klines';
 const DERIBIT_API_URL = 'https://www.deribit.com/api/v2/public/get_volatility_index_data';
 const DEFAULT_ATR_PERIOD = 14;
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const DERIBIT_DIRECT_DVOL_RESOLUTIONS = new Set(['1', '60', '3600', '43200', '1D']);
 
 function toNumber(value, fieldName) {
   const number = Number(value);
@@ -170,6 +171,81 @@ function parseDeribitDvolCandle(row) {
   };
 }
 
+function normalizeDvolResolution(resolution) {
+  const value = String(resolution || '60').trim();
+  return value.toLowerCase() === '1d' ? '1D' : value;
+}
+
+function parseResolutionSeconds(resolution) {
+  const normalized = normalizeDvolResolution(resolution);
+  if (normalized === '1D') {
+    return 24 * 60 * 60;
+  }
+
+  const seconds = Number(normalized);
+  if (!Number.isInteger(seconds) || seconds <= 0) {
+    throw new Error(`Invalid DVOL resolution: ${resolution}`);
+  }
+  return seconds;
+}
+
+function resolveDvolSourceResolution(resolution) {
+  const normalized = normalizeDvolResolution(resolution);
+  if (DERIBIT_DIRECT_DVOL_RESOLUTIONS.has(normalized)) {
+    return normalized;
+  }
+
+  const seconds = parseResolutionSeconds(normalized);
+  if (seconds > 3600 && seconds % 3600 === 0) {
+    return '3600';
+  }
+  if (seconds > 60 && seconds % 60 === 0) {
+    return '60';
+  }
+  if (seconds > 1) {
+    return '1';
+  }
+
+  throw new Error(`Unsupported DVOL resolution: ${resolution}`);
+}
+
+function aggregateDvolCandles(candles, resolution) {
+  const targetSeconds = parseResolutionSeconds(resolution);
+  const targetMs = targetSeconds * 1000;
+  const sortedCandles = [...candles].sort((left, right) => (
+    Date.parse(left.timestamp) - Date.parse(right.timestamp)
+  ));
+  const buckets = new Map();
+
+  sortedCandles.forEach((candle) => {
+    const timestampMs = Date.parse(candle.timestamp);
+    if (!Number.isFinite(timestampMs)) {
+      throw new Error(`Invalid DVOL candle timestamp: ${candle.timestamp}`);
+    }
+
+    const bucketMs = Math.floor(timestampMs / targetMs) * targetMs;
+    const existing = buckets.get(bucketMs);
+    if (existing) {
+      existing.high = Math.max(existing.high, candle.high);
+      existing.low = Math.min(existing.low, candle.low);
+      existing.close = candle.close;
+      return;
+    }
+
+    buckets.set(bucketMs, {
+      timestamp: new Date(bucketMs).toISOString(),
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+    });
+  });
+
+  return Array.from(buckets.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([, candle]) => candle);
+}
+
 async function fetchDeribitDvolCandles({
   currency = 'BTC',
   fetchImpl = global.fetch,
@@ -200,17 +276,23 @@ async function buildBtcVolatilityHistory({
   now = Date.now(),
   resolution = '60',
 } = {}) {
-  const candles = await fetchDeribitDvolCandles({
+  const targetResolution = normalizeDvolResolution(resolution);
+  const sourceResolution = resolveDvolSourceResolution(targetResolution);
+  const sourceCandles = await fetchDeribitDvolCandles({
     fetchImpl,
     lookbackHours,
     now,
-    resolution,
+    resolution: sourceResolution,
   });
+  const candles = sourceResolution === targetResolution
+    ? sourceCandles
+    : aggregateDvolCandles(sourceCandles, targetResolution);
 
   return {
     symbol: 'BTC',
     source: 'Deribit BTC DVOL',
-    resolution: String(resolution),
+    resolution: targetResolution,
+    sourceResolution,
     lookbackHours,
     candles,
     timestamps: {
@@ -264,6 +346,7 @@ module.exports = {
   buildBtcVolatilityHistory,
   buildBtcVolatilitySnapshot,
   buildDeribitDvolUrl,
+  aggregateDvolCandles,
   calculateAtr,
   calculateDailyIvFromDvol,
   calculateDailyRv,
@@ -274,4 +357,5 @@ module.exports = {
   fetchDeribitDvolCandles,
   parseBinanceDailyKline,
   parseDeribitDvolCandle,
+  resolveDvolSourceResolution,
 };

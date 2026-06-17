@@ -6,6 +6,12 @@ import { fetchBtcVolatilityHistory } from '../services/api';
 
 const { Text } = Typography;
 
+const VOLATILITY_PERIODS = [
+  { key: '15m', label: '15min', resolution: '900', lookbackHours: 24 },
+  { key: '1h', label: '1h', resolution: '3600', lookbackHours: 24 * 30 },
+  { key: '4h', label: '4h', resolution: '14400', lookbackHours: 24 * 60 },
+];
+
 function formatDateLabel(value) {
   if (!value) return '';
   return new Date(value).toLocaleString(undefined, {
@@ -19,19 +25,29 @@ function OptionsVolatilityChart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [history, setHistory] = useState(null);
+  const [periodKey, setPeriodKey] = useState('1h');
+
+  const selectedPeriod = useMemo(
+    () => VOLATILITY_PERIODS.find(period => period.key === periodKey) || VOLATILITY_PERIODS[1],
+    [periodKey],
+  );
 
   const loadHistory = useCallback(async ({ refresh = false } = {}) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetchBtcVolatilityHistory({ refresh, lookbackHours: 24 * 30, resolution: '60' });
+      const response = await fetchBtcVolatilityHistory({
+        refresh,
+        lookbackHours: selectedPeriod.lookbackHours,
+        resolution: selectedPeriod.resolution,
+      });
       setHistory(response.data);
     } catch (err) {
       setError(err.message || 'BTC 隐含波动率历史加载失败');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedPeriod.lookbackHours, selectedPeriod.resolution]);
 
   useEffect(() => {
     loadHistory();
@@ -101,6 +117,19 @@ function OptionsVolatilityChart() {
           <h2>BTC 隐含波动率 K 线</h2>
         </div>
         <div className="options-vol-panel__meta">
+          <div className="options-vol-periods" aria-label="K 线周期">
+            {VOLATILITY_PERIODS.map(period => (
+              <button
+                aria-pressed={period.key === periodKey}
+                className={`options-vol-period ${period.key === periodKey ? 'is-active' : ''}`}
+                key={period.key}
+                onClick={() => setPeriodKey(period.key)}
+                type="button"
+              >
+                {period.label}
+              </button>
+            ))}
+          </div>
           <span>最新 DVOL <strong>{latest ? `${latest.close.toFixed(2)}%` : 'n/a'}</strong></span>
           <span>样本 <strong>{candles.length}</strong></span>
           <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => loadHistory({ refresh: true })}>刷新</Button>

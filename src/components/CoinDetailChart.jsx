@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fetchCoinMetrics, fetchLiquidityHistory } from '../services/api';
+import OtcCycleChart from './OtcCycleChart';
 import { getPeriodQualityMeta } from '../utils/periodQualityMeta';
 import { buildPeriodQualityMarkers } from '../utils/periodQualityMarkers';
 import {
@@ -55,6 +56,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
   const [zoomState, setZoomState] = useState(null);
   const [displayData, setDisplayData] = useState([]);
   const [chartMode, setChartMode] = useState('both'); // 'blast', 'otc', 'both'
+  const [chartVersion, setChartVersion] = useState('new'); // 'new', 'legacy'
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const chartRef = useRef(null);
   const fallbackEndDate = selectedDate || dayjs();
@@ -737,335 +739,366 @@ function CoinDetailChart({ coin, onRefresh, selectedDate }) {
             <div className="flex flex-wrap items-center gap-4 mb-2 sm:mb-0">
               <div className="font-medium flex items-center">
                 <LineChartOutlined className="mr-1" />
-                显示指标:
+                图表版本:
               </div>
-              <Radio.Group 
-                value={chartMode} 
-                onChange={e => handleChartModeChange(e.target.value)}
+              <Radio.Group
+                value={chartVersion}
+                onChange={e => setChartVersion(e.target.value)}
                 optionType="button"
                 buttonStyle="solid"
               >
-                <Radio.Button value="both">双指标对比</Radio.Button>
-                <Radio.Button value="blast">爆破指数</Radio.Button>
-                <Radio.Button value="otc">场外指数</Radio.Button>
+                <Radio.Button value="new">新版图</Radio.Button>
+                <Radio.Button value="legacy">旧版图</Radio.Button>
               </Radio.Group>
+
+              {chartVersion === 'legacy' && (
+                <>
+                  <div className="font-medium flex items-center">
+                    显示指标:
+                  </div>
+                  <Radio.Group
+                    value={chartMode}
+                    onChange={e => handleChartModeChange(e.target.value)}
+                    optionType="button"
+                    buttonStyle="solid"
+                  >
+                    <Radio.Button value="both">双指标对比</Radio.Button>
+                    <Radio.Button value="blast">爆破指数</Radio.Button>
+                    <Radio.Button value="otc">场外指数</Radio.Button>
+                  </Radio.Group>
+                </>
+              )}
             </div>
             
-            <div className="flex flex-wrap gap-2">
-              <Button 
-                icon={<UndoOutlined />} 
-                onClick={handleReset}
-                size="small"
-              >
-                重置缩放
-              </Button>
-              <Button 
-                icon={<ZoomInOutlined />} 
-                size="small"
-                onClick={() => {
-                  if (!displayData.length) return;
-                  // 缩小显示范围 (放大显示)
-                  const mid = Math.floor(displayData.length / 2);
-                  const quarter = Math.floor(displayData.length / 4);
-                  setDisplayData(displayData.slice(mid - quarter, mid + quarter));
-                }}
-              >
-                放大
-              </Button>
-              <Button 
-                icon={<ZoomOutOutlined />} 
-                size="small"
-                onClick={() => {
-                  // 重置到原始数据 (缩小显示)
-                  setDisplayData(metrics);
-                }}
-              >
-                缩小
-              </Button>
-              <Button
-                icon={<ReloadOutlined />}
-                size="small"
-                onClick={() => {
-                  // 刷新图表数据
-                  if (onRefresh) onRefresh();
-                }}
-              >
-                刷新数据
-              </Button>
-            </div>
-          </div>
-          
-          {/* 爆破指数图表 */}
-          <div style={{ height: isMobile ? '300px' : '400px', userSelect: 'none' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={displayData}
-                margin={chartMargin}
-                syncId={chartSyncId}
-                onMouseDown={handleMouseDown}
-                onMouseMove={zoomState ? handleMouseMove : null}
-                onMouseUp={zoomState ? handleMouseUp : null}
-                ref={chartRef}
-              >
-                <defs>
-                  <linearGradient id="colorBlast" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                  </linearGradient>
-                  
-                  <linearGradient id="colorOtc" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
-                  
-                  <pattern id="entrancePattern" patternUnits="userSpaceOnUse" width="10" height="10">
-                    <rect width="10" height="10" fill="#dcfce7" />
-                  </pattern>
-                  
-                  <pattern id="exitPattern" patternUnits="userSpaceOnUse" width="10" height="10">
-                    <rect width="10" height="10" fill="#fee2e2" />
-                  </pattern>
-
-                  <pattern id="nearThresholdPattern" patternUnits="userSpaceOnUse" width="10" height="10">
-                    <rect width="10" height="10" fill="#fef3c7" />
-                  </pattern>
-
-                  <linearGradient id="colorNearThreshold" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.6} />
-                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.1} />
-                  </linearGradient>
-                </defs>
-                
-                <CartesianGrid strokeDasharray="3 3" />
-                
-                <XAxis
-                  dataKey="timeKey"
-                  tick={{ fontSize: isMobile ? 10 : 12 }}
-                  tickMargin={isMobile ? 5 : 10}
-                  interval={isMobile ? 'preserveStartEnd' : 'preserveStart'}
-                  tickFormatter={(value) => {
-                    const metric = displayData.find(item => item.timeKey === value);
-                    return formatMetricAxisTick(metric || { date: value });
+            {chartVersion === 'legacy' && (
+              <div className="flex flex-wrap gap-2">
+                <Button 
+                  icon={<UndoOutlined />} 
+                  onClick={handleReset}
+                  size="small"
+                >
+                  重置缩放
+                </Button>
+                <Button 
+                  icon={<ZoomInOutlined />} 
+                  size="small"
+                  onClick={() => {
+                    if (!displayData.length) return;
+                    // 缩小显示范围 (放大显示)
+                    const mid = Math.floor(displayData.length / 2);
+                    const quarter = Math.floor(displayData.length / 4);
+                    setDisplayData(displayData.slice(mid - quarter, mid + quarter));
                   }}
-                />
-                
-                {/* 爆破指数Y轴 - 只有在显示爆破指数时显示 */}
-                {(chartMode === 'blast' || chartMode === 'both') && (
-                  <YAxis
-                    yAxisId="left"
-                    domain={getYAxisDomain('blastIndex')}
-                    label={isMobile ? undefined : {
-                      value: '爆破指数',
-                      angle: -90,
-                      position: 'insideLeft',
-                      offset: -5,
-                      style: { fill: '#ef4444' }
-                    }}
-                    tick={{ fill: '#ef4444', fontSize: isMobile ? 10 : 12 }}
-                    width={isMobile ? 35 : 60}
-                  />
-                )}
-                
-                {/* 场外指数Y轴 - 只有在显示场外指数时显示 */}
-                {chartMode === 'otc' && (
-                  <YAxis
-                    yAxisId="left"
-                    domain={getYAxisDomain('otcIndex')}
-                    label={isMobile ? undefined : {
-                      value: '场外指数',
-                      angle: -90,
-                      position: 'insideLeft',
-                      offset: -5,
-                      style: { fill: '#3b82f6' }
-                    }}
-                    tick={{ fill: '#3b82f6', fontSize: isMobile ? 10 : 12 }}
-                    width={isMobile ? 35 : 60}
-                  />
-                )}
-                
-                {/* 双指标模式下的第二Y轴 */}
-                {chartMode === 'both' && (
-                  <YAxis 
-                    yAxisId="right"
-                    orientation="right"
-                    domain={getYAxisDomain('otcIndex')}
-                    label={{ 
-                      value: '场外指数', 
-                      angle: 90, 
-                      position: 'insideRight',
-                      offset: -5,
-                      style: { fill: '#3b82f6' }
-                    }}
-                    tick={{ fill: '#3b82f6' }}
-                  />
-                )}
-                
-                {/* 谢林点独立Y轴 - 只在双指标模式下且有数据时显示 */}
-                {chartMode === 'both' && hasSchellingData() && (
-                  <YAxis 
-                    yAxisId="schelling"
-                    orientation="right"
-                    domain={getYAxisDomain('schellingPoint')}
-                    axisLine={false}
-                    tickLine={false}
-                    tick={false}
-                    width={0}
-                  />
-                )}
-                
-                <Tooltip content={<CustomTooltip />} />
-                <Legend
-                  wrapperStyle={{
-                    fontSize: isMobile ? '11px' : '12px',
-                    paddingTop: isMobile ? '5px' : '10px'
+                >
+                  放大
+                </Button>
+                <Button 
+                  icon={<ZoomOutOutlined />} 
+                  size="small"
+                  onClick={() => {
+                    // 重置到原始数据 (缩小显示)
+                    setDisplayData(metrics);
                   }}
-                  iconSize={isMobile ? 12 : 14}
-                />
-                
-                {/* 进场期区域 */}
-                <Area
-                  type="monotone"
-                  dataKey={(entry) => (entry.actionType === "进场" ? 350 : 0)}
-                  stroke="none"
-                  fill="url(#entrancePattern)"
-                  fillOpacity={0.2}
-                  activeDot={false}
-                  name="进场期"
-                  yAxisId={chartMode === 'otc' ? 'left' : 'left'}
-                />
-                
-                {/* 退场期区域 */}
-                <Area
-                  type="monotone"
-                  dataKey={(entry) => (entry.actionType === "退场" ? 350 : 0)}
-                  stroke="none"
-                  fill="url(#exitPattern)"
-                  fillOpacity={0.2}
-                  activeDot={false}
-                  name="退场期"
-                  yAxisId={chartMode === 'otc' ? 'left' : 'left'}
-                />
-
-                {/* 逼近阈值区域 - 黄色背景 */}
-                <Area
-                  type="monotone"
-                  dataKey={(entry) => (entry.nearThreshold ? 350 : 0)}
-                  stroke="none"
-                  fill="url(#colorNearThreshold)"
-                  fillOpacity={0.4}
-                  activeDot={false}
-                  name="逼近阈值"
-                  yAxisId={chartMode === 'otc' ? 'left' : 'left'}
-                />
-                
-                {/* 安全阈值线 - 只在显示爆破指数时显示 */}
-                {(chartMode === 'blast' || chartMode === 'both') && (
-                  <ReferenceLine
-                    y={200}
-                    yAxisId="left"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    label={{
-                      value: '安全阈值(200)',
-                      position: 'insideBottomRight',
-                      fill: '#f59e0b'
-                    }}
-                  />
-                )}
-
-                {periodQualityMarkers.map(marker => (
-                  <ReferenceLine
-                    key={`quality-${marker.type}-${marker.timeKey}`}
-                    x={marker.timeKey}
-                    yAxisId="left"
-                    stroke={marker.color}
-                    strokeWidth={2}
-                    strokeDasharray="4 4"
-                    ifOverflow="extendDomain"
-                    label={(props) => renderPeriodQualityMarkerLabel({ ...props, marker })}
-                  />
-                ))}
-                
-                {/* 爆破指数线 */}
-                {(chartMode === 'blast' || chartMode === 'both') && (
-                  <Area 
-                    type="monotone" 
-                    dataKey="blastIndex" 
-                    stroke="#ef4444" 
-                    fillOpacity={0.5} 
-                    fill="url(#colorBlast)" 
-                    strokeWidth={2.5}
-                    activeDot={{ r: 8, stroke: "#ef4444", strokeWidth: 2, fill: "white" }}
-                    animationDuration={1000}
-                    name="爆破指数"
-                    yAxisId="left"
-                  />
-                )}
-                
-                {/* 场外指数线 */}
-                {chartMode === 'otc' && (
-                  <Area 
-                    type="monotone" 
-                    dataKey="otcIndex" 
-                    stroke="#3b82f6" 
-                    fillOpacity={0.5} 
-                    fill="url(#colorOtc)" 
-                    strokeWidth={2.5}
-                    activeDot={{ r: 8, stroke: "#3b82f6", strokeWidth: 2, fill: "white" }}
-                    animationDuration={1000}
-                    name="场外指数"
-                    yAxisId="left"
-                  />
-                )}
-                
-                {/* 双指标模式下的场外指数线 */}
-                {chartMode === 'both' && (
-                  <Area 
-                    type="monotone" 
-                    dataKey="otcIndex" 
-                    stroke="#3b82f6" 
-                    fillOpacity={0.5} 
-                    fill="url(#colorOtc)" 
-                    strokeWidth={2.5}
-                    activeDot={{ r: 8, stroke: "#3b82f6", strokeWidth: 2, fill: "white" }}
-                    animationDuration={1000}
-                    name="场外指数"
-                    yAxisId="right"
-                  />
-                )}
-                
-                {/* 谢林点虚线 - 只在双指标模式下显示且有数据时显示 */}
-                {chartMode === 'both' && hasSchellingData() && (
-                  <Line 
-                    type="monotone" 
-                    dataKey="schellingPoint" 
-                    stroke="#722ed1" 
-                    strokeWidth={2}
-                    strokeDasharray="8 4"
-                    dot={false}
-                    activeDot={{ r: 6, stroke: "#722ed1", strokeWidth: 2, fill: "white" }}
-                    name="谢林点"
-                    yAxisId="schelling"
-                  />
-                )}
-                
-                {/* 缩放选择区域 */}
-                {zoomState && (
-                  <ReferenceArea 
-                    x1={zoomState.x1} 
-                    x2={zoomState.x2} 
-                    strokeOpacity={0.3}
-                    fill="#8884d8"
-                    fillOpacity={0.1}
-                    yAxisId={chartMode === 'otc' ? 'left' : 'left'}
-                  />
-                )}
-              </ComposedChart>
-            </ResponsiveContainer>
+                >
+                  缩小
+                </Button>
+                <Button
+                  icon={<ReloadOutlined />}
+                  size="small"
+                  onClick={() => {
+                    // 刷新图表数据
+                    if (onRefresh) onRefresh();
+                  }}
+                >
+                  刷新数据
+                </Button>
+              </div>
+            )}
           </div>
 
-          {selectedLiquiditySeries && (
+          {chartVersion === 'new' ? (
+            <OtcCycleChart
+              symbol={coin?.symbol}
+              startDate={effectiveStartDateStr}
+              endDate={effectiveEndDateStr}
+              embedded
+              height={isMobile ? 560 : 780}
+            />
+          ) : (
+            <>
+              {/* 爆破指数图表 */}
+              <div style={{ height: isMobile ? '300px' : '400px', userSelect: 'none' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart
+                    data={displayData}
+                    margin={chartMargin}
+                    syncId={chartSyncId}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={zoomState ? handleMouseMove : null}
+                    onMouseUp={zoomState ? handleMouseUp : null}
+                    ref={chartRef}
+                  >
+                    <defs>
+                      <linearGradient id="colorBlast" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                      </linearGradient>
+                      
+                      <linearGradient id="colorOtc" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      </linearGradient>
+                      
+                      <pattern id="entrancePattern" patternUnits="userSpaceOnUse" width="10" height="10">
+                        <rect width="10" height="10" fill="#dcfce7" />
+                      </pattern>
+                      
+                      <pattern id="exitPattern" patternUnits="userSpaceOnUse" width="10" height="10">
+                        <rect width="10" height="10" fill="#fee2e2" />
+                      </pattern>
+
+                      <pattern id="nearThresholdPattern" patternUnits="userSpaceOnUse" width="10" height="10">
+                        <rect width="10" height="10" fill="#fef3c7" />
+                      </pattern>
+
+                      <linearGradient id="colorNearThreshold" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.6} />
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.1} />
+                      </linearGradient>
+                    </defs>
+                    
+                    <CartesianGrid strokeDasharray="3 3" />
+                    
+                    <XAxis
+                      dataKey="timeKey"
+                      tick={{ fontSize: isMobile ? 10 : 12 }}
+                      tickMargin={isMobile ? 5 : 10}
+                      interval={isMobile ? 'preserveStartEnd' : 'preserveStart'}
+                      tickFormatter={(value) => {
+                        const metric = displayData.find(item => item.timeKey === value);
+                        return formatMetricAxisTick(metric || { date: value });
+                      }}
+                    />
+                    
+                    {/* 爆破指数Y轴 - 只有在显示爆破指数时显示 */}
+                    {(chartMode === 'blast' || chartMode === 'both') && (
+                      <YAxis
+                        yAxisId="left"
+                        domain={getYAxisDomain('blastIndex')}
+                        label={isMobile ? undefined : {
+                          value: '爆破指数',
+                          angle: -90,
+                          position: 'insideLeft',
+                          offset: -5,
+                          style: { fill: '#ef4444' }
+                        }}
+                        tick={{ fill: '#ef4444', fontSize: isMobile ? 10 : 12 }}
+                        width={isMobile ? 35 : 60}
+                      />
+                    )}
+                    
+                    {/* 场外指数Y轴 - 只有在显示场外指数时显示 */}
+                    {chartMode === 'otc' && (
+                      <YAxis
+                        yAxisId="left"
+                        domain={getYAxisDomain('otcIndex')}
+                        label={isMobile ? undefined : {
+                          value: '场外指数',
+                          angle: -90,
+                          position: 'insideLeft',
+                          offset: -5,
+                          style: { fill: '#3b82f6' }
+                        }}
+                        tick={{ fill: '#3b82f6', fontSize: isMobile ? 10 : 12 }}
+                        width={isMobile ? 35 : 60}
+                      />
+                    )}
+                    
+                    {/* 双指标模式下的第二Y轴 */}
+                    {chartMode === 'both' && (
+                      <YAxis 
+                        yAxisId="right"
+                        orientation="right"
+                        domain={getYAxisDomain('otcIndex')}
+                        label={{ 
+                          value: '场外指数', 
+                          angle: 90, 
+                          position: 'insideRight',
+                          offset: -5,
+                          style: { fill: '#3b82f6' }
+                        }}
+                        tick={{ fill: '#3b82f6' }}
+                      />
+                    )}
+                    
+                    {/* 谢林点独立Y轴 - 只在双指标模式下且有数据时显示 */}
+                    {chartMode === 'both' && hasSchellingData() && (
+                      <YAxis 
+                        yAxisId="schelling"
+                        orientation="right"
+                        domain={getYAxisDomain('schellingPoint')}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={false}
+                        width={0}
+                      />
+                    )}
+                    
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend
+                      wrapperStyle={{
+                        fontSize: isMobile ? '11px' : '12px',
+                        paddingTop: isMobile ? '5px' : '10px'
+                      }}
+                      iconSize={isMobile ? 12 : 14}
+                    />
+                    
+                    {/* 进场期区域 */}
+                    <Area
+                      type="monotone"
+                      dataKey={(entry) => (entry.actionType === "进场" ? 350 : 0)}
+                      stroke="none"
+                      fill="url(#entrancePattern)"
+                      fillOpacity={0.2}
+                      activeDot={false}
+                      name="进场期"
+                      yAxisId={chartMode === 'otc' ? 'left' : 'left'}
+                    />
+                    
+                    {/* 退场期区域 */}
+                    <Area
+                      type="monotone"
+                      dataKey={(entry) => (entry.actionType === "退场" ? 350 : 0)}
+                      stroke="none"
+                      fill="url(#exitPattern)"
+                      fillOpacity={0.2}
+                      activeDot={false}
+                      name="退场期"
+                      yAxisId={chartMode === 'otc' ? 'left' : 'left'}
+                    />
+
+                    {/* 逼近阈值区域 - 黄色背景 */}
+                    <Area
+                      type="monotone"
+                      dataKey={(entry) => (entry.nearThreshold ? 350 : 0)}
+                      stroke="none"
+                      fill="url(#colorNearThreshold)"
+                      fillOpacity={0.4}
+                      activeDot={false}
+                      name="逼近阈值"
+                      yAxisId={chartMode === 'otc' ? 'left' : 'left'}
+                    />
+                    
+                    {/* 安全阈值线 - 只在显示爆破指数时显示 */}
+                    {(chartMode === 'blast' || chartMode === 'both') && (
+                      <ReferenceLine
+                        y={200}
+                        yAxisId="left"
+                        stroke="#f59e0b"
+                        strokeWidth={2}
+                        strokeDasharray="5 5"
+                        label={{
+                          value: '安全阈值(200)',
+                          position: 'insideBottomRight',
+                          fill: '#f59e0b'
+                        }}
+                      />
+                    )}
+
+                    {periodQualityMarkers.map(marker => (
+                      <ReferenceLine
+                        key={`quality-${marker.type}-${marker.timeKey}`}
+                        x={marker.timeKey}
+                        yAxisId="left"
+                        stroke={marker.color}
+                        strokeWidth={2}
+                        strokeDasharray="4 4"
+                        ifOverflow="extendDomain"
+                        label={(props) => renderPeriodQualityMarkerLabel({ ...props, marker })}
+                      />
+                    ))}
+                    
+                    {/* 爆破指数线 */}
+                    {(chartMode === 'blast' || chartMode === 'both') && (
+                      <Area 
+                        type="monotone" 
+                        dataKey="blastIndex" 
+                        stroke="#ef4444" 
+                        fillOpacity={0.5} 
+                        fill="url(#colorBlast)" 
+                        strokeWidth={2.5}
+                        activeDot={{ r: 8, stroke: "#ef4444", strokeWidth: 2, fill: "white" }}
+                        animationDuration={1000}
+                        name="爆破指数"
+                        yAxisId="left"
+                      />
+                    )}
+                    
+                    {/* 场外指数线 */}
+                    {chartMode === 'otc' && (
+                      <Area 
+                        type="monotone" 
+                        dataKey="otcIndex" 
+                        stroke="#3b82f6" 
+                        fillOpacity={0.5} 
+                        fill="url(#colorOtc)" 
+                        strokeWidth={2.5}
+                        activeDot={{ r: 8, stroke: "#3b82f6", strokeWidth: 2, fill: "white" }}
+                        animationDuration={1000}
+                        name="场外指数"
+                        yAxisId="left"
+                      />
+                    )}
+                    
+                    {/* 双指标模式下的场外指数线 */}
+                    {chartMode === 'both' && (
+                      <Area 
+                        type="monotone" 
+                        dataKey="otcIndex" 
+                        stroke="#3b82f6" 
+                        fillOpacity={0.5} 
+                        fill="url(#colorOtc)" 
+                        strokeWidth={2.5}
+                        activeDot={{ r: 8, stroke: "#3b82f6", strokeWidth: 2, fill: "white" }}
+                        animationDuration={1000}
+                        name="场外指数"
+                        yAxisId="right"
+                      />
+                    )}
+                    
+                    {/* 谢林点虚线 - 只在双指标模式下显示且有数据时显示 */}
+                    {chartMode === 'both' && hasSchellingData() && (
+                      <Line 
+                        type="monotone" 
+                        dataKey="schellingPoint" 
+                        stroke="#722ed1" 
+                        strokeWidth={2}
+                        strokeDasharray="8 4"
+                        dot={false}
+                        activeDot={{ r: 6, stroke: "#722ed1", strokeWidth: 2, fill: "white" }}
+                        name="谢林点"
+                        yAxisId="schelling"
+                      />
+                    )}
+                    
+                    {/* 缩放选择区域 */}
+                    {zoomState && (
+                      <ReferenceArea 
+                        x1={zoomState.x1} 
+                        x2={zoomState.x2} 
+                        strokeOpacity={0.3}
+                        fill="#8884d8"
+                        fillOpacity={0.1}
+                        yAxisId={chartMode === 'otc' ? 'left' : 'left'}
+                      />
+                    )}
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
+
+          {chartVersion === 'legacy' && selectedLiquiditySeries && (
           <div className="mt-4">
             <div className="flex justify-between items-center mb-2">
               <Title level={5} className="mb-0">流动性概况</Title>
