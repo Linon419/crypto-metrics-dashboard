@@ -534,6 +534,7 @@ async function run() {
     { id: 23, symbol: 'AXTI', name: 'AXTI' },
     { id: 24, symbol: 'EMPTY', name: 'Empty' },
     { id: 25, symbol: 'NOKLINE', name: 'No Kline' },
+    { id: 26, symbol: 'STALE', name: 'Stale' },
   ];
   const fakeMetricByCoinId = new Map([
     [21, {
@@ -556,16 +557,34 @@ async function run() {
       date: '2026-01-01',
       timestamp: null,
     }],
+    [26, {
+      coin_id: 26,
+      date: '2025-12-01',
+      timestamp: null,
+    }],
   ]);
   const fakeLatestMetricByCoinId = new Map([
-    [21, fakeMetricByCoinId.get(21)],
-    [22, fakeMetricByCoinId.get(22)],
-    [23, fakeMetricByCoinId.get(23)],
+    [21, {
+      coin_id: 21,
+      date: '2026-01-05',
+      timestamp: null,
+    }],
+    [22, {
+      coin_id: 22,
+      date: '2026-01-05',
+      timestamp: null,
+    }],
+    [23, {
+      coin_id: 23,
+      date: '2026-01-05',
+      timestamp: new Date(Date.UTC(2026, 0, 5, 10, 53)).toISOString(),
+    }],
     [25, {
       coin_id: 25,
       date: '2026-01-05',
       timestamp: null,
     }],
+    [26, fakeMetricByCoinId.get(26)],
   ]);
   const fakeEarliestKlineByCoinId = new Map([
     [21, {
@@ -595,10 +614,24 @@ async function run() {
     },
     DailyMetricModel: {
       async findOne(options) {
+        if (!options.where?.coin_id) {
+          return { date: '2026-01-05' };
+        }
         if (options.order?.[0]?.[1] === 'DESC') {
           return fakeLatestMetricByCoinId.get(options.where.coin_id) || null;
         }
         return fakeMetricByCoinId.get(options.where.coin_id) || null;
+      },
+      async findAll(options) {
+        if (options.where?.date === '2026-01-05') {
+          return [
+            { coin_id: 21 },
+            { coin_id: 22 },
+            { coin_id: 23 },
+            { coin_id: 25 },
+          ];
+        }
+        return [];
       },
     },
     CoinKlineModel: {
@@ -609,10 +642,11 @@ async function run() {
   });
 
   assert.strictEqual(backfillPlan.interval, '4h');
-  assert.strictEqual(backfillPlan.totalCoins, 5);
+  assert.strictEqual(backfillPlan.totalCoins, 6);
   assert.strictEqual(backfillPlan.items.length, 3);
   assert.strictEqual(backfillPlan.skippedCovered, 1);
   assert.strictEqual(backfillPlan.skippedNoMetrics, 1);
+  assert.strictEqual(backfillPlan.skippedStaleMetrics, 1);
   assert.deepStrictEqual(backfillPlan.items[0], {
     coinId: 21,
     coinSymbol: 'BTC',

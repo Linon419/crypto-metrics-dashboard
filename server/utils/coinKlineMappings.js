@@ -140,6 +140,64 @@ function toPlainMapping(mapping) {
   return mapping;
 }
 
+async function findLatestMetricDate(DailyMetricModel) {
+  if (!DailyMetricModel?.findOne) return null;
+
+  const row = await DailyMetricModel.findOne({
+    attributes: ['date'],
+    order: [['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']],
+    raw: true,
+  });
+  return toPlainMapping(row)?.date || null;
+}
+
+async function findActiveMetricCoinIds(DailyMetricModel, latestMetricDate) {
+  if (!DailyMetricModel?.findAll || !latestMetricDate) return null;
+
+  const rows = await DailyMetricModel.findAll({
+    attributes: ['coin_id'],
+    where: { date: latestMetricDate },
+    raw: true,
+  });
+
+  return new Set(
+    rows
+      .map(row => Number(toPlainMapping(row)?.coin_id))
+      .filter(Number.isFinite)
+  );
+}
+
+async function filterCoinsWithLatestMetrics(coins = [], DailyMetricModel) {
+  const latestMetricDate = await findLatestMetricDate(DailyMetricModel);
+  if (!latestMetricDate) {
+    return {
+      coins,
+      latestMetricDate: null,
+      skippedStaleMetrics: 0,
+    };
+  }
+
+  const activeCoinIds = await findActiveMetricCoinIds(DailyMetricModel, latestMetricDate);
+  if (!activeCoinIds) {
+    return {
+      coins,
+      latestMetricDate,
+      skippedStaleMetrics: 0,
+    };
+  }
+
+  const activeCoins = coins.filter(coin => {
+    const plainCoin = toPlainMapping(coin);
+    return activeCoinIds.has(Number(plainCoin?.id));
+  });
+
+  return {
+    coins: activeCoins,
+    latestMetricDate,
+    skippedStaleMetrics: Math.max(0, coins.length - activeCoins.length),
+  };
+}
+
 function resolveEffectiveKlineMapping(coin, mapping) {
   const rawMapping = toPlainMapping(mapping);
   if (rawMapping?.enabled) {
@@ -183,6 +241,9 @@ module.exports = {
   KLINE_MARKETS,
   YAHOO_SYMBOL_ALIASES,
   buildDefaultKlineMappingsForCoins,
+  filterCoinsWithLatestMetrics,
+  findActiveMetricCoinIds,
+  findLatestMetricDate,
   getDefaultKlineMappingForSymbol,
   getYahooTradingSymbol,
   normalizeBinanceTradingSymbol,

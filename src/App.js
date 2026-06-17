@@ -12,7 +12,7 @@ import OptionsPage from './components/OptionsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import UserManagement from './components/UserManagement';
-import KlineMappingSettings from './components/KlineMappingSettings';
+import AdminSettings from './components/AdminSettings';
 import { useSelector } from 'react-redux';
 import './styles/mobile.css';
 import './styles/design-system.css';
@@ -33,6 +33,8 @@ const NavigationMenu = () => {
     ? '2'
     : location.pathname.startsWith('/users')
     ? '3'
+    : location.pathname.startsWith('/admin/settings') || location.pathname.startsWith('/settings/kline-mappings')
+    ? '6'
     : location.pathname.startsWith('/options')
     ? '5'
     : location.pathname.startsWith('/dashboard') || location.pathname === '/'
@@ -61,6 +63,11 @@ const NavigationMenu = () => {
         {user?.role === 'admin' && (
           <Menu.Item key="3">
             <Link to="/users">用户管理</Link>
+          </Menu.Item>
+        )}
+        {user?.role === 'admin' && (
+          <Menu.Item key="6">
+            <Link to="/admin/settings">Admin设置</Link>
           </Menu.Item>
         )}
       </Menu>
@@ -116,7 +123,15 @@ const AppContent = () => {
             <Route path="/settings/kline-mappings" element={
               <ProtectedRoute>
                 <AdminRoute>
-                  <KlineMappingSettings />
+                  <Navigate to="/admin/settings" replace />
+                </AdminRoute>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/admin/settings" element={
+              <ProtectedRoute>
+                <AdminRoute>
+                  <AdminSettings />
                 </AdminRoute>
               </ProtectedRoute>
             } />

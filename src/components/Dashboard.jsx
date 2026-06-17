@@ -712,10 +712,10 @@ function Dashboard() {
       disabled: klineBackfillRunning,
     },
     ...(user?.role === 'admin' ? [{
-      key: 'kline-mapping-settings',
+      key: 'admin-settings',
       icon: <SettingOutlined />,
-      label: 'K线映射设置',
-      onClick: () => navigate('/settings/kline-mappings'),
+      label: 'Admin设置',
+      onClick: () => navigate('/admin/settings'),
     }] : []),
     {
       key: 'logout',
@@ -757,11 +757,11 @@ function Dashboard() {
       </Menu.Item>
       {user?.role === 'admin' && (
         <Menu.Item
-          key="kline-mapping-settings"
-          onClick={() => navigate('/settings/kline-mappings')}
+          key="admin-settings"
+          onClick={() => navigate('/admin/settings')}
           icon={<SettingOutlined />}
         >
-          K线映射设置
+          Admin设置
         </Menu.Item>
       )}
       <Menu.Divider />

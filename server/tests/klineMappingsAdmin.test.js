@@ -6,6 +6,7 @@ function createFakeModels() {
   const coins = [
     { id: 1, symbol: 'CN_AI_ETF', name: '国内人工智能 ETF' },
     { id: 2, symbol: 'BTC', name: 'Bitcoin' },
+    { id: 3, symbol: 'EOS', name: 'EOS' },
   ];
   const mappings = new Map([
     [1, {
@@ -59,6 +60,20 @@ function createFakeModels() {
       async bulkCreate(rows) {
         rows.forEach(row => this.created.push(row));
         return rows;
+      },
+    },
+    DailyMetricModel: {
+      async findOne() {
+        return { date: '2026-06-06' };
+      },
+      async findAll(options) {
+        if (options.where?.date === '2026-06-06') {
+          return [
+            { coin_id: 1 },
+            { coin_id: 2 },
+          ];
+        }
+        return [];
       },
     },
   };

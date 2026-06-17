@@ -1361,6 +1361,57 @@ export const seedDefaultKlineMappings = async () => {
   }
 };
 
+export const fetchAdminCoins = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/admin/coins'));
+    return response.data;
+  } catch (error) {
+    console.error('[fetchAdminCoins] 获取币种列表失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const createAdminCoin = async (payload) => {
+  try {
+    const response = await callApiWithRetry(() => api.post('/admin/coins', payload));
+    dataCache.coinDetails.clear();
+    dataCache.latestMetrics = null;
+    return response.data;
+  } catch (error) {
+    console.error('[createAdminCoin] 创建币种失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const updateAdminCoin = async (coinId, payload) => {
+  try {
+    const response = await callApiWithRetry(() => api.put(`/admin/coins/${coinId}`, payload));
+    dataCache.coinDetails.clear();
+    dataCache.latestMetrics = null;
+    dataCache.coinKlines.clear();
+    return response.data;
+  } catch (error) {
+    console.error('[updateAdminCoin] 更新币种失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const deleteAdminCoin = async (coinId, { force = false } = {}) => {
+  try {
+    const response = await callApiWithRetry(() => api.delete(`/admin/coins/${coinId}`, {
+      params: force ? { force: 'true' } : {},
+    }));
+    dataCache.coinDetails.clear();
+    dataCache.latestMetrics = null;
+    dataCache.coinKlines.clear();
+    dataCache.favorites = null;
+    return response.data;
+  } catch (error) {
+    console.error('[deleteAdminCoin] 删除币种失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
 export const getDateRecordSummary = async (date) => {
   try {
     const response = await api.get(`/admin/date-records/${encodeURIComponent(date)}/summary`);

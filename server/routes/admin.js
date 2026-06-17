@@ -3,15 +3,19 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { Op } = require('sequelize');
 const router = express.Router();
 const {
+  BtcPricePoint,
   Coin,
+  CoinKline,
   CoinKlineMapping,
   DailyMetric,
   DatabasePatchLog,
   LiquidityOverview,
   TrendingCoin,
   User,
+  UserFavorite,
   sequelize,
 } = require('../models');
 const { verifyToken, requireAdmin } = require('../middleware/auth');
@@ -29,6 +33,8 @@ const {
 } = require('../utils/adminDateRecords');
 const {
   buildDefaultKlineMappingsForCoins,
+  filterCoinsWithLatestMetrics,
+  findLatestMetricDate,
   normalizeKlineMappingInput,
   resolveEffectiveKlineMapping,
 } = require('../utils/coinKlineMappings');
@@ -56,6 +62,329 @@ function createStatusError(message, statusCode = 500) {
   return error;
 }
 
+function serializeAdminCoin(coin, metricStatus = {}) {
+  const plain = toPlainRow(coin);
+  if (!plain) return null;
+
+  return {
+    id: plain.id,
+    symbol: String(plain.symbol || '').toUpperCase(),
+    name: plain.name || '',
+    current_price: plain.current_price ?? null,
+    logo_url: plain.logo_url || null,
+    latestMetricDate: metricStatus.latestMetricDate || null,
+    globalLatestMetricDate: metricStatus.globalLatestMetricDate || null,
+    isLatestMetricMissing: Boolean(metricStatus.isLatestMetricMissing),
+    createdAt: plain.createdAt || plain.created_at || null,
+    updatedAt: plain.updatedAt || plain.updated_at || null,
+  };
+}
+
+function normalizeAdminCoinPayload(payload = {}, { partial = false } = {}) {
+  const normalized = {};
+  const rawSymbol = payload.symbol;
+  const rawName = payload.name;
+
+  if (!partial || rawSymbol !== undefined) {
+    const symbol = String(rawSymbol || '').trim().toUpperCase();
+    if (!symbol) throw createStatusError('币种代码为必填项', 400);
+    if (symbol.length > 30) throw createStatusError('币种代码最多30个字符', 400);
+    normalized.symbol = symbol;
+  }
+
+  if (!partial || rawName !== undefined) {
+    const name = String(rawName || '').trim();
+    if (!name) throw createStatusError('币种名称为必填项', 400);
+    if (name.length > 100) throw createStatusError('币种名称最多100个字符', 400);
+    normalized.name = name;
+  }
+
+  if (!partial || payload.current_price !== undefined) {
+    const rawPrice = payload.current_price ?? payload.currentPrice;
+    if (rawPrice === undefined || rawPrice === null || rawPrice === '') {
+      normalized.current_price = null;
+    } else {
+      const price = Number(rawPrice);
+      if (!Number.isFinite(price)) throw createStatusError('当前价格必须是数字', 400);
+      normalized.current_price = price;
+    }
+  }
+
+  if (!partial || payload.logo_url !== undefined || payload.logoUrl !== undefined) {
+    const rawLogoUrl = payload.logo_url ?? payload.logoUrl;
+    const logoUrl = rawLogoUrl === undefined || rawLogoUrl === null
+      ? ''
+      : String(rawLogoUrl).trim();
+    if (logoUrl.length > 500) throw createStatusError('Logo URL最多500个字符', 400);
+    normalized.logo_url = logoUrl || null;
+  }
+
+  return normalized;
+}
+
+async function buildCoinMetricStatusById(DailyMetricModel, globalLatestMetricDate) {
+  const statusByCoinId = new Map();
+  if (!DailyMetricModel?.findAll) return statusByCoinId;
+
+  const rows = await DailyMetricModel.findAll({
+    attributes: ['coin_id', 'date'],
+    order: [['coin_id', 'ASC'], ['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']],
+    raw: true,
+  });
+
+  rows.forEach(row => {
+    const plain = toPlainRow(row);
+    const coinId = Number(plain?.coin_id);
+    if (!Number.isFinite(coinId) || statusByCoinId.has(coinId)) return;
+    statusByCoinId.set(coinId, {
+      latestMetricDate: plain.date || null,
+      globalLatestMetricDate,
+      isLatestMetricMissing: Boolean(globalLatestMetricDate && plain.date !== globalLatestMetricDate),
+    });
+  });
+
+  return statusByCoinId;
+}
+
+async function listAdminCoins({
+  CoinModel = Coin,
+  DailyMetricModel = DailyMetric,
+} = {}) {
+  const coins = await CoinModel.findAll({
+    attributes: ['id', 'symbol', 'name', 'current_price', 'logo_url', 'createdAt', 'updatedAt'],
+    order: [['symbol', 'ASC']],
+  });
+  const globalLatestMetricDate = await findLatestMetricDate(DailyMetricModel);
+  const metricStatusByCoinId = await buildCoinMetricStatusById(DailyMetricModel, globalLatestMetricDate);
+
+  return {
+    latestMetricDate: globalLatestMetricDate,
+    coins: coins.map(coin => {
+      const plainCoin = toPlainRow(coin);
+      const metricStatus = metricStatusByCoinId.get(Number(plainCoin?.id)) || {
+        latestMetricDate: null,
+        globalLatestMetricDate,
+        isLatestMetricMissing: Boolean(globalLatestMetricDate),
+      };
+      return serializeAdminCoin(coin, metricStatus);
+    }),
+  };
+}
+
+async function ensureUniqueCoinSymbol(CoinModel, symbol, excludeId) {
+  if (!symbol) return;
+  const where = { symbol };
+  if (excludeId) {
+    where.id = { [Op.ne]: Number(excludeId) };
+  }
+  const existing = await CoinModel.findOne({ where });
+  if (existing) {
+    throw createStatusError('币种代码已存在', 400);
+  }
+}
+
+async function createAdminCoin({ CoinModel = Coin } = {}, payload = {}) {
+  const normalized = normalizeAdminCoinPayload(payload);
+  await ensureUniqueCoinSymbol(CoinModel, normalized.symbol);
+  const coin = await CoinModel.create(normalized);
+
+  return {
+    coin: serializeAdminCoin(coin),
+  };
+}
+
+async function updateSymbolRows(Model, values, where, transaction) {
+  if (!Model?.update) return;
+  await Model.update(values, { where, transaction });
+}
+
+async function syncCoinSymbolReferences(models, {
+  coinId,
+  oldSymbol,
+  newSymbol,
+  transaction,
+}) {
+  const {
+    CoinKlineModel = CoinKline,
+    CoinKlineMappingModel = CoinKlineMapping,
+    UserFavoriteModel = UserFavorite,
+  } = models;
+
+  await Promise.all([
+    updateSymbolRows(CoinKlineModel, { coin_symbol: newSymbol }, { coin_id: coinId }, transaction),
+    updateSymbolRows(CoinKlineMappingModel, { coin_symbol: newSymbol }, { coin_id: coinId }, transaction),
+    updateSymbolRows(UserFavoriteModel, { symbol: newSymbol }, { symbol: oldSymbol }, transaction),
+  ]);
+}
+
+async function updateAdminCoin({
+  CoinModel = Coin,
+  CoinKlineModel = CoinKline,
+  CoinKlineMappingModel = CoinKlineMapping,
+  UserFavoriteModel = UserFavorite,
+  SequelizeInstance = sequelize,
+} = {}, coinId, payload = {}) {
+  const coin = await CoinModel.findByPk(coinId);
+  if (!coin) {
+    throw createStatusError('币种不存在', 404);
+  }
+
+  const normalized = normalizeAdminCoinPayload(payload, { partial: true });
+  const oldSymbol = String(coin.symbol || '').toUpperCase();
+  const newSymbol = normalized.symbol || oldSymbol;
+  if (normalized.symbol && newSymbol !== oldSymbol) {
+    await ensureUniqueCoinSymbol(CoinModel, normalized.symbol, coin.id);
+  }
+
+  let updated;
+  await runInTransaction(SequelizeInstance, async (transaction) => {
+    updated = await coin.update(normalized, { transaction });
+    if (newSymbol !== oldSymbol) {
+      await syncCoinSymbolReferences({
+        CoinKlineModel,
+        CoinKlineMappingModel,
+        UserFavoriteModel,
+      }, {
+        coinId: Number(coin.id),
+        oldSymbol,
+        newSymbol,
+        transaction,
+      });
+    }
+  });
+
+  return {
+    coin: serializeAdminCoin(updated),
+  };
+}
+
+async function countModelRows(Model, where) {
+  if (!Model?.count) return 0;
+  return Model.count({ where });
+}
+
+async function getCoinDependencyCounts({
+  DailyMetricModel = DailyMetric,
+  CoinKlineModel = CoinKline,
+  CoinKlineMappingModel = CoinKlineMapping,
+  UserFavoriteModel = UserFavorite,
+  BtcPricePointModel = BtcPricePoint,
+} = {}, coin) {
+  const coinId = Number(coin.id);
+  const symbol = String(coin.symbol || '').toUpperCase();
+  const [
+    dailyMetrics,
+    coinKlines,
+    coinKlineMappings,
+    userFavorites,
+    btcPricePoints,
+  ] = await Promise.all([
+    countModelRows(DailyMetricModel, { coin_id: coinId }),
+    countModelRows(CoinKlineModel, { coin_id: coinId }),
+    countModelRows(CoinKlineMappingModel, { coin_id: coinId }),
+    countModelRows(UserFavoriteModel, { symbol }),
+    countModelRows(BtcPricePointModel, { coin_id: coinId }),
+  ]);
+  const total = dailyMetrics + coinKlines + coinKlineMappings + userFavorites + btcPricePoints;
+
+  return {
+    dailyMetrics,
+    otcAndExplosionMetrics: dailyMetrics,
+    coinKlines,
+    coinKlineMappings,
+    userFavorites,
+    btcPricePoints,
+    total,
+  };
+}
+
+async function destroyRows(Model, where, transaction) {
+  if (!Model?.destroy) return 0;
+  return Model.destroy({ where, transaction });
+}
+
+async function deleteCoinDependencies(models, coin, transaction) {
+  const {
+    DailyMetricModel = DailyMetric,
+    CoinKlineModel = CoinKline,
+    CoinKlineMappingModel = CoinKlineMapping,
+    UserFavoriteModel = UserFavorite,
+    BtcPricePointModel = BtcPricePoint,
+  } = models;
+  const coinId = Number(coin.id);
+  const symbol = String(coin.symbol || '').toUpperCase();
+
+  await destroyRows(BtcPricePointModel, { coin_id: coinId }, transaction);
+  await destroyRows(CoinKlineModel, { coin_id: coinId }, transaction);
+  await destroyRows(CoinKlineMappingModel, { coin_id: coinId }, transaction);
+  await destroyRows(UserFavoriteModel, { symbol }, transaction);
+  await destroyRows(DailyMetricModel, { coin_id: coinId }, transaction);
+}
+
+async function runInTransaction(SequelizeInstance, callback) {
+  if (!SequelizeInstance?.transaction) {
+    return callback(undefined);
+  }
+
+  if (callback.length <= 1) {
+    return SequelizeInstance.transaction(callback);
+  }
+
+  const transaction = await SequelizeInstance.transaction();
+  try {
+    const result = await callback(transaction);
+    await transaction.commit();
+    return result;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+async function deleteAdminCoin({
+  CoinModel = Coin,
+  DailyMetricModel = DailyMetric,
+  CoinKlineModel = CoinKline,
+  CoinKlineMappingModel = CoinKlineMapping,
+  UserFavoriteModel = UserFavorite,
+  BtcPricePointModel = BtcPricePoint,
+  SequelizeInstance = sequelize,
+} = {}, coinId, { force = false } = {}) {
+  const coin = await CoinModel.findByPk(coinId);
+  if (!coin) {
+    throw createStatusError('币种不存在', 404);
+  }
+
+  const plainCoin = toPlainRow(coin);
+  const dependencyModels = {
+    DailyMetricModel,
+    CoinKlineModel,
+    CoinKlineMappingModel,
+    UserFavoriteModel,
+    BtcPricePointModel,
+  };
+  const dependencies = await getCoinDependencyCounts(dependencyModels, plainCoin);
+  if (dependencies.total > 0 && !force) {
+    const error = createStatusError('该币种已有历史数据，需要二次确认后删除', 409);
+    error.dependencies = dependencies;
+    error.coin = serializeAdminCoin(plainCoin);
+    throw error;
+  }
+
+  await runInTransaction(SequelizeInstance, async (transaction) => {
+    if (force) {
+      await deleteCoinDependencies(dependencyModels, plainCoin, transaction);
+    }
+    await coin.destroy({ transaction });
+  });
+
+  return {
+    deleted: true,
+    coin: serializeAdminCoin(plainCoin),
+    dependencies,
+  };
+}
+
 function serializeKlineMapping(coin, mapping) {
   const plainCoin = toPlainRow(coin);
   const plainMapping = toPlainRow(mapping);
@@ -78,12 +407,14 @@ function serializeKlineMapping(coin, mapping) {
 async function listKlineMappings({
   CoinModel = Coin,
   CoinKlineMappingModel = CoinKlineMapping,
+  DailyMetricModel = DailyMetric,
 } = {}) {
-  const coins = await CoinModel.findAll({
+  const allCoins = await CoinModel.findAll({
     attributes: ['id', 'symbol', 'name'],
     order: [['symbol', 'ASC']],
     raw: true,
   });
+  const { coins } = await filterCoinsWithLatestMetrics(allCoins, DailyMetricModel);
   const mappings = CoinKlineMappingModel?.findAll
     ? await CoinKlineMappingModel.findAll({ raw: false })
     : [];
@@ -135,12 +466,14 @@ async function updateKlineMapping({
 async function seedDefaultKlineMappings({
   CoinModel = Coin,
   CoinKlineMappingModel = CoinKlineMapping,
+  DailyMetricModel = DailyMetric,
 } = {}) {
-  const coins = await CoinModel.findAll({
+  const allCoins = await CoinModel.findAll({
     attributes: ['id', 'symbol'],
     order: [['symbol', 'ASC']],
     raw: true,
   });
+  const { coins } = await filterCoinsWithLatestMetrics(allCoins, DailyMetricModel);
   const existingMappings = await CoinKlineMappingModel.findAll({ raw: true });
   const rows = buildDefaultKlineMappingsForCoins(coins, existingMappings);
   if (rows.length > 0) {
@@ -505,6 +838,74 @@ router.post('/kline-mappings/seed-defaults', async (req, res) => {
   }
 });
 
+router.get('/coins', async (req, res) => {
+  try {
+    const result = await listAdminCoins();
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('获取币种列表失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '获取币种列表失败',
+    });
+  }
+});
+
+router.post('/coins', async (req, res) => {
+  try {
+    const result = await createAdminCoin(undefined, req.body);
+    res.status(201).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('创建币种失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '创建币种失败',
+    });
+  }
+});
+
+router.put('/coins/:id', async (req, res) => {
+  try {
+    const result = await updateAdminCoin(undefined, req.params.id, req.body);
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('更新币种失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '更新币种失败',
+    });
+  }
+});
+
+router.delete('/coins/:id', async (req, res) => {
+  try {
+    const force = req.query.force === 'true' || req.body?.force === true;
+    const result = await deleteAdminCoin(undefined, req.params.id, { force });
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('删除币种失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '删除币种失败',
+      ...(error.dependencies ? { dependencies: error.dependencies } : {}),
+      ...(error.coin ? { coin: error.coin } : {}),
+      requiresConfirmation: error.statusCode === 409,
+    });
+  }
+});
+
 // 获取所有用户
 router.get('/users', async (req, res) => {
   try {
@@ -816,9 +1217,15 @@ router.put('/settings', async (req, res) => {
 });
 
 router.__test = {
+  buildCoinMetricStatusById,
+  createAdminCoin,
+  deleteAdminCoin,
+  getCoinDependencyCounts,
+  listAdminCoins,
   listKlineMappings,
   seedDefaultKlineMappings,
   serializeKlineMapping,
+  updateAdminCoin,
   updateKlineMapping,
 };
 

@@ -85,6 +85,7 @@ function createBackfillJob(options) {
     skippedCovered: 0,
     skippedNoMetrics: 0,
     skippedInvalidMetrics: 0,
+    skippedStaleMetrics: 0,
     fetched: 0,
     saved: 0,
     currentInterval: null,
@@ -101,6 +102,7 @@ function createBackfillJob(options) {
       skippedCovered: 0,
       skippedNoMetrics: 0,
       skippedInvalidMetrics: 0,
+      skippedStaleMetrics: 0,
       fetched: 0,
       saved: 0,
     })),
@@ -203,6 +205,7 @@ function serializeBackfillJob(job) {
     skippedCovered: job.skippedCovered,
     skippedNoMetrics: job.skippedNoMetrics,
     skippedInvalidMetrics: job.skippedInvalidMetrics,
+    skippedStaleMetrics: job.skippedStaleMetrics,
     fetched: job.fetched,
     saved: job.saved,
     currentInterval: job.currentInterval,
@@ -246,6 +249,7 @@ async function buildBackfillPlanForIntervals(job) {
     stat.skippedCovered = plan.skippedCovered;
     stat.skippedNoMetrics = plan.skippedNoMetrics;
     stat.skippedInvalidMetrics = plan.skippedInvalidMetrics;
+    stat.skippedStaleMetrics = plan.skippedStaleMetrics;
     stat.totalChunks = plannedItems.reduce((total, entry) => total + entry.chunks.length, 0);
 
     intervalPlans.push({
@@ -270,6 +274,7 @@ async function runKlineBackfillJob(job) {
     job.skippedCovered = job.intervalStats.reduce((total, stat) => total + stat.skippedCovered, 0);
     job.skippedNoMetrics = job.intervalStats.reduce((total, stat) => total + stat.skippedNoMetrics, 0);
     job.skippedInvalidMetrics = job.intervalStats.reduce((total, stat) => total + stat.skippedInvalidMetrics, 0);
+    job.skippedStaleMetrics = job.intervalStats.reduce((total, stat) => total + stat.skippedStaleMetrics, 0);
     job.totalChunks = job.intervalStats.reduce((total, stat) => total + stat.totalChunks, 0);
     job.updatedAt = new Date().toISOString();
 

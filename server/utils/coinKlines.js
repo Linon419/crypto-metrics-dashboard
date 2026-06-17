@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const {
   KLINE_MARKETS,
+  findLatestMetricDate,
   getYahooTradingSymbol,
   normalizeBinanceTradingSymbol,
   resolveEffectiveKlineMapping,
@@ -376,15 +377,18 @@ async function findCoinKlineBackfillGaps({
   }
 
   const normalizedInterval = normalizeInterval(interval);
-  const coins = await CoinModel.findAll({
+  const rawCoins = await CoinModel.findAll({
     attributes: ['id', 'symbol', 'name'],
     order: [['symbol', 'ASC']],
     raw: true,
   });
+  const latestMetricDate = await findLatestMetricDate(DailyMetricModel);
+  const coins = rawCoins;
   const items = [];
   let skippedCovered = 0;
   let skippedNoMetrics = 0;
   let skippedInvalidMetrics = 0;
+  let skippedStaleMetrics = 0;
 
   for (const rawCoin of coins) {
     const coin = toPlainRow(rawCoin);
@@ -402,6 +406,21 @@ async function findCoinKlineBackfillGaps({
       continue;
     }
 
+    const rawLatestMetric = await DailyMetricModel.findOne({
+      where: { coin_id: coin.id },
+      order: [['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']],
+      raw: true,
+    });
+    const latestMetric = toPlainRow(rawLatestMetric) || metric;
+    if (
+      latestMetricDate
+      && latestMetric?.date
+      && String(latestMetric.date) !== String(latestMetricDate)
+    ) {
+      skippedStaleMetrics += 1;
+      continue;
+    }
+
     const metricTimestamp = resolveMetricTimestampMs(metric);
     if (!Number.isFinite(metricTimestamp)) {
       skippedInvalidMetrics += 1;
@@ -410,12 +429,6 @@ async function findCoinKlineBackfillGaps({
 
     const startTime = alignTimestampToIntervalStart(metricTimestamp, normalizedInterval);
     const intervalMs = INTERVAL_MS[normalizedInterval];
-    const rawLatestMetric = await DailyMetricModel.findOne({
-      where: { coin_id: coin.id },
-      order: [['date', 'DESC'], ['timestamp', 'DESC'], ['id', 'DESC']],
-      raw: true,
-    });
-    const latestMetric = toPlainRow(rawLatestMetric) || metric;
     const latestMetricTimestamp = resolveMetricTimestampMs(latestMetric);
     const metricEndTime = Number.isFinite(latestMetricTimestamp)
       ? alignTimestampToIntervalStart(latestMetricTimestamp, normalizedInterval) + intervalMs - 1
@@ -469,11 +482,12 @@ async function findCoinKlineBackfillGaps({
 
   return {
     interval: normalizedInterval,
-    totalCoins: coins.length,
+    totalCoins: rawCoins.length,
     items,
     skippedCovered,
     skippedNoMetrics,
     skippedInvalidMetrics,
+    skippedStaleMetrics,
   };
 }
 
