@@ -106,7 +106,7 @@ test('renders BTC cycle chart with TradingView-style panels', async () => {
   await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
   expect(createChart.mock.calls.map(([, options]) => options.rightPriceScale.minimumWidth)).toEqual([72, 72, 72]);
   await waitFor(() => expect(screen.getByText('场外900')).toBeInTheDocument());
-  expect(screen.getByText('↑200/转正')).toBeInTheDocument();
+  expect(screen.getByText('▲200/转正')).toBeInTheDocument();
   expect(screen.getByText('进1')).toBeInTheDocument();
 });
 
@@ -336,9 +336,11 @@ test('builds TradingView model with signal markers and quant panels', () => {
   expect(model.otcIndex.map(point => point.value)).toEqual([900, 1200, 800]);
   expect(model.explosionIndex.map(point => point.value)).toEqual([-10, 220, 150]);
   expect(model.phaseRanges.length).toBeGreaterThan(0);
+  expect(model.markers).toHaveLength(5);
   expect(model.markers.every(marker => !marker.text)).toBe(true);
+  expect(model.markers.filter(marker => marker.color === '#0891b2' || marker.color === '#be123c')).toHaveLength(2);
   expect(model.annotationTracks.period.map(label => label.text)).toEqual(['进1', '进2', '退1']);
-  expect(model.annotationTracks.explosion.map(label => label.text)).toEqual(['↑200/转正', '↓200']);
+  expect(model.annotationTracks.explosion.map(label => label.text)).toEqual(['▲200/转正', '▼200']);
   expect(model.annotationTracks.otc.map(label => label.text)).toEqual(['场外900', '场外1200', '场外800']);
 });
 
@@ -460,7 +462,7 @@ test('marks each explosion down-cross below 200 and negative-to-positive cross',
   const model = buildTradingViewCycleModel({ klines: signalKlines, metrics: signalMetrics });
   const explosionTexts = model.annotationTracks.explosion.map(label => label.text);
 
-  expect(explosionTexts.filter(text => text.includes('↓200'))).toHaveLength(2);
+  expect(explosionTexts.filter(text => text.includes('▼200'))).toHaveLength(2);
   expect(explosionTexts.filter(text => text.includes('转正'))).toHaveLength(1);
 });
 

@@ -3,8 +3,6 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Layout, Tag, Divider, Alert, DatePicker, Space, Typography, Button, Modal, notification, Dropdown, Menu, Tooltip, Drawer, Progress } from 'antd';
 import {
   ReloadOutlined,
-  InfoCircleOutlined,
-  ApiOutlined,
   SearchOutlined,
   FireOutlined,
   StarOutlined,
@@ -590,11 +588,6 @@ function Dashboard() {
     return currentAllCoins.find(coin => coin.symbol === selectedCoin);
   };
 
-  // Open info modal
-  const openInfoModal = () => {
-    setInfoModalVisible(true);
-  };
-
   // Check API status
   const checkApiStatus = async () => {
     setApiStatusModalVisible(true);
@@ -625,6 +618,17 @@ function Dashboard() {
     }
   };
 
+  const klineBackfillRunning = klineBackfillJob
+    ? ['queued', 'running'].includes(klineBackfillJob.status)
+    : false;
+  const klineBackfillProgress = klineBackfillJob?.progress || 0;
+  const klineBackfillLatestLog = Array.isArray(klineBackfillJob?.logs)
+    ? klineBackfillJob.logs[klineBackfillJob.logs.length - 1]?.message
+    : '';
+  const klineBackfillProgressStatus = ['failed', 'completed_with_errors'].includes(klineBackfillJob?.status)
+    ? 'exception'
+    : (klineBackfillJob?.status === 'completed' ? 'success' : 'active');
+
   // Mobile menu items
   const mobileMenuItems = [
     {
@@ -647,17 +651,11 @@ function Dashboard() {
       onClick: () => setDebugModalVisible(true)
     }] : []),
     {
-      key: 'info',
-      icon: <InfoCircleOutlined />,
-      label: '指标说明',
-      onClick: openInfoModal
-    },
-    {
-      key: 'api',
-      icon: <ApiOutlined />,
-      label: 'API状态',
-      onClick: checkApiStatus,
-      danger: !apiStatus.ok
+      key: 'kline-backfill',
+      icon: <CloudDownloadOutlined />,
+      label: klineBackfillRunning ? 'K线回补运行中' : '一键回补全部周期',
+      onClick: handleStartKlineBackfill,
+      disabled: klineBackfillRunning,
     },
     {
       key: 'logout',
@@ -689,6 +687,14 @@ function Dashboard() {
       >
         修改密码
       </Menu.Item>
+      <Menu.Item
+        key="kline-backfill"
+        onClick={handleStartKlineBackfill}
+        icon={<CloudDownloadOutlined />}
+        disabled={klineBackfillRunning}
+      >
+        {klineBackfillRunning ? 'K线回补运行中' : '一键回补全部周期'}
+      </Menu.Item>
       <Menu.Divider />
       <Menu.Item key="logout" onClick={handleLogout} icon={<LogoutOutlined />}>
         退出登录
@@ -719,16 +725,6 @@ function Dashboard() {
     { label: '做空信号', value: signalCounts.short, hint: '风险候选' },
     { label: '收藏币种', value: favorites.length, hint: user?.username || '当前账户' },
   ];
-  const klineBackfillRunning = klineBackfillJob
-    ? ['queued', 'running'].includes(klineBackfillJob.status)
-    : false;
-  const klineBackfillProgress = klineBackfillJob?.progress || 0;
-  const klineBackfillLatestLog = Array.isArray(klineBackfillJob?.logs)
-    ? klineBackfillJob.logs[klineBackfillJob.logs.length - 1]?.message
-    : '';
-  const klineBackfillProgressStatus = ['failed', 'completed_with_errors'].includes(klineBackfillJob?.status)
-    ? 'exception'
-    : (klineBackfillJob?.status === 'completed' ? 'success' : 'active');
     // console.log("[DASHBOARD - filteredCoins for OtcIndexTable[0]]", filteredCoins && filteredCoins.length > 0 ? JSON.stringify(filteredCoins[0], null, 2) : "empty or undefined");
 
 
@@ -835,21 +831,6 @@ function Dashboard() {
             >
               刷新
             </Button>
-            <Button
-              icon={<InfoCircleOutlined />}
-              onClick={openInfoModal}
-              className="dashboard-action"
-            >
-              指标说明
-            </Button>
-            <Button
-              icon={<ApiOutlined />}
-              onClick={checkApiStatus}
-              danger={!apiStatus.ok}
-              className="dashboard-action"
-            >
-              API状态
-            </Button>
 
             {/* User dropdown menu */}
             <Dropdown overlay={userMenu} trigger={['click']}>
@@ -898,25 +879,16 @@ function Dashboard() {
           <BtcVolatilityPanel />
         </section>
 
-        <section className="dashboard-kline-backfill">
-          <div className="dashboard-kline-backfill__controls">
-            <Space wrap align="center">
-              <Text strong>K线回补</Text>
-              <Button
-                icon={<CloudDownloadOutlined />}
-                onClick={handleStartKlineBackfill}
-                loading={klineBackfillRunning}
-              >
-                一键回补全部周期
-              </Button>
-              {klineBackfillJob && (
+        {klineBackfillJob && (
+          <section className="dashboard-kline-backfill">
+            <div className="dashboard-kline-backfill__controls">
+              <Space wrap align="center">
+                <Text strong>K线回补</Text>
                 <Text type="secondary">
                   {klineBackfillJob.status} · {klineBackfillJob.completedChunks || 0}/{klineBackfillJob.totalChunks || 0} 段 · 保存 {klineBackfillJob.saved || 0} 根
                 </Text>
-              )}
-            </Space>
-          </div>
-          {klineBackfillJob && (
+              </Space>
+            </div>
             <div className="dashboard-kline-backfill__progress">
               <Progress
                 percent={klineBackfillProgress}
@@ -928,8 +900,8 @@ function Dashboard() {
                 {klineBackfillLatestLog ? ` · ${klineBackfillLatestLog}` : ''}
               </Text>
             </div>
-          )}
-        </section>
+          </section>
+        )}
 
         {error && (
           <Alert
@@ -1096,6 +1068,7 @@ function Dashboard() {
               key={item.key}
               icon={item.icon}
               onClick={() => { item.onClick(); setMenuDrawerVisible(false); }} // Close drawer on click
+              disabled={item.disabled}
               danger={item.danger}
               className={item.danger ? 'text-red-500' : ''}
             >
@@ -1159,32 +1132,6 @@ function Dashboard() {
               回到最新
             </Button>
           )}
-
-          <Button
-            block
-            type="primary"
-            icon={<InfoCircleOutlined />}
-            onClick={() => {
-              openInfoModal();
-              setFilterDrawerVisible(false);
-            }}
-            className="mb-3"
-          >
-            指标说明
-          </Button>
-
-          <Button
-            block
-            type="primary"
-            icon={<ApiOutlined />}
-            onClick={() => {
-              checkApiStatus();
-              setFilterDrawerVisible(false);
-            }}
-            danger={!apiStatus.ok}
-          >
-            API状态
-          </Button>
         </div>
       </Drawer>
 

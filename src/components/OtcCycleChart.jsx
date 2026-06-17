@@ -62,6 +62,8 @@ const RED = '#ef4444';
 const ORANGE = '#f59e0b';
 const BLUE = '#2563eb';
 const PURPLE = '#8b5cf6';
+const EXPLOSION_UP = '#0891b2';
+const EXPLOSION_DOWN = '#be123c';
 const TEXT = '#2f3337';
 const RIGHT_PRICE_SCALE_WIDTH = 72;
 const ANNOTATION_TRACK_LAYOUT = [
@@ -435,8 +437,8 @@ function getExplosionSignals(previousExplosion, currentExplosion) {
   if (previousExplosion < 200 && currentExplosion >= 200) {
     signals.push({
       type: 'up200',
-      text: '↑200',
-      color: ORANGE,
+      text: '▲200',
+      color: EXPLOSION_UP,
       position: 'atPriceTop',
       priceKey: 'markerPriceAbove',
     });
@@ -444,8 +446,8 @@ function getExplosionSignals(previousExplosion, currentExplosion) {
   if (previousExplosion >= 200 && currentExplosion < 200) {
     signals.push({
       type: 'down200',
-      text: '↓200',
-      color: RED,
+      text: '▼200',
+      color: EXPLOSION_DOWN,
       position: 'atPriceBottom',
       priceKey: 'markerPriceBelow',
     });
@@ -499,16 +501,18 @@ function buildTradingViewMarkers(metricEvents) {
       });
     }
 
-    getExplosionSignals(previousExplosion, currentExplosion).forEach((signal) => {
-      pushUniqueTradingViewMarker(markers, seen, {
-        time: event.alignedTime,
-        position: signal.position,
-        price: event[signal.priceKey],
-        color: signal.color,
-        shape: 'circle',
-        dedupeKey: `${event.alignedTime}:explosion:${signal.type}`,
+    getExplosionSignals(previousExplosion, currentExplosion)
+      .filter(signal => signal.type === 'up200' || signal.type === 'down200')
+      .forEach((signal) => {
+        pushUniqueTradingViewMarker(markers, seen, {
+          time: event.alignedTime,
+          position: signal.position,
+          price: event[signal.priceKey],
+          color: signal.color,
+          shape: signal.type === 'up200' ? 'arrowUp' : 'arrowDown',
+          dedupeKey: `${event.alignedTime}:explosion:${signal.type}`,
+        });
       });
-    });
   });
 
   return markers;
