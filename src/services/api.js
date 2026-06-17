@@ -40,7 +40,8 @@ const dataCache = {
   btcVolatility: null,
   lastBtcVolatilityFetchTime: 0,
   btcVolatilityHistory: null,
-  lastBtcVolatilityHistoryFetchTime: 0
+  lastBtcVolatilityHistoryFetchTime: 0,
+  coinKlines: new Map()
 };
 
 function parseMomentumIndicators(value) {
@@ -80,6 +81,68 @@ const api = axios.create({
     'Content-Type': 'application/json'
   }
 });
+
+export function buildKlineWebSocketUrl(symbol, interval = '1d', apiBaseUrl = effectiveApiBaseUrl) {
+  const browserOrigin = typeof window !== 'undefined' && window.location?.origin
+    ? window.location.origin
+    : 'http://localhost:3001';
+  const url = new URL(apiBaseUrl || 'http://localhost:3001/api', browserOrigin);
+  const basePath = url.pathname.replace(/\/api\/?$/, '').replace(/\/$/, '');
+
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.pathname = `${basePath}/ws/klines`;
+  url.search = '';
+  url.searchParams.set('symbol', String(symbol || '').toUpperCase());
+  url.searchParams.set('interval', interval);
+  return url.toString();
+}
+
+export function subscribeCoinKlineStream(symbol, {
+  interval = '1d',
+  onMessage,
+  onStatus,
+  onError,
+  WebSocketCtor,
+} = {}) {
+  const SocketCtor = WebSocketCtor || (typeof window !== 'undefined' ? window.WebSocket : null);
+  if (!SocketCtor || !symbol) {
+    return () => {};
+  }
+
+  const socket = new SocketCtor(buildKlineWebSocketUrl(symbol, interval));
+
+  socket.onopen = () => {
+    onStatus?.({ type: 'status', status: 'open' });
+  };
+  socket.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      if (payload.type === 'kline') {
+        onMessage?.(payload);
+        return;
+      }
+      if (payload.type === 'status') {
+        onStatus?.(payload);
+        return;
+      }
+      if (payload.type === 'error') {
+        onError?.(new Error(payload.message || 'Kline WebSocket error'));
+      }
+    } catch (error) {
+      onError?.(error);
+    }
+  };
+  socket.onerror = (event) => {
+    onError?.(event);
+  };
+
+  return () => {
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.close?.();
+  };
+}
 
 // --- 3. Axios 拦截器 ---
 // 请求拦截器：添加认证 Token
@@ -597,6 +660,46 @@ export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
   } catch (error) {
     console.error(`获取 ${symbol} 指标历史数据失败:`, error.displayMessage || error.message);
     return createMockHistoricalData(symbol); // 出错时返回模拟数据
+  }
+};
+
+export const fetchCoinKlines = async (symbol, {
+  interval = '1d',
+  limit = 365,
+  refresh = false,
+  startTime,
+  endTime,
+} = {}) => {
+  if (!symbol) {
+    return { symbol: '', interval, klines: [] };
+  }
+
+  const now = Date.now();
+  const cacheKey = `${String(symbol).toUpperCase()}:${interval}:${limit}:${startTime || ''}:${endTime || ''}`;
+  const cached = dataCache.coinKlines.get(cacheKey);
+  if (!refresh && cached && (now - cached.fetchTime < 60 * 1000)) {
+    return cached.data;
+  }
+
+  try {
+    const params = {
+      interval,
+      limit,
+      ...(refresh ? { refresh: 1 } : {}),
+    };
+    if (startTime) params.startTime = startTime;
+    if (endTime) params.endTime = endTime;
+
+    const response = await callApiWithRetry(() => api.get(`/coins/${symbol}/klines`, { params }));
+    const data = response.data || { symbol, interval, klines: [] };
+    dataCache.coinKlines.set(cacheKey, {
+      fetchTime: now,
+      data,
+    });
+    return data;
+  } catch (error) {
+    console.error(`获取 ${symbol} K线失败:`, error.displayMessage || error.message);
+    return { symbol, interval, klines: [] };
   }
 };
 

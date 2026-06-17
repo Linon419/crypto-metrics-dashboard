@@ -25,6 +25,9 @@ database.sqlite.backup*
 # production
 /build
 local-artifacts/
+backups/
+logs/
+outputs/
 server/output/
 telegram-bot/data/
 zsxq-*.json

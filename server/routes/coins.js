@@ -2,12 +2,18 @@
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize'); // 添加这一行
-const { Coin, DailyMetric } = require('../models');
+const { Coin, DailyMetric, CoinKline } = require('../models');
 const dataRouter = require('./data');
 const {
   attachPeriodQualityToMetrics,
   getQualityLookbackStartDate,
 } = require('../utils/periodQualityTimeline');
+const {
+  findStoredCoinKlines,
+  getPreferredKlineMarket,
+  serializeCoinKline,
+  syncCoinKlines,
+} = require('../utils/coinKlines');
 
 // 获取所有币种
 router.get('/', async (req, res) => {
@@ -103,6 +109,90 @@ router.get('/:symbol/metrics', async (req, res) => {
   } catch (error) {
     console.error(`Error fetching metrics for ${req.params.symbol}:`, error);
     res.status(500).json({ error: 'Failed to fetch metrics' });
+  }
+});
+
+router.get('/:symbol/klines', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const {
+      interval = '1d',
+      limit = 365,
+      startTime,
+      endTime,
+      refresh,
+    } = req.query;
+
+    const coin = await Coin.findOne({
+      where: { symbol: symbol.toUpperCase() }
+    });
+
+    if (!coin) {
+      return res.status(404).json({ error: 'Coin not found' });
+    }
+
+    await CoinKline.sync();
+    const preferredMarket = getPreferredKlineMarket(coin.symbol);
+
+    let syncResult = null;
+    if (refresh === '1' || refresh === 'true') {
+      syncResult = await syncCoinKlines({
+        coin,
+        interval,
+        limit,
+        startTime,
+        endTime,
+        CoinKlineModel: CoinKline,
+      });
+    }
+
+    let rows = await findStoredCoinKlines({
+      coinId: coin.id,
+      interval,
+      limit,
+      market: preferredMarket,
+      startTime,
+      endTime,
+      CoinKlineModel: CoinKline,
+    });
+
+    if (rows.length === 0) {
+      syncResult = await syncCoinKlines({
+        coin,
+        interval,
+        limit,
+        startTime,
+        endTime,
+        CoinKlineModel: CoinKline,
+      });
+      rows = await findStoredCoinKlines({
+        coinId: coin.id,
+        interval,
+        limit,
+        market: preferredMarket,
+        startTime,
+        endTime,
+        CoinKlineModel: CoinKline,
+      });
+    }
+
+    rows.reverse();
+    const markets = Array.from(new Set(rows.map(row => row.market).filter(Boolean)));
+    const tradingSymbols = Array.from(new Set(rows.map(row => row.trading_symbol).filter(Boolean)));
+
+    res.json({
+      symbol: coin.symbol,
+      interval,
+      market: markets[0] || syncResult?.market || null,
+      markets,
+      tradingSymbols,
+      source: 'CoinKlines',
+      sync: syncResult,
+      klines: rows.map(serializeCoinKline),
+    });
+  } catch (error) {
+    console.error(`Error fetching klines for ${req.params.symbol}:`, error);
+    res.status(500).json({ error: error.message || 'Failed to fetch klines' });
   }
 });
 

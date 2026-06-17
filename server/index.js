@@ -1,5 +1,6 @@
 // server/index.js
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const morgan = require('morgan');
@@ -7,8 +8,10 @@ const path = require('path');
 require('dotenv').config();
 const checkFirstRun = require('./middleware/checkFirstRun');
 const mcpGatewayRouter = require('./routes/mcpGateway');
+const { attachKlineWebSocketServer } = require('./services/klineWebSocketServer');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3001;
 
 function isWeakJwtSecret(secret) {
@@ -182,8 +185,10 @@ db.sequelize
       console.error('Admin check failed:', err);
     }
 
-    app.listen(PORT, '0.0.0.0', () => {
+    attachKlineWebSocketServer({ server, db });
+    server.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on port ${PORT}`);
+      console.log('Kline WebSocket running on /ws/klines');
     });
   })
   .catch((err) => {
