@@ -1,4 +1,10 @@
 const { Op } = require('sequelize');
+const {
+  KLINE_MARKETS,
+  getYahooTradingSymbol,
+  normalizeBinanceTradingSymbol,
+  resolveEffectiveKlineMapping,
+} = require('./coinKlineMappings');
 
 const BINANCE_USDM_KLINES_URL = 'https://fapi.binance.com/fapi/v1/klines';
 const BINANCE_SPOT_KLINES_URL = 'https://api.binance.com/api/v3/klines';
@@ -188,23 +194,36 @@ function normalizeTradingSymbol(symbol) {
   return normalized.endsWith('USDT') ? normalized : `${normalized}USDT`;
 }
 
-function resolveYahooSymbol(symbol) {
+function resolveYahooSymbol(symbol, klineMapping) {
+  if (klineMapping?.enabled && klineMapping.market === YAHOO_FINANCE_MARKET) {
+    return klineMapping.trading_symbol;
+  }
   const normalized = String(symbol || '').trim().toUpperCase();
   if (!normalized) {
     throw new Error('Coin symbol is required');
   }
-  return YAHOO_SYMBOL_ALIASES[normalized] || normalized;
+  return getYahooTradingSymbol(normalized) || YAHOO_SYMBOL_ALIASES[normalized] || normalized;
 }
 
-function shouldUseDeribitBtcDvol(symbol) {
+function shouldUseDeribitBtcDvol(symbol, klineMapping) {
+  if (klineMapping?.enabled && klineMapping.market === DERIBIT_BTC_DVOL_MARKET) {
+    return true;
+  }
   return DERIBIT_BTC_DVOL_COIN_SYMBOLS.has(String(symbol || '').trim().toUpperCase());
 }
 
-function shouldUseYahooFinance(symbol) {
+function shouldUseYahooFinance(symbol, klineMapping) {
+  if (klineMapping?.enabled && klineMapping.market === YAHOO_FINANCE_MARKET) {
+    return true;
+  }
   return YAHOO_FINANCE_COIN_SYMBOLS.has(String(symbol || '').trim().toUpperCase());
 }
 
-function getPreferredKlineMarket(symbol) {
+function getPreferredKlineMarket(symbol, klineMapping) {
+  const effectiveMapping = klineMapping
+    ? resolveEffectiveKlineMapping({ symbol }, klineMapping)
+    : null;
+  if (effectiveMapping?.enabled && effectiveMapping.market) return effectiveMapping.market;
   if (shouldUseDeribitBtcDvol(symbol)) return DERIBIT_BTC_DVOL_MARKET;
   if (shouldUseYahooFinance(symbol)) return YAHOO_FINANCE_MARKET;
   return null;
@@ -242,6 +261,7 @@ function buildYahooSyncCacheKey({
 
 function shouldSkipYahooSync({
   coinSymbol,
+  klineMapping,
   interval = DEFAULT_INTERVAL,
   limit = DEFAULT_LIMIT,
   startTime,
@@ -250,11 +270,17 @@ function shouldSkipYahooSync({
   now = Date.now(),
 } = {}) {
   const minInterval = Number(minSyncIntervalMs);
-  if (!shouldUseYahooFinance(coinSymbol) || !Number.isFinite(minInterval) || minInterval <= 0) {
+  if (!shouldUseYahooFinance(coinSymbol, klineMapping) || !Number.isFinite(minInterval) || minInterval <= 0) {
     return { skip: false };
   }
 
-  const key = buildYahooSyncCacheKey({ coinSymbol, interval, limit, startTime, endTime });
+  const key = buildYahooSyncCacheKey({
+    coinSymbol: klineMapping?.trading_symbol || coinSymbol,
+    interval,
+    limit,
+    startTime,
+    endTime,
+  });
   const nowMs = toTimestampMs(now, 'now');
   const lastSyncedAt = yahooSyncCache.get(key);
   if (Number.isFinite(lastSyncedAt) && nowMs - lastSyncedAt < minInterval) {
@@ -337,6 +363,7 @@ async function findCoinKlineBackfillGaps({
   CoinModel,
   DailyMetricModel,
   CoinKlineModel,
+  CoinKlineMappingModel,
 } = {}) {
   if (!CoinModel?.findAll) {
     throw new Error('Coin model is required');
@@ -393,7 +420,16 @@ async function findCoinKlineBackfillGaps({
     const metricEndTime = Number.isFinite(latestMetricTimestamp)
       ? alignTimestampToIntervalStart(latestMetricTimestamp, normalizedInterval) + intervalMs - 1
       : startTime + intervalMs - 1;
-    const market = getPreferredKlineMarket(coin.symbol);
+    const rawKlineMapping = CoinKlineMappingModel?.findOne
+      ? await CoinKlineMappingModel.findOne({
+        where: { coin_id: coin.id },
+        raw: true,
+      })
+      : null;
+    const effectiveMapping = CoinKlineMappingModel?.findOne
+      ? resolveEffectiveKlineMapping(coin, rawKlineMapping)
+      : null;
+    const market = getPreferredKlineMarket(coin.symbol, effectiveMapping);
     const klineWhere = {
       coin_id: coin.id,
       interval: normalizedInterval,
@@ -422,6 +458,7 @@ async function findCoinKlineBackfillGaps({
       coinSymbol: String(coin.symbol).toUpperCase(),
       coinName: coin.name || String(coin.symbol).toUpperCase(),
       market: market || null,
+      ...(effectiveMapping ? { klineMapping: effectiveMapping } : {}),
       interval: normalizedInterval,
       startTime,
       endTime: Number.isFinite(earliestKlineTime) ? earliestKlineTime - 1 : metricEndTime,
@@ -800,6 +837,41 @@ function parseYahooChartResult(result, {
 }
 
 async function fetchMarketKlinesWithFallback(options) {
+  const klineMapping = options.klineMapping || null;
+
+  if (klineMapping?.enabled && klineMapping.market === KLINE_MARKETS.YAHOO_FINANCE) {
+    const yahooSymbol = klineMapping.trading_symbol;
+    const rows = await fetchYahooFinanceChart({
+      ...options,
+      symbol: yahooSymbol,
+    });
+    return {
+      rows,
+      market: YAHOO_FINANCE_MARKET,
+      tradingSymbol: yahooSymbol,
+      normalizedRows: true,
+      fallbackReason: null,
+    };
+  }
+
+  if (klineMapping?.enabled && klineMapping.market === KLINE_MARKETS.BINANCE_USDM_PERPETUAL) {
+    const tradingSymbol = normalizeBinanceTradingSymbol(klineMapping.trading_symbol);
+    const rows = await fetchBinanceUsdmKlines({
+      ...options,
+      symbol: tradingSymbol,
+    });
+    return { rows, market: DEFAULT_MARKET, tradingSymbol };
+  }
+
+  if (klineMapping?.enabled && klineMapping.market === KLINE_MARKETS.BINANCE_SPOT) {
+    const tradingSymbol = normalizeBinanceTradingSymbol(klineMapping.trading_symbol);
+    const rows = await fetchBinanceSpotKlines({
+      ...options,
+      symbol: tradingSymbol,
+    });
+    return { rows, market: BINANCE_SPOT_MARKET, tradingSymbol };
+  }
+
   if (shouldUseYahooFinance(options.coinSymbol)) {
     const yahooSymbol = resolveYahooSymbol(options.coinSymbol);
     const rows = await fetchYahooFinanceChart({
@@ -858,6 +930,7 @@ async function fetchMarketKlinesWithFallback(options) {
 
 async function syncCoinKlines({
   coin,
+  klineMapping,
   interval = DEFAULT_INTERVAL,
   limit = DEFAULT_LIMIT,
   startTime,
@@ -877,8 +950,12 @@ async function syncCoinKlines({
 
   const normalizedInterval = normalizeInterval(interval);
   const normalizedLimit = normalizeLimit(limit);
+  const effectiveMapping = klineMapping
+    ? resolveEffectiveKlineMapping(coin, klineMapping)
+    : null;
   const yahooSyncCheck = shouldSkipYahooSync({
     coinSymbol: coin.symbol,
+    klineMapping: effectiveMapping,
     interval: normalizedInterval,
     limit: normalizedLimit,
     startTime,
@@ -891,7 +968,7 @@ async function syncCoinKlines({
     return {
       coinId: coin.id,
       coinSymbol: String(coin.symbol).toUpperCase(),
-      tradingSymbol: resolveYahooSymbol(coin.symbol),
+      tradingSymbol: resolveYahooSymbol(coin.symbol, effectiveMapping),
       market: YAHOO_FINANCE_MARKET,
       fallbackReason: null,
       interval: normalizedInterval,
@@ -902,7 +979,7 @@ async function syncCoinKlines({
     };
   }
 
-  if (shouldUseDeribitBtcDvol(coin.symbol)) {
+  if (shouldUseDeribitBtcDvol(coin.symbol, effectiveMapping)) {
     const parsedRows = await fetchDeribitBtcDvolKlines({
       interval: normalizedInterval,
       limit: normalizedLimit,
@@ -932,10 +1009,14 @@ async function syncCoinKlines({
     };
   }
 
-  const binanceSymbol = normalizeTradingSymbol(coin.symbol);
+  const binanceSymbol = effectiveMapping?.market === KLINE_MARKETS.BINANCE_USDM_PERPETUAL
+    || effectiveMapping?.market === KLINE_MARKETS.BINANCE_SPOT
+    ? effectiveMapping.trading_symbol
+    : normalizeTradingSymbol(coin.symbol);
   const fetched = await fetchMarketKlinesWithFallback({
     coinSymbol: coin.symbol,
     binanceSymbol,
+    klineMapping: effectiveMapping,
     interval: normalizedInterval,
     limit: normalizedLimit,
     startTime,
@@ -961,9 +1042,9 @@ async function syncCoinKlines({
     await CoinKlineModel.upsert(payload);
   }
 
-  if (shouldUseYahooFinance(coin.symbol)) {
+  if (shouldUseYahooFinance(coin.symbol, effectiveMapping)) {
     const cacheKey = yahooSyncCheck.key || buildYahooSyncCacheKey({
-      coinSymbol: coin.symbol,
+      coinSymbol: effectiveMapping?.trading_symbol || coin.symbol,
       interval: normalizedInterval,
       limit: normalizedLimit,
       startTime,

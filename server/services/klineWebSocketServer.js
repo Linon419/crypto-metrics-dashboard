@@ -4,6 +4,10 @@ const {
   buildCoinKlineUpsertPayload,
   parseBinanceKlineStreamMessage,
 } = require('../utils/binanceKlineStream');
+const {
+  KLINE_MARKETS,
+  resolveEffectiveKlineMapping,
+} = require('../utils/coinKlineMappings');
 
 const CLIENT_CONNECTING = 0;
 const CLIENT_OPEN = 1;
@@ -53,6 +57,15 @@ async function findCoin(db, symbol) {
   });
 }
 
+async function findKlineMapping(db, coin) {
+  if (!db?.CoinKlineMapping?.findOne || !coin?.id) return null;
+  const rawMapping = await db.CoinKlineMapping.findOne({
+    where: { coin_id: coin.id },
+    raw: true,
+  });
+  return resolveEffectiveKlineMapping(coin, rawMapping);
+}
+
 function attachKlineWebSocketServer({
   server,
   db,
@@ -78,6 +91,7 @@ function attachKlineWebSocketServer({
       upstream: null,
       reconnectTimer: null,
       coin: null,
+      klineMapping: null,
     };
 
     const closeUpstream = () => {
@@ -110,7 +124,24 @@ function attachKlineWebSocketServer({
           return;
         }
 
-        const streamUrl = buildBinanceKlineStreamUrl({ symbol, interval });
+        if (!state.klineMapping) {
+          state.klineMapping = await findKlineMapping(db, state.coin);
+        }
+
+        if (state.klineMapping && state.klineMapping.market !== KLINE_MARKETS.BINANCE_USDM_PERPETUAL) {
+          sendJson(client, {
+            type: 'status',
+            status: 'polling-source',
+            symbol,
+            interval,
+            market: state.klineMapping.market,
+            message: `${state.klineMapping.market} uses REST refresh instead of Binance WebSocket`,
+          });
+          return;
+        }
+
+        const streamSymbol = state.klineMapping?.trading_symbol || symbol;
+        const streamUrl = buildBinanceKlineStreamUrl({ symbol: streamSymbol, interval });
         const upstream = new WebSocketCtor(streamUrl);
         state.upstream = upstream;
 

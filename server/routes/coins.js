@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize'); // 添加这一行
-const { Coin, DailyMetric, CoinKline } = require('../models');
+const { Coin, DailyMetric, CoinKline, CoinKlineMapping } = require('../models');
 const dataRouter = require('./data');
 const {
   attachPeriodQualityToMetrics,
@@ -157,6 +157,7 @@ async function syncBackfillChunkWithProtection({ job, item, chunk }) {
         force: true,
         minSyncIntervalMs: 0,
         CoinKlineModel: CoinKline,
+        klineMapping: item.klineMapping,
       });
     } catch (error) {
       if (!isBackfillRateLimitError(error) || attempt >= KLINE_BACKFILL_RATE_LIMIT_RETRIES) {
@@ -227,6 +228,7 @@ async function buildBackfillPlanForIntervals(job) {
       CoinModel: Coin,
       DailyMetricModel: DailyMetric,
       CoinKlineModel: CoinKline,
+      CoinKlineMappingModel: CoinKlineMapping,
     });
     const plannedItems = plan.items.map(item => ({
       item,
@@ -534,7 +536,14 @@ router.get('/:symbol/klines', async (req, res) => {
     }
 
     await CoinKline.sync();
-    const preferredMarket = getPreferredKlineMarket(coin.symbol);
+    await CoinKlineMapping?.sync?.();
+    const klineMapping = CoinKlineMapping?.findOne
+      ? await CoinKlineMapping.findOne({
+        where: { coin_id: coin.id },
+        raw: true,
+      })
+      : null;
+    const preferredMarket = getPreferredKlineMarket(coin.symbol, klineMapping);
     const shouldRefresh = refresh === '1' || refresh === 'true';
 
     let syncResult = null;
@@ -564,6 +573,7 @@ router.get('/:symbol/klines', async (req, res) => {
         force: rows.length === 0,
         minSyncIntervalMs: YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
         CoinKlineModel: CoinKline,
+        klineMapping,
       });
 
       if (!syncResult?.skipped) {
@@ -588,6 +598,7 @@ router.get('/:symbol/klines', async (req, res) => {
         endTime,
         force: true,
         CoinKlineModel: CoinKline,
+        klineMapping,
       });
       rows = await findStoredCoinKlines({
         coinId: coin.id,

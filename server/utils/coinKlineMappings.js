@@ -1,0 +1,194 @@
+const KLINE_MARKETS = Object.freeze({
+  BINANCE_USDM_PERPETUAL: 'binance_usdm_perpetual',
+  BINANCE_SPOT: 'binance_spot',
+  YAHOO_FINANCE: 'yahoo_finance',
+  DERIBIT_BTC_DVOL: 'deribit_btc_dvol',
+});
+
+const DERIBIT_BTC_DVOL_SYMBOL = 'BTC-DVOL';
+
+const YAHOO_SYMBOL_ALIASES = Object.freeze({
+  A_SHARES: 'ASHR',
+  A_SHARES_INDEX: 'ASHR',
+  BRENT: 'BZ=F',
+  BRENT_OIL: 'BZ=F',
+  CIRCLE: 'CRCL',
+  CN_AI_ETF: '159819.SZ',
+  CN_INDEX: '000300.SS',
+  CN_ROBOT: '562500.SS',
+  ESTATE: 'VNQ',
+  GOLD: 'GLD',
+  NASDAO: '^IXIC',
+  NASDAQ: '^IXIC',
+  OIL: 'USO',
+  RE: 'VNQ',
+  REAL_ESTATE: 'VNQ',
+  SILVER: 'SLV',
+});
+
+const YAHOO_FINANCE_COIN_SYMBOLS = new Set([
+  ...Object.keys(YAHOO_SYMBOL_ALIASES),
+  'AAOI',
+  'AAPL',
+  'AMZN',
+  'AXTI',
+  'BABA',
+  'COIN',
+  'GOOG',
+  'HOOD',
+  'MSFT',
+  'MU',
+  'NVDA',
+  'ORCL',
+  'PLTR',
+  'SNDK',
+  'TSLA',
+]);
+
+const DERIBIT_BTC_DVOL_COIN_SYMBOLS = new Set(['VEGA']);
+const VALID_MARKETS = new Set(Object.values(KLINE_MARKETS));
+
+function normalizeCoinSymbol(symbol) {
+  return String(symbol || '').trim().toUpperCase();
+}
+
+function normalizeBinanceTradingSymbol(symbol) {
+  const normalized = normalizeCoinSymbol(symbol);
+  if (!normalized) return '';
+  return normalized.endsWith('USDT') ? normalized : `${normalized}USDT`;
+}
+
+function normalizeTradingSymbolForMarket(market, tradingSymbol) {
+  const trimmed = String(tradingSymbol || '').trim();
+  if (!trimmed) {
+    throw new Error('Trading symbol is required');
+  }
+  if (trimmed.length > 40) {
+    throw new Error('Trading symbol must be 40 characters or fewer');
+  }
+
+  if (market === KLINE_MARKETS.BINANCE_USDM_PERPETUAL || market === KLINE_MARKETS.BINANCE_SPOT) {
+    return normalizeBinanceTradingSymbol(trimmed);
+  }
+  if (market === KLINE_MARKETS.DERIBIT_BTC_DVOL) {
+    return trimmed.toUpperCase();
+  }
+  return trimmed;
+}
+
+function normalizeKlineMappingInput(input = {}) {
+  const market = String(input.market || '').trim();
+  if (!VALID_MARKETS.has(market)) {
+    throw new Error(`Unsupported kline market: ${input.market}`);
+  }
+
+  const rawTradingSymbol = input.trading_symbol ?? input.tradingSymbol;
+  return {
+    market,
+    trading_symbol: normalizeTradingSymbolForMarket(market, rawTradingSymbol),
+    enabled: input.enabled === undefined ? true : Boolean(input.enabled),
+    notes: input.notes ? String(input.notes).trim() : null,
+  };
+}
+
+function getYahooTradingSymbol(symbol) {
+  const normalized = normalizeCoinSymbol(symbol);
+  return YAHOO_SYMBOL_ALIASES[normalized] || normalized;
+}
+
+function shouldUseYahooFinance(symbol) {
+  return YAHOO_FINANCE_COIN_SYMBOLS.has(normalizeCoinSymbol(symbol));
+}
+
+function shouldUseDeribitBtcDvol(symbol) {
+  return DERIBIT_BTC_DVOL_COIN_SYMBOLS.has(normalizeCoinSymbol(symbol));
+}
+
+function getDefaultKlineMappingForSymbol(symbol) {
+  const normalized = normalizeCoinSymbol(symbol);
+  if (!normalized) return null;
+
+  if (shouldUseDeribitBtcDvol(normalized)) {
+    return {
+      market: KLINE_MARKETS.DERIBIT_BTC_DVOL,
+      trading_symbol: DERIBIT_BTC_DVOL_SYMBOL,
+      enabled: true,
+      notes: '默认映射',
+    };
+  }
+
+  if (shouldUseYahooFinance(normalized)) {
+    return {
+      market: KLINE_MARKETS.YAHOO_FINANCE,
+      trading_symbol: getYahooTradingSymbol(normalized),
+      enabled: true,
+      notes: '默认映射',
+    };
+  }
+
+  return {
+    market: KLINE_MARKETS.BINANCE_USDM_PERPETUAL,
+    trading_symbol: normalizeBinanceTradingSymbol(normalized),
+    enabled: true,
+    notes: '默认映射',
+  };
+}
+
+function toPlainMapping(mapping) {
+  if (!mapping) return null;
+  if (typeof mapping.get === 'function') return mapping.get({ plain: true });
+  return mapping;
+}
+
+function resolveEffectiveKlineMapping(coin, mapping) {
+  const rawMapping = toPlainMapping(mapping);
+  if (rawMapping?.enabled) {
+    try {
+      return normalizeKlineMappingInput(rawMapping);
+    } catch (error) {
+      return getDefaultKlineMappingForSymbol(coin?.symbol);
+    }
+  }
+  return getDefaultKlineMappingForSymbol(coin?.symbol);
+}
+
+function buildDefaultKlineMappingsForCoins(coins = [], existingMappings = []) {
+  const existingCoinIds = new Set(
+    existingMappings
+      .map(mapping => Number(mapping?.coin_id ?? mapping?.coinId))
+      .filter(Number.isFinite)
+  );
+
+  return coins.reduce((rows, coin) => {
+    const coinId = Number(coin?.id);
+    const coinSymbol = normalizeCoinSymbol(coin?.symbol);
+    if (!Number.isFinite(coinId) || !coinSymbol || existingCoinIds.has(coinId)) {
+      return rows;
+    }
+
+    const mapping = getDefaultKlineMappingForSymbol(coinSymbol);
+    if (!mapping) return rows;
+
+    rows.push({
+      coin_id: coinId,
+      coin_symbol: coinSymbol,
+      ...mapping,
+    });
+    return rows;
+  }, []);
+}
+
+module.exports = {
+  DERIBIT_BTC_DVOL_SYMBOL,
+  KLINE_MARKETS,
+  YAHOO_SYMBOL_ALIASES,
+  buildDefaultKlineMappingsForCoins,
+  getDefaultKlineMappingForSymbol,
+  getYahooTradingSymbol,
+  normalizeBinanceTradingSymbol,
+  normalizeCoinSymbol,
+  normalizeKlineMappingInput,
+  resolveEffectiveKlineMapping,
+  shouldUseDeribitBtcDvol,
+  shouldUseYahooFinance,
+};

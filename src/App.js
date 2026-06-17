@@ -12,6 +12,7 @@ import OptionsPage from './components/OptionsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import UserManagement from './components/UserManagement';
+import KlineMappingSettings from './components/KlineMappingSettings';
 import { useSelector } from 'react-redux';
 import './styles/mobile.css';
 import './styles/design-system.css';
@@ -108,6 +109,14 @@ const AppContent = () => {
               <ProtectedRoute>
                 <AdminRoute>
                   <UserManagement />
+                </AdminRoute>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/settings/kline-mappings" element={
+              <ProtectedRoute>
+                <AdminRoute>
+                  <KlineMappingSettings />
                 </AdminRoute>
               </ProtectedRoute>
             } />

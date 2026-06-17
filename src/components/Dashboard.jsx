@@ -16,7 +16,8 @@ import {
   MenuOutlined,
   AppstoreOutlined,
   BugOutlined,
-  CloudDownloadOutlined
+  CloudDownloadOutlined,
+  SettingOutlined
 } from '@ant-design/icons';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
@@ -710,6 +711,12 @@ function Dashboard() {
       onClick: handleStartKlineBackfill,
       disabled: klineBackfillRunning,
     },
+    ...(user?.role === 'admin' ? [{
+      key: 'kline-mapping-settings',
+      icon: <SettingOutlined />,
+      label: 'K线映射设置',
+      onClick: () => navigate('/settings/kline-mappings'),
+    }] : []),
     {
       key: 'logout',
       icon: <LogoutOutlined />,
@@ -748,6 +755,15 @@ function Dashboard() {
       >
         {klineBackfillRunning ? 'K线回补运行中' : '一键回补全部周期'}
       </Menu.Item>
+      {user?.role === 'admin' && (
+        <Menu.Item
+          key="kline-mapping-settings"
+          onClick={() => navigate('/settings/kline-mappings')}
+          icon={<SettingOutlined />}
+        >
+          K线映射设置
+        </Menu.Item>
+      )}
       <Menu.Divider />
       <Menu.Item key="logout" onClick={handleLogout} icon={<LogoutOutlined />}>
         退出登录
