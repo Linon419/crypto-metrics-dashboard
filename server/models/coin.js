@@ -32,6 +32,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'coin_id',
       as: 'klines'
     });
+    Coin.hasOne(models.CoinKlineMapping, {
+      foreignKey: 'coin_id',
+      as: 'klineMapping'
+    });
   };
   
   return Coin;

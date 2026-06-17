@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const {
   Coin,
+  CoinKlineMapping,
   DailyMetric,
   DatabasePatchLog,
   LiquidityOverview,
@@ -26,6 +27,11 @@ const {
   getDateRecordSummary,
   updateDateRecordTime,
 } = require('../utils/adminDateRecords');
+const {
+  buildDefaultKlineMappingsForCoins,
+  normalizeKlineMappingInput,
+  resolveEffectiveKlineMapping,
+} = require('../utils/coinKlineMappings');
 
 // 管理员中间件 - 验证是否为管理员
 router.use(verifyToken);
@@ -37,6 +43,115 @@ const patchModels = {
   LiquidityOverview,
   TrendingCoin,
 };
+
+function toPlainRow(row) {
+  if (!row) return null;
+  if (typeof row.get === 'function') return row.get({ plain: true });
+  return row;
+}
+
+function createStatusError(message, statusCode = 500) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function serializeKlineMapping(coin, mapping) {
+  const plainCoin = toPlainRow(coin);
+  const plainMapping = toPlainRow(mapping);
+  const effective = resolveEffectiveKlineMapping(plainCoin, plainMapping);
+
+  return {
+    coinId: plainCoin.id,
+    coinSymbol: String(plainCoin.symbol || '').toUpperCase(),
+    coinName: plainCoin.name || String(plainCoin.symbol || '').toUpperCase(),
+    mappingId: plainMapping?.id || null,
+    market: effective?.market || null,
+    tradingSymbol: effective?.trading_symbol || null,
+    enabled: effective?.enabled !== false,
+    notes: plainMapping?.notes || effective?.notes || null,
+    updatedAt: plainMapping?.updatedAt || plainMapping?.updated_at || null,
+    isDefault: !plainMapping,
+  };
+}
+
+async function listKlineMappings({
+  CoinModel = Coin,
+  CoinKlineMappingModel = CoinKlineMapping,
+} = {}) {
+  const coins = await CoinModel.findAll({
+    attributes: ['id', 'symbol', 'name'],
+    order: [['symbol', 'ASC']],
+    raw: true,
+  });
+  const mappings = CoinKlineMappingModel?.findAll
+    ? await CoinKlineMappingModel.findAll({ raw: false })
+    : [];
+  const mappingByCoinId = new Map(
+    mappings.map(mapping => {
+      const plain = toPlainRow(mapping);
+      return [Number(plain.coin_id), mapping];
+    })
+  );
+
+  return coins.map(coin => serializeKlineMapping(coin, mappingByCoinId.get(Number(coin.id))));
+}
+
+async function updateKlineMapping({
+  CoinModel = Coin,
+  CoinKlineMappingModel = CoinKlineMapping,
+} = {}, {
+  coinId,
+  payload,
+} = {}) {
+  const coin = await CoinModel.findByPk(coinId);
+  const plainCoin = toPlainRow(coin);
+  if (!plainCoin) {
+    throw createStatusError('Coin not found', 404);
+  }
+
+  let normalized;
+  try {
+    normalized = normalizeKlineMappingInput(payload || {});
+  } catch (error) {
+    throw createStatusError(error.message, 400);
+  }
+
+  const rowPayload = {
+    coin_id: plainCoin.id,
+    coin_symbol: String(plainCoin.symbol || '').toUpperCase(),
+    ...normalized,
+  };
+  const existing = await CoinKlineMappingModel.findOne({
+    where: { coin_id: plainCoin.id },
+  });
+  const row = existing
+    ? await existing.update(rowPayload)
+    : await CoinKlineMappingModel.create(rowPayload);
+
+  return serializeKlineMapping(plainCoin, row);
+}
+
+async function seedDefaultKlineMappings({
+  CoinModel = Coin,
+  CoinKlineMappingModel = CoinKlineMapping,
+} = {}) {
+  const coins = await CoinModel.findAll({
+    attributes: ['id', 'symbol'],
+    order: [['symbol', 'ASC']],
+    raw: true,
+  });
+  const existingMappings = await CoinKlineMappingModel.findAll({ raw: true });
+  const rows = buildDefaultKlineMappingsForCoins(coins, existingMappings);
+  if (rows.length > 0) {
+    await CoinKlineMappingModel.bulkCreate(rows);
+  }
+
+  return {
+    created: rows.length,
+    rows,
+  };
+}
 
 function getPatchActor(req) {
   if (!req.user) return null;
@@ -332,6 +447,60 @@ router.delete('/date-records/:date', async (req, res) => {
       success: false,
       patchId,
       error: error.message,
+    });
+  }
+});
+
+router.get('/kline-mappings', async (req, res) => {
+  try {
+    await CoinKlineMapping?.sync?.();
+    const mappings = await listKlineMappings();
+    res.json({
+      success: true,
+      mappings,
+    });
+  } catch (error) {
+    console.error('获取K线映射失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '获取K线映射失败',
+    });
+  }
+});
+
+router.put('/kline-mappings/:coinId', async (req, res) => {
+  try {
+    await CoinKlineMapping?.sync?.();
+    const mapping = await updateKlineMapping(undefined, {
+      coinId: req.params.coinId,
+      payload: req.body,
+    });
+    res.json({
+      success: true,
+      mapping,
+    });
+  } catch (error) {
+    console.error('更新K线映射失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '更新K线映射失败',
+    });
+  }
+});
+
+router.post('/kline-mappings/seed-defaults', async (req, res) => {
+  try {
+    await CoinKlineMapping?.sync?.();
+    const result = await seedDefaultKlineMappings();
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('补齐默认K线映射失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '补齐默认K线映射失败',
     });
   }
 });
@@ -645,5 +814,12 @@ router.put('/settings', async (req, res) => {
     });
   }
 });
+
+router.__test = {
+  listKlineMappings,
+  seedDefaultKlineMappings,
+  serializeKlineMapping,
+  updateKlineMapping,
+};
 
 module.exports = router;

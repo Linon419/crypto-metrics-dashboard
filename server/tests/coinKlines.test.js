@@ -358,6 +358,57 @@ async function run() {
   assert.strictEqual(stockUpserted[0].market, YAHOO_FINANCE_MARKET);
   assert.strictEqual(stockUpserted[0].close_price, 2.2);
 
+  const mappedYahooUrls = [];
+  const mappedYahooFetchImpl = async (url) => {
+    mappedYahooUrls.push(String(url));
+    if (!String(url).includes('/v8/finance/chart/159819.SZ')) {
+      throw new Error(`Unexpected mapped Yahoo URL: ${url}`);
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        chart: {
+          result: [{
+            meta: { symbol: '159819.SZ' },
+            timestamp: [Date.UTC(2026, 0, 2) / 1000],
+            indicators: {
+              quote: [{
+                open: [1.1],
+                high: [1.2],
+                low: [1.0],
+                close: [1.15],
+                volume: [345678],
+              }],
+            },
+          }],
+          error: null,
+        },
+      }),
+    };
+  };
+  const mappedYahooUpserted = [];
+  const mappedYahooResult = await syncCoinKlines({
+    coin: { id: 13, symbol: 'CUSTOM_AI' },
+    klineMapping: {
+      market: YAHOO_FINANCE_MARKET,
+      trading_symbol: '159819.SZ',
+      enabled: true,
+    },
+    interval: '1d',
+    limit: 1,
+    fetchImpl: mappedYahooFetchImpl,
+    CoinKlineModel: {
+      async upsert(payload) {
+        mappedYahooUpserted.push(payload);
+      },
+    },
+  });
+
+  assert.strictEqual(mappedYahooResult.market, YAHOO_FINANCE_MARKET);
+  assert.strictEqual(mappedYahooResult.tradingSymbol, '159819.SZ');
+  assert.strictEqual(mappedYahooUrls.length, 1);
+  assert.strictEqual(mappedYahooUpserted[0].trading_symbol, '159819.SZ');
+
   clearYahooSyncCache();
   const throttledUrls = [];
   const throttledFetchImpl = async (url) => {

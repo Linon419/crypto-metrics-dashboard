@@ -1329,6 +1329,38 @@ export const updateSystemSettings = async (settings) => {
   }
 };
 
+export const fetchKlineMappings = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/admin/kline-mappings'));
+    return response.data;
+  } catch (error) {
+    console.error('[fetchKlineMappings] 获取K线映射失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const updateKlineMapping = async (coinId, payload) => {
+  try {
+    const response = await callApiWithRetry(() => api.put(`/admin/kline-mappings/${coinId}`, payload));
+    dataCache.coinKlines.clear();
+    return response.data;
+  } catch (error) {
+    console.error('[updateKlineMapping] 更新K线映射失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const seedDefaultKlineMappings = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.post('/admin/kline-mappings/seed-defaults'));
+    dataCache.coinKlines.clear();
+    return response.data;
+  } catch (error) {
+    console.error('[seedDefaultKlineMappings] 补齐默认K线映射失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
 export const getDateRecordSummary = async (date) => {
   try {
     const response = await api.get(`/admin/date-records/${encodeURIComponent(date)}/summary`);

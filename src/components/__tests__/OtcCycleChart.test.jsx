@@ -519,6 +519,19 @@ test('aligns metric timestamps to nearest kline while keeping original publish t
   expect(model.annotationTracks.otc.map(label => label.text)).toEqual(expect.arrayContaining(['场外1180']));
 });
 
+test('finds metric event when hovering its aligned kline time', () => {
+  const publishedTime = Math.floor(new Date('2026-06-06T09:09:00.000Z').getTime() / 1000);
+  const alignedTime = Math.floor(new Date('2026-06-06T07:00:00.000Z').getTime() / 1000);
+  const event = {
+    time: publishedTime,
+    alignedTime,
+    otcIndex: 1426,
+    explosionIndex: 77,
+  };
+
+  expect(findNearestMetricEventForTime([event], alignedTime, 90 * 60)).toBe(event);
+});
+
 test('plots the latest intrabar metric update on the candle timeline', () => {
   const fourHourKlines = [
     { openTime: '2026-05-12T00:00:00.000Z', open: 100, high: 108, low: 96, close: 103, volume: 10 },
