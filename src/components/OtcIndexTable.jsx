@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import { getPeriodQualityMeta } from '../utils/periodQualityMeta';
 import { evaluateStrategySignal } from '../utils/strategySignals';
+import { getCoinLogoFallbackUrl, getCoinLogoUrl } from '../utils/coinLogos';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -66,9 +67,29 @@ function OtcIndexTable({
     strategySignal: coin.strategySignal || coin.strategy_signal || null,
     riskNotes: coin.riskNotes || coin.risk_notes || [],
     momentumIndicators: coin.momentumIndicators || [],
-    nearThreshold: coin.nearThreshold || false
+    nearThreshold: coin.nearThreshold || false,
+    logo_url: coin.logo_url || coin.logoUrl || null,
   }));
   const strategyContext = { marketCoins, liquidity };
+
+  const renderCoinLogo = (symbol, logoUrl) => {
+    const fallbackLogoUrl = getCoinLogoFallbackUrl(symbol);
+
+    return (
+      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white overflow-hidden border border-gray-200 mr-2 shrink-0">
+        <img
+          src={getCoinLogoUrl(symbol, logoUrl)}
+          alt={`${symbol} logo`}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.onerror = null;
+            event.currentTarget.src = fallbackLogoUrl;
+          }}
+        />
+      </span>
+    );
+  };
 
   const renderSymbolControl = (symbol) => {
     const isSelected = selectedCoin === symbol;
@@ -187,6 +208,7 @@ function OtcIndexTable({
       width: 140,
       render: (text, record) => (
         <div className="flex items-center">
+          {renderCoinLogo(text, record.logo_url)}
           {renderSymbolControl(text)}
           {record.entryExitType && record.entryExitType !== 'neutral' && (
             <Tag
@@ -424,6 +446,7 @@ function OtcIndexTable({
         <div className="w-full">
           <div className="flex justify-between items-center">
             <div className="flex items-center">
+              {renderCoinLogo(coin.symbol, coin.logo_url || coin.logoUrl)}
               {renderSymbolControl(coin.symbol)}
               {coin.entryExitType && coin.entryExitType !== 'neutral' && (
                 <Tag

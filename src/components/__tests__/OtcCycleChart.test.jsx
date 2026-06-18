@@ -378,6 +378,15 @@ test('builds TradingView model with signal markers and quant panels', () => {
   expect(model.markers).toHaveLength(5);
   expect(model.markers.every(marker => !marker.text)).toBe(true);
   expect(model.markers.filter(marker => marker.color === '#0891b2' || marker.color === '#be123c')).toHaveLength(2);
+  expect(model.markers).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      color: '#14b8a6',
+      position: 'atPriceBottom',
+      shape: 'arrowUp',
+      time: model.rows[0].time,
+    }),
+  ]));
+  expect(model.markers.find(marker => marker.color === '#14b8a6').price).toBeLessThan(klines[0].low);
   expect(model.annotationTracks.period.map(label => label.text)).toEqual(['进1', '进2', '退1']);
   expect(model.annotationTracks.explosion.map(label => label.text)).toEqual(['▲200/转正', '▼200']);
   expect(model.annotationTracks.otc.map(label => label.text)).toEqual(['场外900', '场外1200', '场外800']);

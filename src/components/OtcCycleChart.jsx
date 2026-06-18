@@ -62,6 +62,7 @@ const YAHOO_FINANCE_KLINE_SYMBOLS = new Set([
   'TSLA',
 ]);
 const GREEN = '#22c55e';
+const ENTRY_FIRST_DAY_MARKER = '#14b8a6';
 const RED = '#ef4444';
 const ORANGE = '#f59e0b';
 const BLUE = '#2563eb';
@@ -437,6 +438,22 @@ function formatMarkerMetric(value) {
   return number.toFixed(2).replace(/\.?0+$/, '');
 }
 
+function getMarkerVerticalOffset(event) {
+  const high = Number(event?.markerPriceAbove);
+  const low = Number(event?.markerPriceBelow);
+  const middle = Number(event?.markerPriceMiddle);
+  const range = Number.isFinite(high) && Number.isFinite(low) && high > low
+    ? high - low
+    : Math.abs(middle || high || low || 1) * 0.01;
+
+  return Math.max(range * 0.28, Math.abs(middle || low || 1) * 0.001);
+}
+
+function getEntryMarkerPrice(event, day) {
+  if (day !== 1) return event.markerPriceBelow;
+  return event.markerPriceBelow - getMarkerVerticalOffset(event);
+}
+
 function getExplosionSignals(previousExplosion, currentExplosion) {
   if (previousExplosion === null || currentExplosion === null) return [];
 
@@ -490,8 +507,8 @@ function buildTradingViewMarkers(metricEvents) {
       pushUniqueTradingViewMarker(markers, seen, {
         time: event.alignedTime,
         position: 'atPriceBottom',
-        price: event.markerPriceBelow,
-        color: GREEN,
+        price: getEntryMarkerPrice(event, day),
+        color: day === 1 ? ENTRY_FIRST_DAY_MARKER : GREEN,
         shape: day === 1 ? 'arrowUp' : 'circle',
         dedupeKey: `${event.metricDate}:entry:${day}`,
       });

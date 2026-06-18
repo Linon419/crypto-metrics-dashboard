@@ -8,6 +8,7 @@ import {
     CaretUpOutlined,
     CaretDownOutlined
 } from '@ant-design/icons';
+import { getCoinLogoFallbackUrl, getCoinLogoUrl } from '../utils/coinLogos';
 
 const { Text } = Typography;
 
@@ -55,7 +56,9 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     otcIndexChangePercent,
     explosionIndexChangePercent,
     nearThreshold = false,
-    momentumIndicators = []
+    momentumIndicators = [],
+    logo_url: logoUrl,
+    logoUrl: camelLogoUrl,
   } = coin || {};
 
   // Safe number conversion
@@ -69,25 +72,22 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
   // Check if explosion index is safe (above 200)
   const isExplosionSafe = safeNumber(explosionIndex) >= 200;
   
-  // Render coin icon with color mapping
   const renderIcon = () => {
-    const colorMap = {
-      'BTC': 'bg-amber-500', 'ETH': 'bg-blue-500', 'USDT': 'bg-green-500',
-      'BNB': 'bg-yellow-500', 'SOL': 'bg-purple-500', 'DOGE': 'bg-yellow-400',
-      'ADA': 'bg-blue-400', 'XRP': 'bg-red-400', 'DOT': 'bg-pink-500',
-      'LTC': 'bg-gray-500', 'MATIC': 'bg-indigo-500', 'LINK': 'bg-blue-600',
-      'UNI': 'bg-pink-400', 'AVAX': 'bg-red-500', 'ATOM': 'bg-purple-600',
-      'LDO': 'bg-cyan-500', 'CRV': 'bg-red-600', 'TRUMP': 'bg-red-700',
-    };
-    const bgColor = colorMap[symbol.toUpperCase()] || 'bg-gray-500';
-    const displayChar = symbol ? symbol.charAt(0).toUpperCase() : '?';
-    
-    // Smaller icon size on mobile
     const iconSize = isMobile ? 'w-8 h-8' : 'w-10 h-10';
-    
+    const fallbackLogoUrl = getCoinLogoFallbackUrl(symbol);
+
     return (
-      <div className={`coin-token flex items-center justify-center ${iconSize} rounded-full ${bgColor} text-white font-bold text-lg`}>
-        {displayChar}
+      <div className={`coin-token flex items-center justify-center ${iconSize} rounded-full bg-white overflow-hidden border border-gray-100 shadow-sm`}>
+        <img
+          src={getCoinLogoUrl(symbol, logoUrl || camelLogoUrl)}
+          alt={`${symbol} logo`}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.onerror = null;
+            event.currentTarget.src = fallbackLogoUrl;
+          }}
+        />
       </div>
     );
   };

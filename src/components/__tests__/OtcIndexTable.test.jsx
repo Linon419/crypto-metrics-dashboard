@@ -77,6 +77,14 @@ describe('OtcIndexTable', () => {
     expect(screen.getByRole('button', { name: 'COIN2' })).toHaveClass('is-active');
   });
 
+  test('renders coin logos in the symbol column', () => {
+    render(<OtcIndexTable coins={[{ ...mockCoins[0], logo_url: 'https://example.com/coin1.png' }]} />);
+
+    const logos = screen.getAllByAltText('COIN1 logo');
+    expect(logos.length).toBeGreaterThan(0);
+    expect(logos[0]).toHaveAttribute('src', 'http://localhost:3001/api/logos/COIN1?v=20260618-aaoi-official');
+  });
+
   test('renders asterisk momentum indicator', () => {
     render(
       <OtcIndexTable

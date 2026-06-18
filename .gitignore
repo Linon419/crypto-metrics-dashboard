@@ -30,6 +30,7 @@ logs/
 outputs/
 server/output/
 telegram-bot/data/
+data/logos/
 zsxq-*.json
 zsxq-*.txt
 

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Input, Divider, Skeleton, Drawer } from 'antd';
 import { SearchOutlined, StarFilled, StarOutlined, LoadingOutlined, CloseOutlined } from '@ant-design/icons';
+import { getCoinLogoFallbackUrl, getCoinLogoUrl } from '../utils/coinLogos';
 
 function SearchBar({ coins, onSelect, favorites = [], onToggleFavorite, loading = false }) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -71,18 +72,24 @@ function SearchBar({ coins, onSelect, favorites = [], onToggleFavorite, loading 
     onToggleFavorite(symbol);
   };
   
-  // Get coin color
-  const getCoinColor = (symbol) => {
-    const colorMap = {
-      'BTC': '#F7931A',
-      'ETH': '#627EEA',
-      'USDT': '#26A17B',
-      'BNB': '#F3BA2F',
-      'SOL': '#14F195',
-      'DOGE': '#C2A633',
-    };
-    
-    return colorMap[symbol] || '#6366f1';
+  const renderCoinLogo = (coin) => {
+    const symbol = coin?.symbol || '';
+    const fallbackLogoUrl = getCoinLogoFallbackUrl(symbol);
+
+    return (
+      <div className="w-6 h-6 rounded-full flex items-center justify-center mr-2 bg-white overflow-hidden border border-gray-600">
+        <img
+          src={getCoinLogoUrl(symbol, coin?.logo_url || coin?.logoUrl)}
+          alt={`${symbol} logo`}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.onerror = null;
+            event.currentTarget.src = fallbackLogoUrl;
+          }}
+        />
+      </div>
+    );
   };
   
   // Handle search icon click
@@ -114,12 +121,7 @@ function SearchBar({ coins, onSelect, favorites = [], onToggleFavorite, loading 
               onClick={() => handleCoinSelect(coin)}
             >
               <div className="flex items-center">
-                <div 
-                  className="w-6 h-6 rounded-full flex items-center justify-center mr-2 text-white"
-                  style={{ backgroundColor: getCoinColor(coin.symbol) }}
-                >
-                  {coin.symbol.charAt(0)}
-                </div>
+                {renderCoinLogo(coin)}
                 <div>
                   <div className="text-white">{coin.symbol}</div>
                   {coin.otcIndex && (
@@ -150,12 +152,7 @@ function SearchBar({ coins, onSelect, favorites = [], onToggleFavorite, loading 
               onClick={() => handleCoinSelect(coin)}
             >
               <div className="flex items-center">
-                <div 
-                  className="w-6 h-6 rounded-full flex items-center justify-center mr-2 text-white"
-                  style={{ backgroundColor: getCoinColor(coin.symbol) }}
-                >
-                  {coin.symbol.charAt(0)}
-                </div>
+                {renderCoinLogo(coin)}
                 <div>
                   <div className="text-white">{coin.symbol}</div>
                   {coin.otcIndex && (

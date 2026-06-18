@@ -108,6 +108,7 @@ app.get('/api/test', (req, res) => {
 // Public, unauthenticated routes
 app.use('/api/public', require('./routes/public'));
 app.use('/api/docs', require('./routes/docs'));
+app.use('/api/logos', require('./routes/logos'));
 
 // MCP Gateway（对外暴露 MCP tools/list 与 tools/call）
 app.use('/default/crypto', mcpGatewayRouter);
