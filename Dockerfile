@@ -20,6 +20,8 @@ WORKDIR /app
 
 # 复制服务器代码
 COPY server/ ./server/
+# 复制期权策略目录，服务端运行时会引用它
+COPY scripts/optionsStrategyCatalog.js ./scripts/optionsStrategyCatalog.js
 # 复制Telegram机器人代码  
 COPY telegram-bot/ ./telegram-bot/
 
