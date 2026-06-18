@@ -27,6 +27,49 @@ function createFakeModels() {
       },
     }],
   ]);
+  const klineRows = [
+    {
+      coin_symbol: 'GOLD',
+      trading_symbol: 'GLD',
+      market: 'yahoo_finance',
+      interval: '4h',
+      open_time: new Date('2026-01-01T00:00:00.000Z'),
+    },
+    {
+      coin_symbol: 'GOLD',
+      trading_symbol: 'GLD',
+      market: 'yahoo_finance',
+      interval: '1d',
+      open_time: new Date('2026-01-01T00:00:00.000Z'),
+    },
+    {
+      coin_symbol: 'GOLD',
+      trading_symbol: 'XAUUSD=X',
+      market: 'yahoo_finance',
+      interval: '4h',
+      open_time: new Date('2026-01-01T00:00:00.000Z'),
+    },
+  ];
+
+  const matchesWhere = (row, where = {}) => {
+    if (where.coin_symbol && row.coin_symbol !== where.coin_symbol) return false;
+    if (where.trading_symbol && row.trading_symbol !== where.trading_symbol) return false;
+    if (where.market && row.market !== where.market) return false;
+    if (where.interval && row.interval !== where.interval) return false;
+    if (where.open_time) {
+      const openTime = row.open_time.getTime();
+      const symbols = Object.getOwnPropertySymbols(where.open_time);
+      const gteKey = symbols.find(symbol => String(symbol) === 'Symbol(gte)');
+      const lteKey = symbols.find(symbol => String(symbol) === 'Symbol(lte)');
+      if (gteKey && openTime < where.open_time[gteKey].getTime()) {
+        return false;
+      }
+      if (lteKey && openTime > where.open_time[lteKey].getTime()) {
+        return false;
+      }
+    }
+    return true;
+  };
 
   return {
     CoinModel: {
@@ -50,6 +93,10 @@ function createFakeModels() {
         const row = {
           id: 100 + this.created.length,
           ...payload,
+          update(nextPayload) {
+            Object.assign(this, nextPayload);
+            return Promise.resolve(this);
+          },
           get() {
             return this;
           },
@@ -76,13 +123,29 @@ function createFakeModels() {
         return [];
       },
     },
+    CoinKlineModel: {
+      rows: klineRows,
+      lastWhere: null,
+      async count(options) {
+        this.lastWhere = options.where;
+        return this.rows.filter(row => matchesWhere(row, options.where)).length;
+      },
+      async destroy(options) {
+        this.lastWhere = options.where;
+        const before = this.rows.length;
+        this.rows = this.rows.filter(row => !matchesWhere(row, options.where));
+        return before - this.rows.length;
+      },
+    },
   };
 }
 
 async function run() {
   const {
     listKlineMappings,
+    previewKlineCleanup,
     seedDefaultKlineMappings,
+    deleteKlinesByCleanupFilters,
     updateKlineMapping,
   } = adminRouter.__test;
 
@@ -109,6 +172,20 @@ async function run() {
   assert.strictEqual(updated.notes, 'core');
   assert.strictEqual(models.CoinKlineMappingModel.created.length, 1);
 
+  const disabled = await updateKlineMapping(models, {
+    coinId: 2,
+    payload: {
+      market: 'binance_usdm_perpetual',
+      trading_symbol: 'btc',
+      enabled: false,
+      notes: ' paused ',
+    },
+  });
+  assert.strictEqual(disabled.market, 'binance_usdm_perpetual');
+  assert.strictEqual(disabled.tradingSymbol, 'BTCUSDT');
+  assert.strictEqual(disabled.enabled, false);
+  assert.strictEqual(disabled.notes, 'paused');
+
   let invalidError = null;
   try {
     await updateKlineMapping(models, {
@@ -127,6 +204,40 @@ async function run() {
   assert.strictEqual(seeded.created, 1);
   assert.strictEqual(seeded.rows[0].coin_symbol, 'BTC');
   assert.strictEqual(seeded.rows[0].trading_symbol, 'BTCUSDT');
+
+  const cleanupModels = createFakeModels();
+  const preview = await previewKlineCleanup(cleanupModels, {
+    coinSymbol: 'gold',
+    market: 'yahoo_finance',
+    tradingSymbol: 'GLD',
+    interval: '4h',
+  });
+  assert.strictEqual(preview.count, 1);
+  assert.strictEqual(preview.filters.coinSymbol, 'GOLD');
+  assert.strictEqual(preview.filters.tradingSymbol, 'GLD');
+
+  let confirmError = null;
+  try {
+    await deleteKlinesByCleanupFilters(cleanupModels, {
+      coinSymbol: 'GOLD',
+      market: 'yahoo_finance',
+      tradingSymbol: 'GLD',
+      interval: '4h',
+    });
+  } catch (error) {
+    confirmError = error;
+  }
+  assert.match(confirmError.message, /confirm is required/);
+
+  const deleted = await deleteKlinesByCleanupFilters(cleanupModels, {
+    coinSymbol: 'GOLD',
+    market: 'yahoo_finance',
+    tradingSymbol: 'GLD',
+    interval: '4h',
+    confirm: true,
+  });
+  assert.strictEqual(deleted.deleted, 1);
+  assert.strictEqual(cleanupModels.CoinKlineModel.rows.length, 2);
 
   console.log('klineMappingsAdmin.test.js passed');
 }

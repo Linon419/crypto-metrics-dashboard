@@ -37,6 +37,42 @@ const MARKET_LABELS = MARKET_OPTIONS.reduce((labels, option) => ({
   [option.value]: option.label,
 }), {});
 
+const BINANCE_MARKETS = new Set(['binance_usdm_perpetual', 'binance_spot']);
+
+function isBinanceMarket(market) {
+  return BINANCE_MARKETS.has(market);
+}
+
+export function normalizeBinanceTradingSymbol(symbol) {
+  const normalized = String(symbol || '').trim().toUpperCase();
+  if (!normalized) return '';
+  return normalized.endsWith('USDT') ? normalized : `${normalized}USDT`;
+}
+
+export function getTradingSymbolForMarket(row, market) {
+  if (!isBinanceMarket(market)) {
+    return row.tradingSymbol || '';
+  }
+
+  const baseSymbol = isBinanceMarket(row.market) && row.tradingSymbol
+    ? row.tradingSymbol
+    : row.coinSymbol;
+  return normalizeBinanceTradingSymbol(baseSymbol);
+}
+
+function buildSavePayload(row) {
+  const tradingSymbol = isBinanceMarket(row.market)
+    ? normalizeBinanceTradingSymbol(row.tradingSymbol || row.coinSymbol)
+    : row.tradingSymbol;
+
+  return {
+    market: row.market,
+    trading_symbol: tradingSymbol,
+    enabled: row.enabled,
+    notes: row.notes,
+  };
+}
+
 function normalizeRows(rows = []) {
   return rows.map(row => ({
     ...row,
@@ -51,6 +87,7 @@ function KlineMappingSettings() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [savingCoinId, setSavingCoinId] = useState(null);
+  const [savingAll, setSavingAll] = useState(false);
   const [seeding, setSeeding] = useState(false);
 
   const loadMappings = useCallback(async () => {
@@ -75,15 +112,17 @@ function KlineMappingSettings() {
     )));
   }, []);
 
+  const handleMarketChange = useCallback((row, market) => {
+    updateRow(row.coinId, {
+      market,
+      tradingSymbol: getTradingSymbolForMarket(row, market),
+    });
+  }, [updateRow]);
+
   const handleSave = useCallback(async (row) => {
     setSavingCoinId(row.coinId);
     try {
-      const response = await updateKlineMapping(row.coinId, {
-        market: row.market,
-        trading_symbol: row.tradingSymbol,
-        enabled: row.enabled,
-        notes: row.notes,
-      });
+      const response = await updateKlineMapping(row.coinId, buildSavePayload(row));
       const updated = normalizeRows([response.mapping])[0];
       updateRow(row.coinId, updated);
       message.success(`${row.coinSymbol} K线映射已保存`);
@@ -93,6 +132,23 @@ function KlineMappingSettings() {
       setSavingCoinId(null);
     }
   }, [updateRow]);
+
+  const handleSaveAll = useCallback(async () => {
+    setSavingAll(true);
+    try {
+      const updatedRows = [];
+      for (const row of rows) {
+        const response = await updateKlineMapping(row.coinId, buildSavePayload(row));
+        updatedRows.push(response.mapping);
+      }
+      setRows(normalizeRows(updatedRows));
+      message.success(`已保存 ${updatedRows.length} 条K线映射`);
+    } catch (error) {
+      message.error(`保存失败：${error.message}`);
+    } finally {
+      setSavingAll(false);
+    }
+  }, [rows]);
 
   const handleSeedDefaults = useCallback(async () => {
     setSeeding(true);
@@ -130,7 +186,7 @@ function KlineMappingSettings() {
           aria-label={`${row.coinSymbol} 来源`}
           value={row.market}
           options={MARKET_OPTIONS}
-          onChange={(market) => updateRow(row.coinId, { market })}
+          onChange={(market) => handleMarketChange(row, market)}
           style={{ width: 180 }}
         />
       ),
@@ -189,6 +245,7 @@ function KlineMappingSettings() {
       title: '操作',
       key: 'actions',
       width: 120,
+      fixed: 'right',
       render: (_, row) => (
         <Button
           aria-label={`保存 ${row.coinSymbol}`}
@@ -201,7 +258,7 @@ function KlineMappingSettings() {
         </Button>
       ),
     },
-  ], [handleSave, savingCoinId, updateRow]);
+  ], [handleMarketChange, handleSave, savingCoinId, updateRow]);
 
   return (
     <div className="kline-mapping-settings">
@@ -215,6 +272,16 @@ function KlineMappingSettings() {
             <Space>
               <Button icon={<ReloadOutlined />} onClick={loadMappings} loading={loading}>
                 刷新
+              </Button>
+              <Button
+                aria-label="保存全部K线映射"
+                type="primary"
+                icon={<SaveOutlined />}
+                onClick={handleSaveAll}
+                loading={savingAll}
+                disabled={rows.length === 0}
+              >
+                保存全部
               </Button>
               <Button
                 aria-label="补齐默认映射"
@@ -239,7 +306,7 @@ function KlineMappingSettings() {
             dataSource={rows}
             columns={columns}
             pagination={{ pageSize: 20, showSizeChanger: true }}
-            scroll={{ x: 1100 }}
+            scroll={{ x: 1180 }}
           />
         </Space>
       </Card>

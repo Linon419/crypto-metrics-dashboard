@@ -100,6 +100,7 @@ const VIEW_MODES = [
 ];
 
 const KLINE_BACKFILL_INTERVALS = ['15m', '1h', '4h', '1d'];
+const KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH = 'yahoo_prepost_refresh';
 const KLINE_BACKFILL_INTERVAL_LABELS = {
   '15m': '15min',
   '1h': '1h',
@@ -615,6 +616,31 @@ function Dashboard() {
     }
   }, [startKlineBackfillPolling]);
 
+  const handleStartYahooPrePostRefresh = useCallback(async () => {
+    try {
+      const result = await startKlineBackfill({
+        mode: KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH,
+        intervals: KLINE_BACKFILL_INTERVALS,
+        delayMs: 5000,
+        limit: 1500,
+        maxChunksPerCoin: 40,
+      });
+      setKlineBackfillJob(result?.job || null);
+      notification.info({
+        message: result?.reused ? 'K线任务正在运行' : 'Yahoo盘前盘后重刷已启动',
+        description: '后台会慢速重拉 Yahoo 映射的已覆盖区间，进度会自动更新',
+        duration: 4,
+      });
+      startKlineBackfillPolling();
+    } catch (error) {
+      notification.error({
+        message: 'Yahoo盘前盘后重刷启动失败',
+        description: error.message || '请检查后端服务',
+        duration: 5,
+      });
+    }
+  }, [startKlineBackfillPolling]);
+
   useEffect(() => () => {
     stopKlineBackfillPolling();
   }, [stopKlineBackfillPolling]);
@@ -684,6 +710,9 @@ function Dashboard() {
   const klineBackfillProgressStatus = ['failed', 'completed_with_errors'].includes(klineBackfillJob?.status)
     ? 'exception'
     : (klineBackfillJob?.status === 'completed' ? 'success' : 'active');
+  const klineBackfillJobLabel = klineBackfillJob?.options?.mode === KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH
+    ? 'Yahoo盘前盘后重刷'
+    : 'K线回补';
 
   // Mobile menu items
   const mobileMenuItems = [
@@ -711,6 +740,13 @@ function Dashboard() {
       icon: <CloudDownloadOutlined />,
       label: klineBackfillRunning ? 'K线回补运行中' : '一键回补全部周期',
       onClick: handleStartKlineBackfill,
+      disabled: klineBackfillRunning,
+    },
+    {
+      key: 'yahoo-prepost-refresh',
+      icon: <CloudDownloadOutlined />,
+      label: klineBackfillRunning ? 'K线任务运行中' : '重刷Yahoo盘前盘后',
+      onClick: handleStartYahooPrePostRefresh,
       disabled: klineBackfillRunning,
     },
     ...(user?.role === 'admin' ? [{
@@ -756,6 +792,14 @@ function Dashboard() {
         disabled={klineBackfillRunning}
       >
         {klineBackfillRunning ? 'K线回补运行中' : '一键回补全部周期'}
+      </Menu.Item>
+      <Menu.Item
+        key="yahoo-prepost-refresh"
+        onClick={handleStartYahooPrePostRefresh}
+        icon={<CloudDownloadOutlined />}
+        disabled={klineBackfillRunning}
+      >
+        {klineBackfillRunning ? 'K线任务运行中' : '重刷Yahoo盘前盘后'}
       </Menu.Item>
       {user?.role === 'admin' && (
         <Menu.Item
@@ -955,10 +999,18 @@ function Dashboard() {
           <section className="dashboard-kline-backfill">
             <div className="dashboard-kline-backfill__controls">
               <Space wrap align="center">
-                <Text strong>K线回补</Text>
+                <Text strong>{klineBackfillJobLabel}</Text>
                 <Text type="secondary">
                   {klineBackfillJob.status} · {klineBackfillJob.completedChunks || 0}/{klineBackfillJob.totalChunks || 0} 段 · 保存 {klineBackfillJob.saved || 0} 根
                 </Text>
+                <Button
+                  size="small"
+                  icon={<CloudDownloadOutlined />}
+                  disabled={klineBackfillRunning}
+                  onClick={handleStartYahooPrePostRefresh}
+                >
+                  重刷Yahoo盘前盘后
+                </Button>
               </Space>
             </div>
             <div className="dashboard-kline-backfill__progress">

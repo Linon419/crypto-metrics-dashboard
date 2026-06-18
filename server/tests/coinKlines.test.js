@@ -259,7 +259,11 @@ async function run() {
   const yahooUrl = buildYahooFinanceChartUrl({ symbol: 'CRCL', interval: '1d', range: '1y' });
   assert.match(yahooUrl, /query1\.finance\.yahoo\.com\/v8\/finance\/chart\/CRCL/);
   assert.match(yahooUrl, /interval=1d/);
+  assert.match(yahooUrl, /includePrePost=true/);
   assert.match(yahooUrl, /range=1y/);
+
+  const goldYahooUrl = buildYahooFinanceChartUrl({ symbol: 'GOLD', interval: '1d', range: '1y' });
+  assert.match(goldYahooUrl, /query1\.finance\.yahoo\.com\/v8\/finance\/chart\/XAU/);
 
   const yahooUrls = [];
   const yahooUpserted = [];
@@ -305,6 +309,7 @@ async function run() {
   assert.strictEqual(yahooResult.tradingSymbol, 'CRCL');
   assert.strictEqual(yahooUrls.length, 1);
   assert.match(yahooUrls[0], /finance\/chart\/CRCL/);
+  assert.match(yahooUrls[0], /includePrePost=true/);
   assert.strictEqual(yahooUpserted.length, 1);
   assert.strictEqual(yahooUpserted[0].market, 'yahoo_finance');
   assert.strictEqual(yahooUpserted[0].trading_symbol, 'CRCL');
@@ -677,6 +682,51 @@ async function run() {
   assert.strictEqual(backfillPlan.items[2].coinSymbol, 'NOKLINE');
   assert.strictEqual(backfillPlan.items[2].startTime, Date.UTC(2026, 0, 1));
   assert.strictEqual(backfillPlan.items[2].endTime, Date.UTC(2026, 0, 5, 4) - 1);
+
+  fakeEarliestKlineByCoinId.set(23, {
+    coin_id: 23,
+    interval: '4h',
+    open_time: new Date(Date.UTC(2026, 0, 1, 8)),
+    market: YAHOO_FINANCE_MARKET,
+  });
+
+  const yahooPrePostRefreshPlan = await findCoinKlineBackfillGaps({
+    interval: '4h',
+    marketFilter: YAHOO_FINANCE_MARKET,
+    refreshCovered: true,
+    CoinModel: {
+      async findAll() {
+        return fakeCoins;
+      },
+    },
+    DailyMetricModel: {
+      async findOne(options) {
+        if (!options.where?.coin_id) {
+          return { date: '2026-01-05' };
+        }
+        if (options.order?.[0]?.[1] === 'DESC') {
+          return fakeLatestMetricByCoinId.get(options.where.coin_id) || null;
+        }
+        return fakeMetricByCoinId.get(options.where.coin_id) || null;
+      },
+      async findAll() {
+        return [];
+      },
+    },
+    CoinKlineModel: {
+      async findOne(options) {
+        return fakeEarliestKlineByCoinId.get(options.where.coin_id) || null;
+      },
+    },
+  });
+  assert.strictEqual(yahooPrePostRefreshPlan.items.length, 1);
+  assert.strictEqual(yahooPrePostRefreshPlan.items[0].coinSymbol, 'AXTI');
+  assert.strictEqual(yahooPrePostRefreshPlan.items[0].market, YAHOO_FINANCE_MARKET);
+  assert.strictEqual(yahooPrePostRefreshPlan.items[0].startTime, Date.UTC(2026, 0, 1, 8));
+  assert.strictEqual(yahooPrePostRefreshPlan.items[0].endTime, Date.UTC(2026, 0, 5, 12) - 1);
+  assert.strictEqual(yahooPrePostRefreshPlan.items[0].earliestKlineTime, Date.UTC(2026, 0, 1, 8));
+  assert.strictEqual(yahooPrePostRefreshPlan.skippedMarket, 3);
+  assert.strictEqual(yahooPrePostRefreshPlan.skippedCovered, 0);
 
   const backfillChunks = buildCoinKlineBackfillChunks({
     startTime: Date.UTC(2026, 0, 1),

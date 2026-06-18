@@ -1,7 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import KlineMappingSettings from '../KlineMappingSettings';
+import KlineMappingSettings, {
+  getTradingSymbolForMarket,
+  normalizeBinanceTradingSymbol,
+} from '../KlineMappingSettings';
 import {
   fetchKlineMappings,
   seedDefaultKlineMappings,
@@ -74,5 +77,31 @@ describe('KlineMappingSettings', () => {
       expect(seedDefaultKlineMappings).toHaveBeenCalledTimes(1);
       expect(fetchKlineMappings).toHaveBeenCalledTimes(2);
     });
+  });
+
+  test('shows a visible save all action', async () => {
+    render(<KlineMappingSettings />);
+
+    await screen.findByText('CN_AI_ETF');
+    fireEvent.click(screen.getByRole('button', { name: '保存全部K线映射' }));
+
+    await waitFor(() => {
+      expect(updateKlineMapping).toHaveBeenCalledWith(1, {
+        market: 'yahoo_finance',
+        trading_symbol: '159819.SZ',
+        enabled: true,
+        notes: '默认映射',
+      });
+    });
+  });
+
+  test('normalizes Binance mapping symbols with USDT suffix', () => {
+    expect(normalizeBinanceTradingSymbol('btc')).toBe('BTCUSDT');
+    expect(normalizeBinanceTradingSymbol('ETHUSDT')).toBe('ETHUSDT');
+    expect(getTradingSymbolForMarket({
+      coinSymbol: 'BTC',
+      market: 'yahoo_finance',
+      tradingSymbol: '^BTC',
+    }, 'binance_usdm_perpetual')).toBe('BTCUSDT');
   });
 });

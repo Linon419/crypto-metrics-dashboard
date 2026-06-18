@@ -75,6 +75,17 @@ function run() {
   assert.ok(prompt.includes('vegaTarget'));
   assert.ok(prompt.includes('iron_condor'));
 
+  const potentialWatchPrompt = getDefaultPrompt([
+    '今日潜力观察 日内大盘不稳时不必操作',
+    'Agt 谢林兜底区0.0263',
+    'Hood谢林兜底区 105.2',
+    '昨日复盘',
+  ].join('\n'));
+  assert.ok(potentialWatchPrompt.includes('今日潜力观察'));
+  assert.ok(potentialWatchPrompt.includes('昨日复盘'));
+  assert.ok(potentialWatchPrompt.includes('整段内容一律忽略'));
+  assert.ok(potentialWatchPrompt.includes('谢林兜底区全部忽略'));
+
   console.log('openaiMomentumSource.test.js passed');
 }
 

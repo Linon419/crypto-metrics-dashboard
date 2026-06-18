@@ -35,9 +35,12 @@ const {
   buildDefaultKlineMappingsForCoins,
   filterCoinsWithLatestMetrics,
   findLatestMetricDate,
+  getDefaultKlineMappingForSymbol,
   normalizeKlineMappingInput,
-  resolveEffectiveKlineMapping,
+  resolveDisplayedKlineMapping,
 } = require('../utils/coinKlineMappings');
+
+const KLINE_CLEANUP_INTERVALS = new Set(['15m', '1h', '4h', '1d']);
 
 // 管理员中间件 - 验证是否为管理员
 router.use(verifyToken);
@@ -60,6 +63,105 @@ function createStatusError(message, statusCode = 500) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function parseOptionalDate(value, boundary) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  const isoValue = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+    ? `${trimmed}T${boundary === 'end' ? '23:59:59.999' : '00:00:00.000'}Z`
+    : trimmed;
+  const date = new Date(isoValue);
+  if (!Number.isFinite(date.getTime())) {
+    throw createStatusError(`${boundary === 'end' ? 'endDate' : 'startDate'} is invalid`, 400);
+  }
+  return date;
+}
+
+function normalizeKlineCleanupFilters(payload = {}) {
+  const coinSymbol = String(payload.coinSymbol || payload.coin_symbol || '').trim().toUpperCase();
+  const tradingSymbol = String(payload.tradingSymbol || payload.trading_symbol || '').trim();
+  const market = String(payload.market || '').trim();
+  const interval = String(payload.interval || '').trim();
+  const startDate = parseOptionalDate(payload.startDate || payload.start_date, 'start');
+  const endDate = parseOptionalDate(payload.endDate || payload.end_date, 'end');
+
+  if (!coinSymbol && !tradingSymbol) {
+    throw createStatusError('coinSymbol or tradingSymbol is required', 400);
+  }
+  if (interval && !KLINE_CLEANUP_INTERVALS.has(interval)) {
+    throw createStatusError('interval is invalid', 400);
+  }
+  if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
+    throw createStatusError('startDate must be before endDate', 400);
+  }
+
+  return {
+    coinSymbol,
+    tradingSymbol,
+    market,
+    interval,
+    startDate,
+    endDate,
+  };
+}
+
+function buildKlineCleanupWhere(filters) {
+  const where = {};
+  if (filters.coinSymbol) where.coin_symbol = filters.coinSymbol;
+  if (filters.tradingSymbol) where.trading_symbol = filters.tradingSymbol;
+  if (filters.market) where.market = filters.market;
+  if (filters.interval) where.interval = filters.interval;
+  if (filters.startDate || filters.endDate) {
+    where.open_time = {};
+    if (filters.startDate) where.open_time[Op.gte] = filters.startDate;
+    if (filters.endDate) where.open_time[Op.lte] = filters.endDate;
+  }
+  return where;
+}
+
+function serializeKlineCleanupFilters(filters) {
+  return {
+    coinSymbol: filters.coinSymbol || null,
+    tradingSymbol: filters.tradingSymbol || null,
+    market: filters.market || null,
+    interval: filters.interval || null,
+    startDate: filters.startDate ? filters.startDate.toISOString() : null,
+    endDate: filters.endDate ? filters.endDate.toISOString() : null,
+  };
+}
+
+async function previewKlineCleanup({
+  CoinKlineModel = CoinKline,
+} = {}, payload = {}) {
+  const filters = normalizeKlineCleanupFilters(payload);
+  const where = buildKlineCleanupWhere(filters);
+  const count = await CoinKlineModel.count({ where });
+
+  return {
+    count,
+    filters: serializeKlineCleanupFilters(filters),
+  };
+}
+
+async function deleteKlinesByCleanupFilters({
+  CoinKlineModel = CoinKline,
+} = {}, payload = {}) {
+  const preview = await previewKlineCleanup({ CoinKlineModel }, payload);
+  if (!payload.confirm) {
+    throw createStatusError('confirm is required', 400);
+  }
+  const where = buildKlineCleanupWhere({
+    ...preview.filters,
+    startDate: preview.filters.startDate ? new Date(preview.filters.startDate) : null,
+    endDate: preview.filters.endDate ? new Date(preview.filters.endDate) : null,
+  });
+  const deleted = await CoinKlineModel.destroy({ where });
+
+  return {
+    deleted,
+    filters: preview.filters,
+  };
 }
 
 function serializeAdminCoin(coin, metricStatus = {}) {
@@ -388,17 +490,17 @@ async function deleteAdminCoin({
 function serializeKlineMapping(coin, mapping) {
   const plainCoin = toPlainRow(coin);
   const plainMapping = toPlainRow(mapping);
-  const effective = resolveEffectiveKlineMapping(plainCoin, plainMapping);
+  const displayMapping = resolveDisplayedKlineMapping(plainCoin, plainMapping);
 
   return {
     coinId: plainCoin.id,
     coinSymbol: String(plainCoin.symbol || '').toUpperCase(),
     coinName: plainCoin.name || String(plainCoin.symbol || '').toUpperCase(),
     mappingId: plainMapping?.id || null,
-    market: effective?.market || null,
-    tradingSymbol: effective?.trading_symbol || null,
-    enabled: effective?.enabled !== false,
-    notes: plainMapping?.notes || effective?.notes || null,
+    market: displayMapping?.market || null,
+    tradingSymbol: displayMapping?.trading_symbol || null,
+    enabled: displayMapping?.enabled !== false,
+    notes: plainMapping?.notes || displayMapping?.notes || null,
     updatedAt: plainMapping?.updatedAt || plainMapping?.updated_at || null,
     isDefault: !plainMapping,
   };
@@ -906,6 +1008,40 @@ router.delete('/coins/:id', async (req, res) => {
   }
 });
 
+router.post('/kline-cleanup/preview', async (req, res) => {
+  try {
+    await CoinKline?.sync?.();
+    const result = await previewKlineCleanup(undefined, req.body || {});
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('预览K线清理失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '预览K线清理失败',
+    });
+  }
+});
+
+router.post('/kline-cleanup/delete', async (req, res) => {
+  try {
+    await CoinKline?.sync?.();
+    const result = await deleteKlinesByCleanupFilters(undefined, req.body || {});
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('删除K线失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '删除K线失败',
+    });
+  }
+});
+
 // 获取所有用户
 router.get('/users', async (req, res) => {
   try {
@@ -1220,9 +1356,11 @@ router.__test = {
   buildCoinMetricStatusById,
   createAdminCoin,
   deleteAdminCoin,
+  deleteKlinesByCleanupFilters,
   getCoinDependencyCounts,
   listAdminCoins,
   listKlineMappings,
+  previewKlineCleanup,
   seedDefaultKlineMappings,
   serializeKlineMapping,
   updateAdminCoin,

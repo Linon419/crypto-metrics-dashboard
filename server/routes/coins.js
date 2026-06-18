@@ -18,6 +18,7 @@ const {
   serializeCoinKline,
   shouldRefreshStoredCoinKlines,
   syncCoinKlines,
+  YAHOO_FINANCE_MARKET,
   YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
 } = require('../utils/coinKlines');
 const { resolveEffectiveKlineMapping } = require('../utils/coinKlineMappings');
@@ -27,6 +28,8 @@ const KLINE_BACKFILL_DEFAULT_INTERVALS = ['15m', '1h', '4h', '1d'];
 const KLINE_BACKFILL_DEFAULT_DELAY_MS = 5000;
 const KLINE_BACKFILL_MIN_DELAY_MS = 3000;
 const KLINE_BACKFILL_MAX_LOGS = 30;
+const KLINE_BACKFILL_MODE_GAP = 'gap_backfill';
+const KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH = 'yahoo_prepost_refresh';
 const BINANCE_BACKFILL_WEIGHT_LIMIT_PER_MINUTE = 2400;
 const BINANCE_BACKFILL_SOFT_WEIGHT_RATIO = 0.7;
 const BINANCE_BACKFILL_HARD_WEIGHT_RATIO = 0.85;
@@ -54,7 +57,11 @@ function normalizeBackfillIntervals(body = {}) {
 
 function normalizeBackfillOptions(body = {}) {
   const intervals = normalizeBackfillIntervals(body);
+  const mode = body.mode === KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH
+    ? KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH
+    : KLINE_BACKFILL_MODE_GAP;
   return {
+    mode,
     interval: intervals[0] || KLINE_BACKFILL_DEFAULT_INTERVAL,
     intervals,
     limit: clampNumber(body.limit, MAX_LIMIT, 1, MAX_LIMIT),
@@ -65,7 +72,16 @@ function normalizeBackfillOptions(body = {}) {
       60 * 1000
     ),
     maxChunksPerCoin: clampNumber(body.maxChunksPerCoin, 40, 1, 200),
+    refreshCovered: mode === KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH,
+    marketFilter: mode === KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH
+      ? YAHOO_FINANCE_MARKET
+      : null,
   };
+}
+
+function getBackfillModeLabel(mode) {
+  if (mode === KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH) return 'Yahoo盘前盘后重刷';
+  return 'K线回补';
 }
 
 function createBackfillJob(options) {
@@ -87,6 +103,7 @@ function createBackfillJob(options) {
     skippedNoMetrics: 0,
     skippedInvalidMetrics: 0,
     skippedStaleMetrics: 0,
+    skippedMarket: 0,
     fetched: 0,
     saved: 0,
     currentInterval: null,
@@ -104,6 +121,7 @@ function createBackfillJob(options) {
       skippedNoMetrics: 0,
       skippedInvalidMetrics: 0,
       skippedStaleMetrics: 0,
+      skippedMarket: 0,
       fetched: 0,
       saved: 0,
     })),
@@ -207,6 +225,7 @@ function serializeBackfillJob(job) {
     skippedNoMetrics: job.skippedNoMetrics,
     skippedInvalidMetrics: job.skippedInvalidMetrics,
     skippedStaleMetrics: job.skippedStaleMetrics,
+    skippedMarket: job.skippedMarket,
     fetched: job.fetched,
     saved: job.saved,
     currentInterval: job.currentInterval,
@@ -233,6 +252,8 @@ async function buildBackfillPlanForIntervals(job) {
       DailyMetricModel: DailyMetric,
       CoinKlineModel: CoinKline,
       CoinKlineMappingModel: CoinKlineMapping,
+      marketFilter: job.options.marketFilter,
+      refreshCovered: job.options.refreshCovered,
     });
     const plannedItems = plan.items.map(item => ({
       item,
@@ -251,6 +272,7 @@ async function buildBackfillPlanForIntervals(job) {
     stat.skippedNoMetrics = plan.skippedNoMetrics;
     stat.skippedInvalidMetrics = plan.skippedInvalidMetrics;
     stat.skippedStaleMetrics = plan.skippedStaleMetrics;
+    stat.skippedMarket = plan.skippedMarket;
     stat.totalChunks = plannedItems.reduce((total, entry) => total + entry.chunks.length, 0);
 
     intervalPlans.push({
@@ -276,12 +298,13 @@ async function runKlineBackfillJob(job) {
     job.skippedNoMetrics = job.intervalStats.reduce((total, stat) => total + stat.skippedNoMetrics, 0);
     job.skippedInvalidMetrics = job.intervalStats.reduce((total, stat) => total + stat.skippedInvalidMetrics, 0);
     job.skippedStaleMetrics = job.intervalStats.reduce((total, stat) => total + stat.skippedStaleMetrics, 0);
+    job.skippedMarket = job.intervalStats.reduce((total, stat) => total + stat.skippedMarket, 0);
     job.totalChunks = job.intervalStats.reduce((total, stat) => total + stat.totalChunks, 0);
     job.updatedAt = new Date().toISOString();
 
     pushBackfillLog(job, {
       level: 'info',
-      message: `扫描完成：${job.options.intervals.join('/')} 共 ${job.plannedCoins} 个币种周期需要回补，${job.totalChunks} 个请求段`,
+      message: `${getBackfillModeLabel(job.options.mode)}扫描完成：${job.options.intervals.join('/')} 共 ${job.plannedCoins} 个币种周期，${job.totalChunks} 个请求段`,
     });
 
     if (job.totalChunks === 0) {
@@ -298,7 +321,7 @@ async function runKlineBackfillJob(job) {
 
       pushBackfillLog(job, {
         level: 'info',
-        message: `开始回补 ${interval}：${plannedItems.length} 个币种，${stat.totalChunks} 个请求段`,
+        message: `开始${getBackfillModeLabel(job.options.mode)} ${interval}：${plannedItems.length} 个币种，${stat.totalChunks} 个请求段`,
       });
 
       for (let itemIndex = 0; itemIndex < plannedItems.length; itemIndex += 1) {

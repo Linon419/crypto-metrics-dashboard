@@ -3,9 +3,11 @@ import { Tabs, Typography } from 'antd';
 import {
   BarChartOutlined,
   DatabaseOutlined,
+  DeleteOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import CoinManagement from './CoinManagement';
+import KlineCleanupSettings from './KlineCleanupSettings';
 import KlineMappingSettings from './KlineMappingSettings';
 
 const { Title, Text } = Typography;
@@ -43,6 +45,16 @@ function AdminSettings() {
               </span>
             ),
             children: <KlineMappingSettings />,
+          },
+          {
+            key: 'kline-cleanup',
+            label: (
+              <span>
+                <DeleteOutlined />
+                K线清理
+              </span>
+            ),
+            children: <KlineCleanupSettings />,
           },
         ]}
       />

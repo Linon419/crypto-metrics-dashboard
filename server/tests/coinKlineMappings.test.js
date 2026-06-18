@@ -5,6 +5,7 @@ const {
   buildDefaultKlineMappingsForCoins,
   getDefaultKlineMappingForSymbol,
   normalizeKlineMappingInput,
+  resolveDisplayedKlineMapping,
   resolveEffectiveKlineMapping,
 } = require('../utils/coinKlineMappings');
 
@@ -52,6 +53,38 @@ async function run() {
   assert.deepStrictEqual(getDefaultKlineMappingForSymbol('CN_AI_ETF'), {
     market: 'yahoo_finance',
     trading_symbol: '159819.SZ',
+    enabled: true,
+    notes: '默认映射',
+  });
+
+  assert.deepStrictEqual(getDefaultKlineMappingForSymbol('GOLD'), {
+    market: 'yahoo_finance',
+    trading_symbol: 'XAU',
+    enabled: true,
+    notes: '默认映射',
+  });
+
+  const legacyGoldDefault = {
+    market: 'yahoo_finance',
+    trading_symbol: 'GLD',
+    enabled: true,
+    notes: '默认映射',
+  };
+  assert.deepStrictEqual(resolveEffectiveKlineMapping(
+    { symbol: 'GOLD' },
+    legacyGoldDefault
+  ), {
+    market: 'yahoo_finance',
+    trading_symbol: 'XAU',
+    enabled: true,
+    notes: '默认映射',
+  });
+  assert.deepStrictEqual(resolveDisplayedKlineMapping(
+    { symbol: 'GOLD' },
+    legacyGoldDefault
+  ), {
+    market: 'yahoo_finance',
+    trading_symbol: 'XAU',
     enabled: true,
     notes: '默认映射',
   });

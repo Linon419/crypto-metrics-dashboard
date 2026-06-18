@@ -49,7 +49,7 @@ const YAHOO_SYMBOL_ALIASES = {
   CN_INDEX: '000300.SS',
   CN_ROBOT: '562500.SS',
   ESTATE: '^HSNP',
-  GOLD: 'GLD',
+  GOLD: 'XAU',
   NASDAO: '^IXIC',
   NASDAQ: '^IXIC',
   OIL: 'USO',
@@ -359,6 +359,8 @@ function alignTimestampToIntervalStart(timestampMs, interval = DEFAULT_INTERVAL)
 
 async function findCoinKlineBackfillGaps({
   interval = DEFAULT_INTERVAL,
+  marketFilter = null,
+  refreshCovered = false,
   CoinModel,
   DailyMetricModel,
   CoinKlineModel,
@@ -387,6 +389,7 @@ async function findCoinKlineBackfillGaps({
   let skippedNoMetrics = 0;
   let skippedInvalidMetrics = 0;
   let skippedStaleMetrics = 0;
+  let skippedMarket = 0;
 
   for (const rawCoin of coins) {
     const coin = toPlainRow(rawCoin);
@@ -440,6 +443,12 @@ async function findCoinKlineBackfillGaps({
     const effectiveMapping = resolveEffectiveKlineMapping(coin, rawKlineMapping);
     const market = getPreferredKlineMarket(coin.symbol, effectiveMapping);
     const tradingSymbol = effectiveMapping?.trading_symbol || null;
+
+    if (marketFilter && market !== marketFilter) {
+      skippedMarket += 1;
+      continue;
+    }
+
     const klineWhere = {
       coin_id: coin.id,
       interval: normalizedInterval,
@@ -461,7 +470,7 @@ async function findCoinKlineBackfillGaps({
       ? new Date(earliestKline.open_time).getTime()
       : null;
 
-    if (Number.isFinite(earliestKlineTime) && earliestKlineTime <= startTime) {
+    if (!refreshCovered && Number.isFinite(earliestKlineTime) && earliestKlineTime <= startTime) {
       skippedCovered += 1;
       continue;
     }
@@ -474,7 +483,9 @@ async function findCoinKlineBackfillGaps({
       ...(effectiveMapping ? { klineMapping: effectiveMapping } : {}),
       interval: normalizedInterval,
       startTime,
-      endTime: Number.isFinite(earliestKlineTime) ? earliestKlineTime - 1 : metricEndTime,
+      endTime: refreshCovered
+        ? metricEndTime
+        : (Number.isFinite(earliestKlineTime) ? earliestKlineTime - 1 : metricEndTime),
       metricStartTime: startTime,
       earliestKlineTime: Number.isFinite(earliestKlineTime) ? earliestKlineTime : null,
     });
@@ -488,6 +499,7 @@ async function findCoinKlineBackfillGaps({
     skippedNoMetrics,
     skippedInvalidMetrics,
     skippedStaleMetrics,
+    skippedMarket,
   };
 }
 
@@ -630,7 +642,7 @@ function buildYahooFinanceChartUrl({
   const yahooSymbol = resolveYahooSymbol(symbol);
   const params = new URLSearchParams({
     interval: normalizeYahooInterval(interval),
-    includePrePost: 'false',
+    includePrePost: 'true',
     events: 'history',
   });
 

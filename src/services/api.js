@@ -787,6 +787,7 @@ export const fetchCoinKlines = async (symbol, {
 };
 
 export const startKlineBackfill = async ({
+  mode,
   intervals = ['15m', '1h', '4h', '1d'],
   delayMs = 5000,
   limit = 1500,
@@ -794,6 +795,7 @@ export const startKlineBackfill = async ({
 } = {}) => {
   try {
     const response = await callApiWithRetry(() => api.post('/coins/klines/backfill', {
+      mode,
       intervals,
       delayMs,
       limit,
@@ -1357,6 +1359,30 @@ export const seedDefaultKlineMappings = async () => {
     return response.data;
   } catch (error) {
     console.error('[seedDefaultKlineMappings] 补齐默认K线映射失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const previewKlineCleanup = async (payload) => {
+  try {
+    const response = await callApiWithRetry(() => api.post('/admin/kline-cleanup/preview', payload));
+    return response.data;
+  } catch (error) {
+    console.error('[previewKlineCleanup] 预览K线清理失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const deleteKlinesByCleanupFilters = async (payload) => {
+  try {
+    const response = await callApiWithRetry(() => api.post('/admin/kline-cleanup/delete', {
+      ...payload,
+      confirm: true,
+    }));
+    dataCache.coinKlines.clear();
+    return response.data;
+  } catch (error) {
+    console.error('[deleteKlinesByCleanupFilters] 删除K线失败:', error.displayMessage || error.message);
     throw error;
   }
 };

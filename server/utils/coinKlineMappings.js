@@ -17,7 +17,7 @@ const YAHOO_SYMBOL_ALIASES = Object.freeze({
   CN_INDEX: '000300.SS',
   CN_ROBOT: '562500.SS',
   ESTATE: '^HSNP',
-  GOLD: 'GLD',
+  GOLD: 'XAU',
   NASDAO: '^IXIC',
   NASDAQ: '^IXIC',
   OIL: 'USO',
@@ -138,6 +138,27 @@ function toPlainMapping(mapping) {
   return mapping;
 }
 
+function isLegacyDefaultKlineMapping(coin, mapping, currentDefault) {
+  const coinSymbol = normalizeCoinSymbol(coin?.symbol ?? mapping?.coin_symbol);
+  return Boolean(
+    coinSymbol === 'GOLD'
+    && mapping?.market === KLINE_MARKETS.YAHOO_FINANCE
+    && String(mapping?.trading_symbol || '').trim().toUpperCase() === 'GLD'
+    && currentDefault?.market === KLINE_MARKETS.YAHOO_FINANCE
+    && currentDefault?.trading_symbol === 'XAU'
+    && (!mapping?.notes || mapping.notes === '默认映射')
+  );
+}
+
+function resolveDisplayedKlineMapping(coin, mapping) {
+  const rawMapping = toPlainMapping(mapping);
+  const currentDefault = getDefaultKlineMappingForSymbol(coin?.symbol ?? rawMapping?.coin_symbol);
+  if (rawMapping && isLegacyDefaultKlineMapping(coin, rawMapping, currentDefault)) {
+    return currentDefault;
+  }
+  return rawMapping || currentDefault;
+}
+
 async function findLatestMetricDate(DailyMetricModel) {
   if (!DailyMetricModel?.findOne) return null;
 
@@ -200,6 +221,10 @@ function resolveEffectiveKlineMapping(coin, mapping) {
   const rawMapping = toPlainMapping(mapping);
   if (rawMapping?.enabled) {
     try {
+      const currentDefault = getDefaultKlineMappingForSymbol(coin?.symbol ?? rawMapping.coin_symbol);
+      if (isLegacyDefaultKlineMapping(coin, rawMapping, currentDefault)) {
+        return currentDefault;
+      }
       return normalizeKlineMappingInput(rawMapping);
     } catch (error) {
       return getDefaultKlineMappingForSymbol(coin?.symbol);
@@ -247,6 +272,7 @@ module.exports = {
   normalizeBinanceTradingSymbol,
   normalizeCoinSymbol,
   normalizeKlineMappingInput,
+  resolveDisplayedKlineMapping,
   resolveEffectiveKlineMapping,
   shouldUseDeribitBtcDvol,
   shouldUseYahooFinance,
