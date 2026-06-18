@@ -18,6 +18,7 @@ const DERIBIT_BTC_DVOL_SYMBOL = 'BTC-DVOL';
 const DEFAULT_INTERVAL = '1d';
 const DEFAULT_LIMIT = 365;
 const MAX_LIMIT = 1500;
+const MAX_STORED_RANGE_LIMIT = 60000;
 const YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
 const { buildBtcVolatilityHistory } = require('./btcVolatility');
 
@@ -240,6 +241,28 @@ function normalizeLimit(limit = DEFAULT_LIMIT) {
   const parsed = Number(limit);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_LIMIT;
   return Math.min(Math.floor(parsed), MAX_LIMIT);
+}
+
+function normalizeStoredKlineLimit({
+  interval = DEFAULT_INTERVAL,
+  limit = DEFAULT_LIMIT,
+  startTime,
+  endTime,
+} = {}) {
+  const baseLimit = normalizeLimit(limit);
+  if (startTime === undefined || startTime === null || endTime === undefined || endTime === null) {
+    return baseLimit;
+  }
+
+  const intervalMs = INTERVAL_MS[normalizeInterval(interval)];
+  const start = toTimestampMs(startTime, 'startTime');
+  const end = toTimestampMs(endTime, 'endTime');
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0 || end < start) {
+    return baseLimit;
+  }
+
+  const rangeLimit = Math.ceil((end - start + 1) / intervalMs) + 2;
+  return Math.min(Math.max(baseLimit, rangeLimit), MAX_STORED_RANGE_LIMIT);
 }
 
 function buildYahooSyncCacheKey({
@@ -1128,7 +1151,12 @@ async function findStoredCoinKlines({
   return CoinKlineModel.findAll({
     where,
     order: [['open_time', 'DESC']],
-    limit: normalizeLimit(limit),
+    limit: normalizeStoredKlineLimit({
+      interval,
+      limit,
+      startTime,
+      endTime,
+    }),
     raw: true,
   });
 }

@@ -23,6 +23,7 @@ const CHART_PERIODS = [
 
 const DEFAULT_CHART_INTERVAL = '4h';
 const LEFT_EXPAND_LIMIT = 1500;
+const AUTO_LEFT_PAGE_THRESHOLD_BARS = 80;
 const YAHOO_FINANCE_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const INTERVAL_SECONDS = {
   '15m': 15 * 60,
@@ -870,9 +871,11 @@ function buildFallbackAnnotationLabels(annotationTracks = {}, rows = [], visible
   });
 }
 
-function syncTimeRange(targets, syncingRef) {
+function syncTimeRange(targets, syncingRef, onRangeChange) {
   return (range) => {
-    if (!range || syncingRef.current) return;
+    if (!range) return;
+    onRangeChange?.(range);
+    if (syncingRef.current) return;
     syncingRef.current = true;
     targets.forEach((chart) => {
       chart.timeScale().setVisibleRange(range);
@@ -912,6 +915,20 @@ export function calculateDateRangeKlineLimit({
   return Math.min(LEFT_EXPAND_LIMIT, Math.max(baseLimit, estimatedBars));
 }
 
+function shouldUsePagedDateRangeKlines({
+  interval,
+  startDate,
+  endDate,
+} = {}) {
+  const startMs = parseDateBoundaryMs(startDate, 'start');
+  const endMs = parseDateBoundaryMs(endDate, 'end');
+  if (startMs === null || endMs === null || endMs <= startMs) return false;
+
+  const intervalMs = (INTERVAL_SECONDS[interval] || INTERVAL_SECONDS['1d']) * 1000;
+  const estimatedBars = Math.ceil((endMs - startMs) / intervalMs) + 2;
+  return estimatedBars > LEFT_EXPAND_LIMIT;
+}
+
 function OtcCycleChart({
   symbol = 'BTC',
   startDate,
@@ -939,36 +956,56 @@ function OtcCycleChart({
   const syncingRef = useRef(false);
   const chartsRef = useRef([]);
   const manualVisibleRangeRef = useRef(null);
+  const loadingOlderRef = useRef(false);
+  const hasMoreLeftRef = useRef(true);
+  const [hasMoreLeft, setHasMoreLeft] = useState(true);
 
   const selectedPeriod = CHART_PERIODS.find(period => period.value === interval) || CHART_PERIODS[0];
   const isYahooFinanceSource = shouldUseYahooFinanceKlines(normalizedSymbol);
+  const updateHasMoreLeft = useCallback((value) => {
+    hasMoreLeftRef.current = value;
+    setHasMoreLeft(value);
+  }, []);
 
   const loadChartData = useCallback(async ({ refresh = false, silent = false } = {}) => {
     if (!silent) setLoading(true);
     if (!silent) {
       manualVisibleRangeRef.current = null;
+      updateHasMoreLeft(true);
     }
     setError(null);
     try {
+      const shouldPageDateRange = !useLatestKlineWindow && shouldUsePagedDateRangeKlines({
+        interval: selectedPeriod.value,
+        startDate,
+        endDate,
+      });
       const klineLimit = useLatestKlineWindow
         ? selectedPeriod.limit
-        : calculateDateRangeKlineLimit({
+        : shouldPageDateRange
+          ? LEFT_EXPAND_LIMIT
+          : calculateDateRangeKlineLimit({
           interval: selectedPeriod.value,
           startDate,
           endDate,
           fallbackLimit: selectedPeriod.limit,
         });
-      const klineResult = await fetchCoinKlines(symbol, {
+      const klineRequest = {
         interval: selectedPeriod.value,
         limit: klineLimit,
         refresh,
-        startTime: !useLatestKlineWindow && startDate ? new Date(startDate).getTime() : undefined,
-        endTime: !useLatestKlineWindow && endDate ? new Date(`${endDate}T23:59:59.999Z`).getTime() : undefined,
-      });
-      const klineRange = useLatestKlineWindow ? getKlineDateRange(klineResult?.klines || []) : null;
+      };
+      if (!useLatestKlineWindow && !shouldPageDateRange && startDate) {
+        klineRequest.startTime = new Date(startDate).getTime();
+      }
+      if (!useLatestKlineWindow && endDate) {
+        klineRequest.endTime = new Date(`${endDate}T23:59:59.999Z`).getTime();
+      }
+      const klineResult = await fetchCoinKlines(symbol, klineRequest);
+      const klineRange = getKlineDateRange(klineResult?.klines || []);
       const metricResult = await fetchCoinMetrics(symbol, {
         startDate: klineRange?.startDate || startDate,
-        endDate,
+        endDate: endDate || klineRange?.endDate,
       });
       setKlines(klineResult?.klines || []);
       setMetrics(Array.isArray(metricResult) ? metricResult : []);
@@ -977,7 +1014,7 @@ function OtcCycleChart({
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [endDate, selectedPeriod.limit, selectedPeriod.value, startDate, symbol, useLatestKlineWindow]);
+  }, [endDate, selectedPeriod.limit, selectedPeriod.value, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
 
   useEffect(() => {
     loadChartData();
@@ -985,7 +1022,9 @@ function OtcCycleChart({
 
   useEffect(() => {
     manualVisibleRangeRef.current = null;
-  }, [interval, symbol]);
+    loadingOlderRef.current = false;
+    updateHasMoreLeft(true);
+  }, [interval, startDate, symbol, updateHasMoreLeft]);
 
   useEffect(() => {
     if (!isYahooFinanceSource) return () => {};
@@ -998,7 +1037,7 @@ function OtcCycleChart({
   }, [isYahooFinanceSource, loadChartData]);
 
   const loadOlderKlines = useCallback(async () => {
-    if (expandingLeft || klines.length === 0) return;
+    if (loadingOlderRef.current || expandingLeft || klines.length === 0 || !hasMoreLeftRef.current) return;
 
     const earliestOpenTime = klines.reduce((earliest, kline) => {
       const openTime = new Date(kline.openTime).getTime();
@@ -1006,7 +1045,13 @@ function OtcCycleChart({
     }, Infinity);
 
     if (!Number.isFinite(earliestOpenTime)) return;
+    const lowerBoundary = !useLatestKlineWindow ? parseDateBoundaryMs(startDate, 'start') : null;
+    if (lowerBoundary !== null && earliestOpenTime <= lowerBoundary) {
+      updateHasMoreLeft(false);
+      return;
+    }
 
+    loadingOlderRef.current = true;
     setExpandingLeft(true);
     setError(null);
     try {
@@ -1016,8 +1061,29 @@ function OtcCycleChart({
         refresh: true,
         endTime: earliestOpenTime - 1,
       });
-      const expandedKlines = mergeKlinesByOpenTime(klines, result?.klines || []);
+      const incomingKlines = (result?.klines || []).filter((kline) => {
+        if (lowerBoundary === null) return true;
+        const openTime = new Date(kline.openTime).getTime();
+        return Number.isFinite(openTime) && openTime >= lowerBoundary;
+      });
+      const hasIncomingOlderKlines = incomingKlines.some((kline) => {
+        const openTime = new Date(kline.openTime).getTime();
+        return Number.isFinite(openTime) && openTime < earliestOpenTime;
+      });
+      if (!hasIncomingOlderKlines) {
+        updateHasMoreLeft(false);
+        return;
+      }
+
+      const expandedKlines = mergeKlinesByOpenTime(klines, incomingKlines);
       const expandedRange = getKlineDateRange(expandedKlines);
+      const newEarliestOpenTime = expandedKlines.reduce((earliest, kline) => {
+        const openTime = new Date(kline.openTime).getTime();
+        return Number.isFinite(openTime) && openTime < earliest ? openTime : earliest;
+      }, earliestOpenTime);
+      if (lowerBoundary !== null && newEarliestOpenTime <= lowerBoundary) {
+        updateHasMoreLeft(false);
+      }
       if (expandedRange) {
         const metricResult = await fetchCoinMetrics(symbol, {
           startDate: expandedRange.startDate,
@@ -1032,9 +1098,10 @@ function OtcCycleChart({
     } catch (err) {
       setError(err.message || '向左扩展K线失败');
     } finally {
+      loadingOlderRef.current = false;
       setExpandingLeft(false);
     }
-  }, [endDate, expandingLeft, klines, selectedPeriod.value, symbol]);
+  }, [endDate, expandingLeft, klines, selectedPeriod.value, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
 
   useEffect(() => {
     if (normalizedSymbol === 'VEGA' || isYahooFinanceSource) return () => {};
@@ -1255,10 +1322,45 @@ function OtcCycleChart({
     otcChart.subscribeCrosshairMove(updateMetricHover);
     explosionChart.subscribeCrosshairMove(updateMetricHover);
 
-    const priceSync = syncTimeRange([otcChart, explosionChart], syncingRef);
-    const otcSync = syncTimeRange([priceChart, explosionChart], syncingRef);
-    const explosionSync = syncTimeRange([priceChart, otcChart], syncingRef);
+    const rememberVisibleRange = (range) => {
+      if (!range) return;
+      const from = Number(range.from);
+      const to = Number(range.to);
+      if (Number.isFinite(from) && Number.isFinite(to)) {
+        manualVisibleRangeRef.current = { from, to };
+      }
+    };
+    const maybeLoadOlderFromVisibleRange = (range) => {
+      rememberVisibleRange(range);
+      if (
+        !range ||
+        loading ||
+        loadingOlderRef.current ||
+        !hasMoreLeftRef.current ||
+        model.rows.length === 0
+      ) return;
+
+      const from = Number(range.from);
+      const earliestTime = model.rows[0].time;
+      if (!Number.isFinite(from) || !Number.isFinite(earliestTime)) return;
+
+      const lowerBoundary = !useLatestKlineWindow ? parseDateBoundaryMs(startDate, 'start') : null;
+      if (lowerBoundary !== null && earliestTime * 1000 <= lowerBoundary) {
+        updateHasMoreLeft(false);
+        return;
+      }
+
+      const thresholdSeconds = getMedianRowTimeGap(model.rows) * AUTO_LEFT_PAGE_THRESHOLD_BARS;
+      if (from <= earliestTime + thresholdSeconds) {
+        loadOlderKlines();
+      }
+    };
+
+    const priceSync = syncTimeRange([otcChart, explosionChart], syncingRef, rememberVisibleRange);
+    const otcSync = syncTimeRange([priceChart, explosionChart], syncingRef, rememberVisibleRange);
+    const explosionSync = syncTimeRange([priceChart, otcChart], syncingRef, rememberVisibleRange);
     priceChart.timeScale().subscribeVisibleTimeRangeChange(priceSync);
+    priceChart.timeScale().subscribeVisibleTimeRangeChange(maybeLoadOlderFromVisibleRange);
     otcChart.timeScale().subscribeVisibleTimeRangeChange(otcSync);
     explosionChart.timeScale().subscribeVisibleTimeRangeChange(explosionSync);
 
@@ -1340,6 +1442,7 @@ function OtcCycleChart({
 
     return () => {
       priceChart.timeScale().unsubscribeVisibleTimeRangeChange(priceSync);
+      priceChart.timeScale().unsubscribeVisibleTimeRangeChange(maybeLoadOlderFromVisibleRange);
       priceChart.timeScale().unsubscribeVisibleTimeRangeChange(updatePhaseLayer);
       priceChart.timeScale().unsubscribeVisibleTimeRangeChange(updateAnnotationLayer);
       priceChart.unsubscribeCrosshairMove(updateMetricHover);
@@ -1355,7 +1458,7 @@ function OtcCycleChart({
       setHoverValueLabels(null);
       setHoverAxisLabel(null);
     };
-  }, [hoverSnapSeconds, indicatorChartHeight, model, priceChartHeight, showMetricEvents, symbol, visibleBars]);
+  }, [hoverSnapSeconds, indicatorChartHeight, loadOlderKlines, loading, model, priceChartHeight, showMetricEvents, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow, visibleBars]);
 
   const latest = model.latest;
   const metricStatusText = showMetricEvents
@@ -1387,10 +1490,10 @@ function OtcCycleChart({
           <Button
             size="small"
             loading={expandingLeft}
-            disabled={loading || klines.length === 0}
+            disabled={loading || klines.length === 0 || !hasMoreLeft}
             onClick={loadOlderKlines}
           >
-            向左扩展 1500 根
+            {hasMoreLeft ? '向左扩展 1500 根' : '已到最早K线'}
           </Button>
           <Button
             size="small"

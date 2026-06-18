@@ -103,6 +103,37 @@ async function run() {
   });
   assert.match(maxLimitUrl, /limit=1500/);
 
+  const storedQueryOptions = [];
+  await findStoredCoinKlines({
+    coinId: 1,
+    interval: '4h',
+    limit: 1500,
+    startTime: Date.UTC(2023, 0, 1),
+    endTime: Date.UTC(2026, 5, 18, 23, 59, 59, 999),
+    CoinKlineModel: {
+      async findAll(options) {
+        storedQueryOptions.push(options);
+        return [];
+      },
+    },
+  });
+  assert.ok(storedQueryOptions[0].limit > 1500);
+  assert.strictEqual(storedQueryOptions[0].limit, 7592);
+
+  const latestWindowQueryOptions = [];
+  await findStoredCoinKlines({
+    coinId: 1,
+    interval: '4h',
+    limit: 9999,
+    CoinKlineModel: {
+      async findAll(options) {
+        latestWindowQueryOptions.push(options);
+        return [];
+      },
+    },
+  });
+  assert.strictEqual(latestWindowQueryOptions[0].limit, 1500);
+
   assert.strictEqual(shouldRefreshStoredCoinKlines({
     rows: [{
       open_time: new Date(Date.UTC(2026, 5, 8)),

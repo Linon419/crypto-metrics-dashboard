@@ -294,7 +294,7 @@ test('can load latest kline window while keeping metric date range', async () =>
   await waitFor(() => expect(screen.getByText('最近 3 根')).toBeInTheDocument());
 });
 
-test('expands date-range kline limit so backfilled history can be shown', async () => {
+test('uses paged latest request for long date ranges', async () => {
   fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
   fetchCoinMetrics.mockResolvedValue(metrics);
 
@@ -302,7 +302,7 @@ test('expands date-range kline limit so backfilled history can be shown', async 
     render(
       <OtcCycleChart
         symbol="BTC"
-        startDate="2026-01-01"
+        startDate="2023-01-01"
         endDate="2026-06-18"
       />
     );
@@ -311,13 +311,46 @@ test('expands date-range kline limit so backfilled history can be shown', async 
   await screen.findByText('量化 K 线');
   await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledWith('BTC', expect.objectContaining({
     interval: '4h',
-    limit: expect.any(Number),
-    startTime: new Date('2026-01-01').getTime(),
+    limit: 1500,
     endTime: new Date('2026-06-18T23:59:59.999Z').getTime(),
   })));
   const [, request] = fetchCoinKlines.mock.calls[0];
-  expect(request.limit).toBeGreaterThan(500);
-  expect(request.limit).toBeLessThanOrEqual(1500);
+  expect(request).not.toHaveProperty('startTime');
+});
+
+test('automatically loads older candles when the visible range reaches the left edge', async () => {
+  const olderKlines = [
+    { openTime: '2025-12-30T00:00:00.000Z', closeTime: '2025-12-30T23:59:59.999Z', open: 90, high: 96, low: 88, close: 94, volume: 8 },
+    { openTime: '2025-12-31T00:00:00.000Z', closeTime: '2025-12-31T23:59:59.999Z', open: 94, high: 102, low: 92, close: 100, volume: 9 },
+  ];
+  fetchCoinKlines
+    .mockResolvedValueOnce({ symbol: 'BTC', interval: '4h', klines })
+    .mockResolvedValueOnce({ symbol: 'BTC', interval: '4h', klines: olderKlines });
+  fetchCoinMetrics
+    .mockResolvedValueOnce(metrics)
+    .mockResolvedValueOnce(metrics);
+
+  render(<OtcCycleChart symbol="BTC" />);
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+
+  const priceScale = mockChartInstances[0].timeScale();
+  const handlers = priceScale.subscribeVisibleTimeRangeChange.mock.calls.map(([handler]) => handler);
+  const firstTime = Math.floor(new Date('2026-01-01T00:00:00.000Z').getTime() / 1000);
+
+  await act(async () => {
+    handlers.forEach(handler => handler({ from: firstTime, to: firstTime + 86400 }));
+    await Promise.resolve();
+  });
+
+  await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledTimes(2));
+  expect(fetchCoinKlines).toHaveBeenLastCalledWith('BTC', expect.objectContaining({
+    interval: '4h',
+    limit: 1500,
+    refresh: true,
+    endTime: new Date('2026-01-01T00:00:00.000Z').getTime() - 1,
+  }));
 });
 
 test('caps calculated date-range kline limit at the single request ceiling', () => {
@@ -438,9 +471,13 @@ test('keeps early daily metrics visible across a wider four-hour kline window', 
   const valuedOtcPoints = model.otcIndex.filter(point => point.value !== undefined);
   const valuedExplosionPoints = model.explosionIndex.filter(point => point.value !== undefined);
 
-  expect(valuedOtcPoints.map(point => point.value)).toEqual([1264, 1178, 1608]);
-  expect(valuedExplosionPoints.map(point => point.value)).toEqual([77, 73, 238]);
-  expect(valuedOtcPoints[0].time).toBeLessThan(valuedOtcPoints[2].time);
+  expect(valuedOtcPoints[0].value).toBe(1264);
+  expect(valuedOtcPoints.at(-1).value).toBe(1608);
+  expect(valuedExplosionPoints[0].value).toBe(77);
+  expect(valuedExplosionPoints.at(-1).value).toBe(238);
+  expect(model.otcPointMarkers.map(point => point.price)).toEqual([1264, 1178, 1608]);
+  expect(model.explosionPointMarkers.map(point => point.price)).toEqual([77, 73, 238]);
+  expect(model.otcPointMarkers[0].time).toBeLessThan(model.otcPointMarkers[2].time);
   expect(model.annotationTracks.period.map(label => label.text)).toEqual(['进20', '退6', '进25']);
 });
 
@@ -488,6 +525,10 @@ test('keeps entry and exit phase backgrounds continuous across missing metric da
     { phase: 'entry', startTime: model.rows[0].time, endTime: model.rows[2].time },
     { phase: 'exit', startTime: model.rows[3].time, endTime: model.rows[4].time },
   ]);
+  expect(model.otcIndex.map(point => point.value)).toEqual([900, undefined, undefined, 800, undefined]);
+  expect(model.explosionIndex.map(point => point.value)).toEqual([-10, undefined, undefined, 100, undefined]);
+  expect(model.otcPointMarkers).toHaveLength(2);
+  expect(model.explosionPointMarkers).toHaveLength(2);
 });
 
 test('marks each explosion down-cross below 200 and negative-to-positive cross', () => {
