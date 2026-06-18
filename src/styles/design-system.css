@@ -463,6 +463,49 @@ body {
   padding: 12px 14px 14px;
 }
 
+.tv-cycle-chart__go-to {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 14px 14px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.tv-cycle-chart__go-to-title {
+  color: #334155;
+  font-weight: 850;
+}
+
+.tv-cycle-chart__go-to-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tv-cycle-chart__go-to-field span {
+  color: #64748b;
+  font-weight: 750;
+}
+
+.tv-cycle-chart__go-to-field input {
+  height: 28px;
+  min-width: 116px;
+  padding: 0 8px;
+  border: 1px solid #dbe3ef;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 28px;
+}
+
+.tv-cycle-chart__go-to-field input[type="time"] {
+  min-width: 92px;
+}
+
 .tv-cycle-chart__plots {
   min-width: 0;
 }

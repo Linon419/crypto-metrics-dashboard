@@ -80,7 +80,7 @@ async function checkCoinsAndData() {
 
     // 检查其他资产类型
     console.log('\n🔍 检查其他资产类型:');
-    const otherAssets = ['黄金', 'GOLD', '地产', 'REAL_ESTATE', '原油', 'OIL', 'BRENT'];
+    const otherAssets = ['黄金', 'GOLD', '地产', 'ESTATE', '原油', 'OIL', 'BRENT'];
     
     for (const asset of otherAssets) {
       const existingAsset = coins.find(coin => 

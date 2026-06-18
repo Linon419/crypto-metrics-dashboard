@@ -16,13 +16,11 @@ const YAHOO_SYMBOL_ALIASES = Object.freeze({
   CN_AI_ETF: '159819.SZ',
   CN_INDEX: '000300.SS',
   CN_ROBOT: '562500.SS',
-  ESTATE: 'VNQ',
+  ESTATE: '^HSNP',
   GOLD: 'GLD',
   NASDAO: '^IXIC',
   NASDAQ: '^IXIC',
   OIL: 'USO',
-  RE: 'VNQ',
-  REAL_ESTATE: 'VNQ',
   SILVER: 'SLV',
 });
 

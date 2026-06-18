@@ -20,6 +20,7 @@ const {
   syncCoinKlines,
   YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
 } = require('../utils/coinKlines');
+const { resolveEffectiveKlineMapping } = require('../utils/coinKlineMappings');
 
 const KLINE_BACKFILL_DEFAULT_INTERVAL = '4h';
 const KLINE_BACKFILL_DEFAULT_INTERVALS = ['15m', '1h', '4h', '1d'];
@@ -548,7 +549,9 @@ router.get('/:symbol/klines', async (req, res) => {
         raw: true,
       })
       : null;
-    const preferredMarket = getPreferredKlineMarket(coin.symbol, klineMapping);
+    const effectiveKlineMapping = resolveEffectiveKlineMapping(coin, klineMapping);
+    const preferredMarket = getPreferredKlineMarket(coin.symbol, effectiveKlineMapping);
+    const preferredTradingSymbol = effectiveKlineMapping?.trading_symbol || null;
     const shouldRefresh = refresh === '1' || refresh === 'true';
 
     let syncResult = null;
@@ -557,6 +560,7 @@ router.get('/:symbol/klines', async (req, res) => {
       interval,
       limit,
       market: preferredMarket,
+      tradingSymbol: preferredTradingSymbol,
       startTime,
       endTime,
       CoinKlineModel: CoinKline,
@@ -587,6 +591,7 @@ router.get('/:symbol/klines', async (req, res) => {
           interval,
           limit,
           market: preferredMarket,
+          tradingSymbol: preferredTradingSymbol,
           startTime,
           endTime,
           CoinKlineModel: CoinKline,
@@ -610,6 +615,7 @@ router.get('/:symbol/klines', async (req, res) => {
         interval,
         limit,
         market: preferredMarket,
+        tradingSymbol: preferredTradingSymbol,
         startTime,
         endTime,
         CoinKlineModel: CoinKline,

@@ -56,6 +56,15 @@ async function run() {
     notes: '默认映射',
   });
 
+  ['ESTATE'].forEach(symbol => {
+    assert.deepStrictEqual(getDefaultKlineMappingForSymbol(symbol), {
+      market: 'yahoo_finance',
+      trading_symbol: '^HSNP',
+      enabled: true,
+      notes: '默认映射',
+    });
+  });
+
   assert.deepStrictEqual(getDefaultKlineMappingForSymbol('VEGA'), {
     market: 'deribit_btc_dvol',
     trading_symbol: 'BTC-DVOL',

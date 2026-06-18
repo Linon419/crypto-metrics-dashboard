@@ -48,13 +48,11 @@ const YAHOO_SYMBOL_ALIASES = {
   CN_AI_ETF: '159819.SZ',
   CN_INDEX: '000300.SS',
   CN_ROBOT: '562500.SS',
-  ESTATE: 'VNQ',
+  ESTATE: '^HSNP',
   GOLD: 'GLD',
   NASDAO: '^IXIC',
   NASDAQ: '^IXIC',
   OIL: 'USO',
-  RE: 'VNQ',
-  REAL_ESTATE: 'VNQ',
   SILVER: 'SLV',
 };
 
@@ -439,16 +437,18 @@ async function findCoinKlineBackfillGaps({
         raw: true,
       })
       : null;
-    const effectiveMapping = CoinKlineMappingModel?.findOne
-      ? resolveEffectiveKlineMapping(coin, rawKlineMapping)
-      : null;
+    const effectiveMapping = resolveEffectiveKlineMapping(coin, rawKlineMapping);
     const market = getPreferredKlineMarket(coin.symbol, effectiveMapping);
+    const tradingSymbol = effectiveMapping?.trading_symbol || null;
     const klineWhere = {
       coin_id: coin.id,
       interval: normalizedInterval,
     };
     if (market) {
       klineWhere.market = market;
+    }
+    if (tradingSymbol) {
+      klineWhere.trading_symbol = tradingSymbol;
     }
 
     const rawEarliestKline = await CoinKlineModel.findOne({
@@ -1086,6 +1086,7 @@ async function findStoredCoinKlines({
   interval = DEFAULT_INTERVAL,
   limit = DEFAULT_LIMIT,
   market,
+  tradingSymbol,
   startTime,
   endTime,
   CoinKlineModel,
@@ -1101,6 +1102,9 @@ async function findStoredCoinKlines({
 
   if (market) {
     where.market = market;
+  }
+  if (tradingSymbol) {
+    where.trading_symbol = String(tradingSymbol).trim();
   }
 
   if (startTime || endTime) {

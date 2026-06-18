@@ -518,6 +518,7 @@ async function run() {
     coinId: 10,
     interval: '1h',
     market: DERIBIT_BTC_DVOL_MARKET,
+    tradingSymbol: DERIBIT_BTC_DVOL_SYMBOL,
     limit: 2,
     CoinKlineModel: {
       async findAll(options) {
@@ -527,6 +528,7 @@ async function run() {
     },
   });
   assert.strictEqual(storedWhere.market, DERIBIT_BTC_DVOL_MARKET);
+  assert.strictEqual(storedWhere.trading_symbol, DERIBIT_BTC_DVOL_SYMBOL);
 
   const fakeCoins = [
     { id: 21, symbol: 'BTC', name: 'Bitcoin' },
@@ -604,6 +606,7 @@ async function run() {
       market: YAHOO_FINANCE_MARKET,
     }],
   ]);
+  const klineFindOneWhereByCoinId = new Map();
 
   const backfillPlan = await findCoinKlineBackfillGaps({
     interval: '4h',
@@ -636,6 +639,7 @@ async function run() {
     },
     CoinKlineModel: {
       async findOne(options) {
+        klineFindOneWhereByCoinId.set(options.where.coin_id, options.where);
         return fakeEarliestKlineByCoinId.get(options.where.coin_id) || null;
       },
     },
@@ -651,17 +655,25 @@ async function run() {
     coinId: 21,
     coinSymbol: 'BTC',
     coinName: 'Bitcoin',
-    market: null,
+    market: 'binance_usdm_perpetual',
+    klineMapping: {
+      market: 'binance_usdm_perpetual',
+      trading_symbol: 'BTCUSDT',
+      enabled: true,
+      notes: '默认映射',
+    },
     interval: '4h',
     startTime: Date.UTC(2026, 0, 1),
     endTime: Date.UTC(2026, 4, 1) - 1,
     metricStartTime: Date.UTC(2026, 0, 1),
     earliestKlineTime: Date.UTC(2026, 4, 1),
   });
+  assert.strictEqual(klineFindOneWhereByCoinId.get(21).trading_symbol, 'BTCUSDT');
   assert.strictEqual(backfillPlan.items[1].coinSymbol, 'AXTI');
   assert.strictEqual(backfillPlan.items[1].market, YAHOO_FINANCE_MARKET);
   assert.strictEqual(backfillPlan.items[1].startTime, Date.UTC(2026, 0, 1, 8));
   assert.strictEqual(backfillPlan.items[1].endTime, Date.UTC(2026, 0, 2) - 1);
+  assert.strictEqual(klineFindOneWhereByCoinId.get(23).trading_symbol, 'AXTI');
   assert.strictEqual(backfillPlan.items[2].coinSymbol, 'NOKLINE');
   assert.strictEqual(backfillPlan.items[2].startTime, Date.UTC(2026, 0, 1));
   assert.strictEqual(backfillPlan.items[2].endTime, Date.UTC(2026, 0, 5, 4) - 1);
