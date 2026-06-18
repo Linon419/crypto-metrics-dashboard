@@ -103,6 +103,9 @@ test('renders BTC cycle chart with TradingView-style panels', async () => {
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('EMA10');
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('场外指数');
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('爆破指数');
+  expect(screen.queryByText('Price / BOLL / EMA10')).not.toBeInTheDocument();
+  expect(screen.getByText('场外指数 / 1000')).toBeInTheDocument();
+  expect(screen.getByText('爆破指数 / 200 / 0')).toBeInTheDocument();
   await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
   expect(createChart.mock.calls.map(([, options]) => options.rightPriceScale.minimumWidth)).toEqual([72, 72, 72]);
   await waitFor(() => expect(screen.getByText('场外900')).toBeInTheDocument());

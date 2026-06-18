@@ -27,6 +27,8 @@ jest.mock('./services/api', () => {
   });
 });
 
+jest.mock('./components/Dashboard', () => () => <div>Dashboard</div>);
+
 const App = require('./App').default;
 
 test('renders login page for unauthenticated users', async () => {

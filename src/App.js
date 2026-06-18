@@ -13,6 +13,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import UserManagement from './components/UserManagement';
 import AdminSettings from './components/AdminSettings';
+import { useAutoHideOnScroll } from './hooks/useAutoHideOnScroll';
 import { useSelector } from 'react-redux';
 import './styles/mobile.css';
 import './styles/design-system.css';
@@ -23,6 +24,8 @@ const { Header, Content, Footer } = Layout;
 const NavigationMenu = () => {
   const { isAuthenticated, user } = useSelector(state => state.auth);
   const location = useLocation();
+  const isDashboardRoute = location.pathname === '/' || location.pathname.startsWith('/dashboard');
+  const hideGlobalNav = useAutoHideOnScroll(isAuthenticated && isDashboardRoute);
   
   // 如果用户未登录，不显示导航栏
   if (!isAuthenticated) {
@@ -42,7 +45,7 @@ const NavigationMenu = () => {
     : '4';
   
   return (
-    <Header className="global-nav">
+    <Header className={`global-nav${hideGlobalNav ? ' is-hidden-on-scroll' : ''}`}>
       <Link to="/dashboard" className="global-nav__brand">
         <span className="global-nav__mark">CM</span>
         <span>Crypto Metrics</span>

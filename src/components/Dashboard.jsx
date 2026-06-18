@@ -41,6 +41,7 @@ import { logout } from '../redux/slices/authSlice';
 import ChangePassword from './ChangePassword';
 import UserProfile from './UserProfile';
 import { useFavorites } from '../hooks/useFavorites'; // Keep this
+import { useAutoHideOnScroll } from '../hooks/useAutoHideOnScroll';
 import { PERIOD_QUALITY_GUIDE, PERIOD_QUALITY_METHOD } from '../utils/periodQualityMeta';
 import { evaluateStrategySignal, hasStrategyDirection } from '../utils/strategySignals';
 import {
@@ -187,6 +188,7 @@ function Dashboard() {
   const activeDataRequestRef = useRef(0);
   const klineBackfillPollRef = useRef(null);
   const selectedCoinDetailRef = useRef(null);
+  const hideDashboardTopbar = useAutoHideOnScroll(true);
 
   // Authentication related
   const dispatch = useDispatch();
@@ -840,7 +842,7 @@ function Dashboard() {
 
   return (
     <Layout className="dashboard-shell">
-      <Header className="dashboard-topbar">
+      <Header className={`dashboard-topbar${hideDashboardTopbar ? ' is-hidden-on-scroll' : ''}`}>
         <div className="dashboard-brand">
           {isMobile && (
             <Button

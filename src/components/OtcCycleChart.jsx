@@ -1525,7 +1525,6 @@ function OtcCycleChart({
                     </div>
                   ))}
                 </div>
-                <div className="tv-cycle-chart__pane-label">Price / BOLL / EMA10</div>
               </div>
               <div className="tv-cycle-chart__plot tv-cycle-chart__plot--otc" ref={otcRootRef} style={{ height: indicatorChartHeight }}>
                 <div className="tv-cycle-chart__pane-label">场外指数 / 1000</div>
