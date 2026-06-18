@@ -795,29 +795,6 @@ export function buildReviewVisibleTimeRange(rows, visibleBars) {
   };
 }
 
-export function buildGoToVisibleTimeRange(rows, targetTime, visibleBars) {
-  if (!Array.isArray(rows) || rows.length === 0 || visibleBars <= 0) return null;
-
-  const target = Number(targetTime);
-  if (!Number.isFinite(target)) return null;
-
-  const nearestIndex = rows.reduce((bestIndex, row, index) => {
-    const bestDistance = Math.abs(rows[bestIndex].time - target);
-    const distance = Math.abs(row.time - target);
-    return distance < bestDistance ? index : bestIndex;
-  }, 0);
-  const windowSize = Math.min(rows.length, Math.max(1, visibleBars));
-  const halfWindow = Math.floor(windowSize / 2);
-  const maxStartIndex = Math.max(0, rows.length - windowSize);
-  const startIndex = Math.max(0, Math.min(maxStartIndex, nearestIndex - halfWindow));
-  const endIndex = Math.min(rows.length - 1, startIndex + windowSize - 1);
-
-  return {
-    from: rows[startIndex].time,
-    to: rows[endIndex].time,
-  };
-}
-
 export function buildSynchronizedVisibleTimeRange(rows, metricEvents = [], visibleBars) {
   return buildReviewVisibleTimeRange(rows, visibleBars);
 }
@@ -887,22 +864,35 @@ function syncTimeRange(targets, syncingRef) {
   };
 }
 
-function parseGoToKlineTimestamp(dateValue, timeValue = '00:00') {
-  if (!dateValue) return null;
-  const normalizedTime = timeValue || '00:00';
-  const timestamp = new Date(`${dateValue}T${normalizedTime}:00.000Z`).getTime();
+function parseDateBoundaryMs(value, boundary = 'start') {
+  if (!value) return null;
+  const normalizedValue = String(value);
+  const dateText = normalizedValue.includes('T')
+    ? normalizedValue
+    : `${normalizedValue}${boundary === 'end' ? 'T23:59:59.999Z' : 'T00:00:00.000Z'}`;
+  const timestamp = new Date(dateText).getTime();
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-function buildGoToFetchWindow(targetMs, interval, limit) {
-  const intervalMs = (INTERVAL_SECONDS[interval] || INTERVAL_SECONDS['1d']) * 1000;
-  const halfBars = Math.max(24, Math.floor((limit || 365) / 2));
-  const halfWindowMs = intervalMs * halfBars;
+export function calculateDateRangeKlineLimit({
+  interval,
+  startDate,
+  endDate,
+  fallbackLimit = 365,
+} = {}) {
+  const baseLimit = Math.min(
+    LEFT_EXPAND_LIMIT,
+    Math.max(1, Math.floor(Number(fallbackLimit)) || 365),
+  );
+  const startMs = parseDateBoundaryMs(startDate, 'start');
+  const endMs = parseDateBoundaryMs(endDate, 'end');
+  if (startMs === null || endMs === null || endMs <= startMs) {
+    return baseLimit;
+  }
 
-  return {
-    startTime: targetMs - halfWindowMs,
-    endTime: targetMs + halfWindowMs,
-  };
+  const intervalMs = (INTERVAL_SECONDS[interval] || INTERVAL_SECONDS['1d']) * 1000;
+  const estimatedBars = Math.ceil((endMs - startMs) / intervalMs) + 2;
+  return Math.min(LEFT_EXPAND_LIMIT, Math.max(baseLimit, estimatedBars));
 }
 
 function OtcCycleChart({
@@ -925,16 +915,12 @@ function OtcCycleChart({
   const [hoverValueLabels, setHoverValueLabels] = useState(null);
   const [hoverAxisLabel, setHoverAxisLabel] = useState(null);
   const [annotationLabels, setAnnotationLabels] = useState([]);
-  const [goToDate, setGoToDate] = useState('');
-  const [goToTime, setGoToTime] = useState('00:00');
-  const [jumpingToKline, setJumpingToKline] = useState(false);
   const priceRootRef = useRef(null);
   const otcRootRef = useRef(null);
   const explosionRootRef = useRef(null);
   const phaseLayerRef = useRef(null);
   const syncingRef = useRef(false);
   const chartsRef = useRef([]);
-  const pendingGoToTimeRef = useRef(null);
   const manualVisibleRangeRef = useRef(null);
 
   const selectedPeriod = CHART_PERIODS.find(period => period.value === interval) || CHART_PERIODS[0];
@@ -944,13 +930,20 @@ function OtcCycleChart({
     if (!silent) setLoading(true);
     if (!silent) {
       manualVisibleRangeRef.current = null;
-      pendingGoToTimeRef.current = null;
     }
     setError(null);
     try {
+      const klineLimit = useLatestKlineWindow
+        ? selectedPeriod.limit
+        : calculateDateRangeKlineLimit({
+          interval: selectedPeriod.value,
+          startDate,
+          endDate,
+          fallbackLimit: selectedPeriod.limit,
+        });
       const klineResult = await fetchCoinKlines(symbol, {
         interval: selectedPeriod.value,
-        limit: selectedPeriod.limit,
+        limit: klineLimit,
         refresh,
         startTime: !useLatestKlineWindow && startDate ? new Date(startDate).getTime() : undefined,
         endTime: !useLatestKlineWindow && endDate ? new Date(`${endDate}T23:59:59.999Z`).getTime() : undefined,
@@ -975,7 +968,6 @@ function OtcCycleChart({
 
   useEffect(() => {
     manualVisibleRangeRef.current = null;
-    pendingGoToTimeRef.current = null;
   }, [interval, symbol]);
 
   useEffect(() => {
@@ -1064,76 +1056,6 @@ function OtcCycleChart({
   const renderedAnnotationLabels = annotationLabels.length > 0
     ? annotationLabels
     : fallbackAnnotationLabels;
-
-  useEffect(() => {
-    if (!goToDate && klines.length > 0) {
-      setGoToDate(formatMetricDateKey(klines.at(-1)?.openTime));
-    }
-  }, [goToDate, klines]);
-
-  const applyGoToRange = useCallback((targetSeconds, rows = model.rows) => {
-    const range = buildGoToVisibleTimeRange(rows, targetSeconds, visibleBars);
-    if (!range) return false;
-
-    manualVisibleRangeRef.current = range;
-    chartsRef.current.forEach((chart) => {
-      chart.timeScale().setVisibleRange(range);
-    });
-    return chartsRef.current.length > 0;
-  }, [model.rows, visibleBars]);
-
-  const goToKline = useCallback(async () => {
-    const targetMs = parseGoToKlineTimestamp(goToDate, goToTime);
-    if (targetMs === null) {
-      setError('请选择有效的跳转日期和时间');
-      return;
-    }
-
-    const targetSeconds = Math.floor(targetMs / 1000);
-    const firstRow = model.rows[0];
-    const lastRow = model.rows.at(-1);
-
-    if (firstRow && lastRow && targetSeconds >= firstRow.time && targetSeconds <= lastRow.time) {
-      pendingGoToTimeRef.current = null;
-      applyGoToRange(targetSeconds);
-      return;
-    }
-
-    setJumpingToKline(true);
-    setError(null);
-    pendingGoToTimeRef.current = targetSeconds;
-
-    try {
-      const fetchWindow = buildGoToFetchWindow(targetMs, selectedPeriod.value, selectedPeriod.limit);
-      const klineResult = await fetchCoinKlines(symbol, {
-        interval: selectedPeriod.value,
-        limit: selectedPeriod.limit,
-        refresh: true,
-        ...fetchWindow,
-      });
-      const nextKlines = klineResult?.klines || [];
-      if (nextKlines.length === 0) {
-        pendingGoToTimeRef.current = null;
-        manualVisibleRangeRef.current = null;
-        setError('目标日期附近没有K线数据');
-        return;
-      }
-
-      const klineRange = getKlineDateRange(nextKlines);
-      const metricResult = await fetchCoinMetrics(symbol, {
-        startDate: klineRange?.startDate || goToDate,
-        endDate: klineRange?.endDate || goToDate,
-      });
-      setKlines(nextKlines);
-      setMetrics(Array.isArray(metricResult) ? metricResult : []);
-    } catch (err) {
-      pendingGoToTimeRef.current = null;
-      manualVisibleRangeRef.current = null;
-      setError(err.message || '跳转K线失败');
-    } finally {
-      setJumpingToKline(false);
-    }
-  }, [applyGoToRange, goToDate, goToTime, model.rows, selectedPeriod.limit, selectedPeriod.value, symbol]);
 
   useEffect(() => {
     if (!priceRootRef.current || !otcRootRef.current || !explosionRootRef.current || model.rows.length === 0) {
@@ -1277,18 +1199,11 @@ function OtcCycleChart({
 
     const charts = [priceChart, otcChart, explosionChart];
     chartsRef.current = charts;
-    const pendingRange = pendingGoToTimeRef.current !== null
-      ? buildGoToVisibleTimeRange(model.rows, pendingGoToTimeRef.current, visibleBars)
-      : null;
-    const initialRange = pendingRange || manualVisibleRangeRef.current;
+    const initialRange = manualVisibleRangeRef.current;
     if (initialRange) {
       charts.forEach((chart) => {
         chart.timeScale().setVisibleRange(initialRange);
       });
-      if (pendingRange) {
-        manualVisibleRangeRef.current = pendingRange;
-        pendingGoToTimeRef.current = null;
-      }
     } else {
       applyReviewRange(charts, model.rows, visibleBars, model.metricEvents);
     }
@@ -1563,36 +1478,6 @@ function OtcCycleChart({
                 ) : null}
               </div>
             </div>
-          </div>
-          <div className="tv-cycle-chart__go-to">
-            <span className="tv-cycle-chart__go-to-title">跳转到 K 线</span>
-            <label className="tv-cycle-chart__go-to-field">
-              <span>日期</span>
-              <input
-                aria-label="跳转日期"
-                type="date"
-                value={goToDate}
-                onChange={event => setGoToDate(event.target.value)}
-              />
-            </label>
-            <label className="tv-cycle-chart__go-to-field">
-              <span>时间</span>
-              <input
-                aria-label="跳转时间"
-                type="time"
-                value={goToTime}
-                onChange={event => setGoToTime(event.target.value)}
-              />
-            </label>
-            <Button
-              size="small"
-              type="primary"
-              loading={jumpingToKline}
-              disabled={loading || !goToDate}
-              onClick={goToKline}
-            >
-              跳转到K线
-            </Button>
           </div>
         </div>
       )}

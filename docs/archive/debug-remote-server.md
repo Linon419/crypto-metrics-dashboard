@@ -64,8 +64,8 @@ docker rm crypto-dashboard
 # 拉取最新镜像
 docker pull ghcr.io/linon419/crypto-metrics-dashboard:main
 
-# 使用更新的docker-compose.prod.yml重新启动
-docker-compose -f docker-compose.prod.yml up -d
+# 使用生产 Compose 示例重新启动
+docker-compose -f deploy/docker/docker-compose.prod.yml up -d
 ```
 
 ### 方案2: 手动更新代码

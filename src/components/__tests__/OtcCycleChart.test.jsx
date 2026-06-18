@@ -8,6 +8,7 @@ import OtcCycleChart, {
   buildReviewVisibleTimeRange,
   buildSynchronizedVisibleTimeRange,
   buildTradingViewCycleModel,
+  calculateDateRangeKlineLimit,
   findNearestMetricEventForTime,
   formatChartAxisTime,
 } from '../OtcCycleChart';
@@ -203,86 +204,6 @@ test('loads 1500 older candles to the left and merges them with current candles'
   await waitFor(() => expect(screen.getByText('最近 5 根')).toBeInTheDocument());
 });
 
-test('jumps all synchronized kline panes to a selected date and time', async () => {
-  const manyKlines = Array.from({ length: 150 }, (_, index) => {
-    const openTime = new Date(Date.UTC(2026, 0, 1, index));
-    return {
-      openTime: openTime.toISOString(),
-      closeTime: new Date(openTime.getTime() + 60 * 60 * 1000 - 1).toISOString(),
-      open: 100 + index,
-      high: 102 + index,
-      low: 98 + index,
-      close: 101 + index,
-      volume: 10 + index,
-    };
-  });
-  fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines: manyKlines });
-  fetchCoinMetrics.mockResolvedValue(metrics);
-
-  render(<OtcCycleChart symbol="BTC" />);
-
-  await screen.findByText('量化 K 线');
-  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
-
-  fireEvent.change(screen.getByLabelText('跳转日期'), { target: { value: '2026-01-02' } });
-  fireEvent.change(screen.getByLabelText('跳转时间'), { target: { value: '04:00' } });
-  fireEvent.click(screen.getByRole('button', { name: '跳转到K线' }));
-
-  const expectedRange = {
-    from: Math.floor(new Date('2026-01-01T00:00:00.000Z').getTime() / 1000),
-    to: Math.floor(new Date('2026-01-05T23:00:00.000Z').getTime() / 1000),
-  };
-  mockChartInstances.forEach((chart) => {
-    expect(chart.timeScale().setVisibleRange).toHaveBeenLastCalledWith(expectedRange);
-  });
-});
-
-test('loads a target kline window before jumping when the selected date is outside current rows', async () => {
-  const targetKlines = Array.from({ length: 150 }, (_, index) => {
-    const openTime = new Date(Date.UTC(2025, 0, 1, index));
-    return {
-      openTime: openTime.toISOString(),
-      closeTime: new Date(openTime.getTime() + 60 * 60 * 1000 - 1).toISOString(),
-      open: 200 + index,
-      high: 202 + index,
-      low: 198 + index,
-      close: 201 + index,
-      volume: 20 + index,
-    };
-  });
-  fetchCoinKlines
-    .mockResolvedValueOnce({ symbol: 'BTC', interval: '4h', klines })
-    .mockResolvedValueOnce({ symbol: 'BTC', interval: '4h', klines: targetKlines });
-  fetchCoinMetrics.mockResolvedValue(metrics);
-
-  render(<OtcCycleChart symbol="BTC" />);
-
-  await screen.findByText('量化 K 线');
-  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
-
-  fireEvent.change(screen.getByLabelText('跳转日期'), { target: { value: '2025-01-02' } });
-  fireEvent.change(screen.getByLabelText('跳转时间'), { target: { value: '04:00' } });
-  fireEvent.click(screen.getByRole('button', { name: '跳转到K线' }));
-
-  await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledTimes(2));
-  expect(fetchCoinKlines).toHaveBeenLastCalledWith('BTC', expect.objectContaining({
-    interval: '4h',
-    limit: 500,
-    refresh: true,
-    startTime: expect.any(Number),
-    endTime: expect.any(Number),
-  }));
-  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(6));
-
-  const expectedRange = {
-    from: Math.floor(new Date('2025-01-01T00:00:00.000Z').getTime() / 1000),
-    to: Math.floor(new Date('2025-01-05T23:00:00.000Z').getTime() / 1000),
-  };
-  mockChartInstances.slice(-3).forEach((chart) => {
-    expect(chart.timeScale().setVisibleRange).toHaveBeenLastCalledWith(expectedRange);
-  });
-});
-
 test('updates the latest candle only when the live kline closes', async () => {
   let handleLiveKline;
   fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
@@ -371,6 +292,41 @@ test('can load latest kline window while keeping metric date range', async () =>
     endDate: '2026-06-06',
   });
   await waitFor(() => expect(screen.getByText('最近 3 根')).toBeInTheDocument());
+});
+
+test('expands date-range kline limit so backfilled history can be shown', async () => {
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+
+  await act(async () => {
+    render(
+      <OtcCycleChart
+        symbol="BTC"
+        startDate="2026-01-01"
+        endDate="2026-06-18"
+      />
+    );
+  });
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledWith('BTC', expect.objectContaining({
+    interval: '4h',
+    limit: expect.any(Number),
+    startTime: new Date('2026-01-01').getTime(),
+    endTime: new Date('2026-06-18T23:59:59.999Z').getTime(),
+  })));
+  const [, request] = fetchCoinKlines.mock.calls[0];
+  expect(request.limit).toBeGreaterThan(500);
+  expect(request.limit).toBeLessThanOrEqual(1500);
+});
+
+test('caps calculated date-range kline limit at the single request ceiling', () => {
+  expect(calculateDateRangeKlineLimit({
+    interval: '15m',
+    startDate: '2026-01-01',
+    endDate: '2026-06-18',
+    fallbackLimit: 500,
+  })).toBe(1500);
 });
 
 test('polls Yahoo Finance sources every 15 minutes without opening a kline stream', async () => {

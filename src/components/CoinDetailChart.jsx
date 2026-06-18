@@ -5,7 +5,7 @@ import {
   Tooltip, Area, ResponsiveContainer,
   ReferenceArea, ReferenceLine, Legend, ComposedChart, Bar, Cell
 } from 'recharts';
-import { Card, Button, Typography, Row, Col, Statistic, Spin, Select, Alert, Empty, Radio, Tag, Tooltip as AntTooltip, DatePicker } from 'antd';
+import { Card, Button, Typography, Row, Col, Statistic, Spin, Alert, Empty, Radio, Tag, Tooltip as AntTooltip, DatePicker } from 'antd';
 import {
   ZoomInOutlined,
   ZoomOutOutlined,
@@ -27,8 +27,15 @@ import {
 } from '../utils/timeDisplay';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
 const { RangePicker } = DatePicker;
+const TIME_RANGE_OPTIONS = [
+  { label: '1W', value: '1W' },
+  { label: '1M', value: '1M' },
+  { label: '3M', value: '3M' },
+  { label: '6M', value: '6M' },
+  { label: '1Y', value: '1Y' },
+  { label: 'ALL', value: 'ALL' },
+];
 const chartSyncId = 'coin-detail-date-sync';
 const liquiditySeriesMeta = {
   BTC: { key: 'btc', label: 'Bitcoin' },
@@ -706,21 +713,18 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
                 </div>
               </div>
               
-              <Select 
+              <Radio.Group
                 value={timeRange}
-                style={{ width: 120 }} 
-                onChange={value => {
-                  setTimeRange(value);
+                size="small"
+                optionType="button"
+                buttonStyle="solid"
+                options={TIME_RANGE_OPTIONS}
+                onChange={event => {
+                  setTimeRange(event.target.value);
                   setCustomDateRange(null);
                 }}
-              >
-                <Option value="1W">1周</Option>
-                <Option value="1M">1个月</Option>
-                <Option value="3M">3个月</Option>
-                <Option value="6M">6个月</Option>
-                <Option value="1Y">1年</Option>
-                <Option value="ALL">全部</Option>
-              </Select>
+                style={{ marginRight: isMobile ? 0 : 12, marginBottom: isMobile ? 8 : 0 }}
+              />
 
               <RangePicker
                 value={customDateRange}
@@ -729,7 +733,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
                 placeholder={['起始日期', '截止日期']}
                 allowClear
                 disabled={loading}
-                style={{ width: isMobile ? '100%' : 260, marginLeft: isMobile ? 0 : 12, marginTop: isMobile ? 8 : 0 }}
+                style={{ width: isMobile ? '100%' : 260, marginTop: isMobile ? 8 : 0 }}
               />
             </div>
           </div>
@@ -821,7 +825,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
               symbol={coin?.symbol}
               startDate={effectiveStartDateStr}
               endDate={effectiveEndDateStr}
-              useLatestKlineWindow={useLatestKlineWindow && !customDateRange}
+              useLatestKlineWindow={useLatestKlineWindow && !customDateRange && timeRange === '1M'}
               embedded
               height={isMobile ? 560 : 780}
             />

@@ -1,171 +1,63 @@
-# Getting Started with Create React App
+# Crypto Metrics Dashboard
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+加密指标看板，用于管理场外指数、爆破指数、K 线映射、期权策略和后台管理功能。前端基于 React，后端基于 Express + SQLite，生产部署使用 Docker 镜像。
 
-## Available Scripts
+## 快速启动
 
-In the project directory, you can run:
-
-### `npm start`
-
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
-
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
-
-### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
-
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
-
+```bash
+npm install
+npm run dev
 ```
-crypto-metrics-dashboard
-├─ .dockerignore
-├─ Dockerfile
-├─ README.md
-├─ database.sqlite
-├─ docker-compose.yml
-├─ docs
-│  ├─ archive
-│  │  ├─ ISO_FORMAT_IMPLEMENTATION.md
-│  │  ├─ MOMENTUM_INDICATORS_DESIGN.md
-│  │  ├─ TIME_PRECISION_IMPLEMENTATION.md
-│  │  └─ YEAR_SUPPORT_SUMMARY.md
-│  └─ plans
-│     └─ 2026-01-14-mcp-gateway-design.md
-├─ package-lock.json
-├─ package.json
-├─ postcss.config.js
-├─ public
-│  ├─ favicon.ico
-│  ├─ index.html
-│  ├─ logo192.png
-│  ├─ logo512.png
-│  ├─ manifest.json
-│  └─ robots.txt
-├─ seeders
-│  └─ 20250510032835-demo-coins.js
-├─ server
-│  ├─ config
-│  │  └─ config.json
-│  ├─ index.js
-│  ├─ middleware
-│  │  └─ auth.js
-│  ├─ migrations
-│  │  ├─ 20250509053304-create-coin.js
-│  │  ├─ 20250509053343-create-daily-metric.js
-│  │  ├─ 20250509053343-create-liquidity-overview.js
-│  │  ├─ 20250509053344-create-trending-coin.js
-│  │  └─ 20250510063333-create-user.js
-│  ├─ models
-│  │  ├─ coin.js
-│  │  ├─ dailymetric.js
-│  │  ├─ index.js
-│  │  ├─ liquidityoverview.js
-│  │  ├─ trendingcoin.js
-│  │  └─ user.js
-│  ├─ package.json
-│  ├─ routes
-│  │  ├─ auth.js
-│  │  ├─ coins.js
-│  │  ├─ dashboard.js
-│  │  ├─ data.js
-│  │  ├─ debug.js
-│  │  ├─ liquidity.js
-│  │  └─ metrics.js
-│  ├─ scripts
-│  │  ├─ createAdmin.js
-│  │  └─ fixDatabase.js
-│  ├─ seeders
-│  └─ services
-│     └─ openaiService.js
-├─ src
-│  ├─ App.js
-│  ├─ App.test.js
-│  ├─ components
-│  │  ├─ AdminRoute.jsx
-│  │  ├─ ChangePassword.jsx
-│  │  ├─ CoinCard.jsx
-│  │  ├─ CoinDetailChart.jsx
-│  │  ├─ CoinList.jsx
-│  │  ├─ Dashboard.jsx
-│  │  ├─ DataInputForm.jsx
-│  │  ├─ FavoriteDebug.jsx
-│  │  ├─ LoadingPlaceholder.jsx
-│  │  ├─ LiquidityChart.jsx
-│  │  ├─ Login.jsx
-│  │  ├─ OtcIndexTable.jsx
-│  │  ├─ ProtectedRoute.jsx
-│  │  ├─ Register.jsx
-│  │  ├─ SearchBar.jsx
-│  │  ├─ UserManagement.jsx
-│  │  └─ UserProfile.jsx
-│  ├─ hooks
-│  │  └─ useFavorites.js
-│  ├─ index.css
-│  ├─ index.js
-│  ├─ redux
-│  │  ├─ slices
-│  │  │  ├─ authSlice.js
-│  │  │  ├─ coinsSlice.js
-│  │  │  ├─ liquiditySlice.js
-│  │  │  └─ metricsSlice.js
-│  │  └─ store.js
-│  ├─ reportWebVitals.js
-│  ├─ services
-│  │  └─ api.js
-│  ├─ setupTests.js
-│  └─ styles
-│     └─ mobile.css
-└─ tailwind.config.js
+
+常用命令：
+
+```bash
+npm start      # 前端开发服务
+npm run server # 后端 API
+npm run build  # 前端生产构建
+npm test       # 测试
+```
+
+## 目录结构
+
+```text
+.
+├── Dockerfile
+├── docker-compose.yml
+├── package.json
+├── package-lock.json
+├── public/
+├── src/                 # React 前端
+├── server/              # Express API、数据库模型、路由
+├── telegram-bot/        # Telegram 机器人
+├── scripts/             # 构建和数据脚本
+├── deploy/
+│   ├── docker/          # Docker Compose 示例和环境变量模板
+│   └── mcp/             # MCP Gateway 配置
+└── docs/
+    ├── deployment/      # 部署、OpenAI、服务说明
+    ├── plans/           # 功能方案
+    └── archive/         # 历史排障和旧文档
+```
+
+## 部署相关
+
+- 主 Docker Compose 文件保留在根目录：`docker-compose.yml`
+- 生产/备用 Compose 示例位于 `deploy/docker/`
+- 环境变量模板位于 `deploy/docker/.env.example`
+- 服务和 OpenAI 配置说明位于 `docs/deployment/`
+- MCP 配置位于 `deploy/mcp/`
+
+生产环境需要配置：
+
+```text
+JWT_SECRET
+DB_STORAGE
+OPENAI_API_KEY
+API_PUBLIC_HOST
+MCP_GATEWAY_TOKEN
+```
+
+## 数据文件
+
+SQLite 数据库和本地日志属于运行产物，已经由 `.gitignore` 忽略。生产环境数据库通过 Docker volume 持久化。
