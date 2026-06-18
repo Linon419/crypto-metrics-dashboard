@@ -39,8 +39,6 @@ const YAHOO_FINANCE_KLINE_SYMBOLS = new Set([
   'AMZN',
   'AXTI',
   'BABA',
-  'BRENT',
-  'BRENT_OIL',
   'CIRCLE',
   'CN_AI_ETF',
   'CN_INDEX',

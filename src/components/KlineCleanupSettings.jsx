@@ -58,9 +58,18 @@ function KlineCleanupSettings() {
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   const previewCount = preview?.count || 0;
   const canDelete = previewCount > 0;
+  const pendingDeleteFilterText = pendingDelete
+    ? [
+      pendingDelete.payload.coinSymbol || '-',
+      pendingDelete.payload.market || '-',
+      pendingDelete.payload.tradingSymbol || '-',
+      pendingDelete.payload.interval || '全部周期',
+    ].join(' / ')
+    : '';
 
   const initialValues = useMemo(() => ({
     coinSymbol: 'GOLD',
@@ -91,37 +100,30 @@ function KlineCleanupSettings() {
     const values = await form.validateFields();
     const payload = buildCleanupPayload(values);
 
-    Modal.confirm({
-      title: '确认删除K线',
-      content: (
-        <Space direction="vertical" size="small">
-          <Text>将删除当前过滤条件命中的 {previewCount} 根K线。</Text>
-          <Text type="secondary">
-            {payload.coinSymbol || '-'} / {payload.market || '-'} / {payload.tradingSymbol || '-'} / {payload.interval || '全部周期'}
-          </Text>
-        </Space>
-      ),
-      okText: '确认删除',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        setDeleting(true);
-        try {
-          const result = await deleteKlinesByCleanupFilters(payload);
-          message.success(`已删除 ${result.deleted || 0} 根K线`);
-          setPreview({
-            ...result,
-            count: 0,
-          });
-        } catch (error) {
-          message.error(`删除失败：${error.displayMessage || error.message}`);
-          throw error;
-        } finally {
-          setDeleting(false);
-        }
-      },
+    setPendingDelete({
+      payload,
+      count: previewCount,
     });
   }, [canDelete, form, previewCount]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+
+    setDeleting(true);
+    try {
+      const result = await deleteKlinesByCleanupFilters(pendingDelete.payload);
+      message.success(`已删除 ${result.deleted || 0} 根K线`);
+      setPreview({
+        ...result,
+        count: 0,
+      });
+      setPendingDelete(null);
+    } catch (error) {
+      message.error(`删除失败：${error.displayMessage || error.message}`);
+    } finally {
+      setDeleting(false);
+    }
+  }, [pendingDelete]);
 
   return (
     <Card>
@@ -212,6 +214,23 @@ function KlineCleanupSettings() {
           />
         )}
       </Space>
+
+      <Modal
+        title="确认删除K线"
+        open={Boolean(pendingDelete)}
+        okText="确认删除"
+        cancelText="取消"
+        okButtonProps={{ danger: true, loading: deleting }}
+        onOk={handleConfirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      >
+        <Space direction="vertical" size="small">
+          <Text>将删除当前过滤条件命中的 {pendingDelete?.count || 0} 根K线。</Text>
+          <Text type="secondary">
+            {pendingDeleteFilterText}
+          </Text>
+        </Space>
+      </Modal>
     </Card>
   );
 }

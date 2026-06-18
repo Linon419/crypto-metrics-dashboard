@@ -10,8 +10,6 @@ const DERIBIT_BTC_DVOL_SYMBOL = 'BTC-DVOL';
 const YAHOO_SYMBOL_ALIASES = Object.freeze({
   A_SHARES: 'ASHR',
   A_SHARES_INDEX: 'ASHR',
-  BRENT: 'BZ=F',
-  BRENT_OIL: 'BZ=F',
   CIRCLE: 'CRCL',
   CN_AI_ETF: '159819.SZ',
   CN_INDEX: '000300.SS',
@@ -20,7 +18,7 @@ const YAHOO_SYMBOL_ALIASES = Object.freeze({
   GOLD: 'XAU',
   NASDAO: '^IXIC',
   NASDAQ: '^IXIC',
-  OIL: 'USO',
+  OIL: 'BZ=F',
   SILVER: 'SLV',
 });
 
@@ -45,6 +43,10 @@ const YAHOO_FINANCE_COIN_SYMBOLS = new Set([
 
 const DERIBIT_BTC_DVOL_COIN_SYMBOLS = new Set(['VEGA']);
 const VALID_MARKETS = new Set(Object.values(KLINE_MARKETS));
+const LEGACY_YAHOO_DEFAULTS = Object.freeze({
+  GOLD: 'GLD',
+  OIL: 'USO',
+});
 
 function normalizeCoinSymbol(symbol) {
   return String(symbol || '').trim().toUpperCase();
@@ -140,12 +142,13 @@ function toPlainMapping(mapping) {
 
 function isLegacyDefaultKlineMapping(coin, mapping, currentDefault) {
   const coinSymbol = normalizeCoinSymbol(coin?.symbol ?? mapping?.coin_symbol);
+  const legacyTradingSymbol = LEGACY_YAHOO_DEFAULTS[coinSymbol];
   return Boolean(
-    coinSymbol === 'GOLD'
+    legacyTradingSymbol
     && mapping?.market === KLINE_MARKETS.YAHOO_FINANCE
-    && String(mapping?.trading_symbol || '').trim().toUpperCase() === 'GLD'
+    && String(mapping?.trading_symbol || '').trim().toUpperCase() === legacyTradingSymbol
     && currentDefault?.market === KLINE_MARKETS.YAHOO_FINANCE
-    && currentDefault?.trading_symbol === 'XAU'
+    && currentDefault?.trading_symbol !== legacyTradingSymbol
     && (!mapping?.notes || mapping.notes === '默认映射')
   );
 }

@@ -41,7 +41,7 @@ const latestData = [
   { symbol: 'GOOG', otc_index: 1260, explosion_index: 283, entry_exit_type: 'entry', entry_exit_day: 49 },
   { symbol: 'GOLD', otc_index: 987, explosion_index: 87, entry_exit_type: 'entry', entry_exit_day: 11 },
   { symbol: '地产', otc_index: 1457, explosion_index: 254, entry_exit_type: 'entry', entry_exit_day: 30 }, // 第一月 = 30天
-  { symbol: 'BRENT_OIL', otc_index: 866, explosion_index: 9, entry_exit_type: 'exit', entry_exit_day: 11 }
+  { symbol: 'OIL', otc_index: 866, explosion_index: 9, entry_exit_type: 'exit', entry_exit_day: 11 }
 ];
 
 async function addLatestData() {
@@ -117,7 +117,7 @@ async function addLatestData() {
       FROM DailyMetrics dm
       JOIN Coins c ON dm.coin_id = c.id
       WHERE dm.date = '${targetDate}'
-      AND c.symbol IN ('HOOD', 'COIN', 'CIRCLE', 'TSLA', 'NVDA', 'AAPL', 'GOOG', 'GOLD', '地产', 'BRENT_OIL')
+      AND c.symbol IN ('HOOD', 'COIN', 'CIRCLE', 'TSLA', 'NVDA', 'AAPL', 'GOOG', 'GOLD', '地产', 'OIL')
       ORDER BY c.symbol
     `, { type: Sequelize.QueryTypes.SELECT });
 

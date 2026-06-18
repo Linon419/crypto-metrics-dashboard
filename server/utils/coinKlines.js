@@ -43,8 +43,6 @@ const SUPPORTED_INTERVALS = new Set([
 const YAHOO_SYMBOL_ALIASES = {
   A_SHARES: 'ASHR',
   A_SHARES_INDEX: 'ASHR',
-  BRENT: 'BZ=F',
-  BRENT_OIL: 'BZ=F',
   CIRCLE: 'CRCL',
   CN_AI_ETF: '159819.SZ',
   CN_INDEX: '000300.SS',
@@ -53,7 +51,7 @@ const YAHOO_SYMBOL_ALIASES = {
   GOLD: 'XAU',
   NASDAO: '^IXIC',
   NASDAQ: '^IXIC',
-  OIL: 'USO',
+  OIL: 'BZ=F',
   SILVER: 'SLV',
 };
 

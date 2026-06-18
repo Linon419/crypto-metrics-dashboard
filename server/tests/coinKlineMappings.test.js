@@ -64,6 +64,13 @@ async function run() {
     notes: '默认映射',
   });
 
+  assert.deepStrictEqual(getDefaultKlineMappingForSymbol('OIL'), {
+    market: 'yahoo_finance',
+    trading_symbol: 'BZ=F',
+    enabled: true,
+    notes: '默认映射',
+  });
+
   const legacyGoldDefault = {
     market: 'yahoo_finance',
     trading_symbol: 'GLD',
@@ -85,6 +92,31 @@ async function run() {
   ), {
     market: 'yahoo_finance',
     trading_symbol: 'XAU',
+    enabled: true,
+    notes: '默认映射',
+  });
+
+  const legacyOilDefault = {
+    market: 'yahoo_finance',
+    trading_symbol: 'USO',
+    enabled: true,
+    notes: '默认映射',
+  };
+  assert.deepStrictEqual(resolveEffectiveKlineMapping(
+    { symbol: 'OIL' },
+    legacyOilDefault
+  ), {
+    market: 'yahoo_finance',
+    trading_symbol: 'BZ=F',
+    enabled: true,
+    notes: '默认映射',
+  });
+  assert.deepStrictEqual(resolveDisplayedKlineMapping(
+    { symbol: 'OIL' },
+    legacyOilDefault
+  ), {
+    market: 'yahoo_finance',
+    trading_symbol: 'BZ=F',
     enabled: true,
     notes: '默认映射',
   });

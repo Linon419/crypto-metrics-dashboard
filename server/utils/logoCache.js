@@ -31,8 +31,6 @@ const BRAND_LOGO_TYPES = {
 };
 
 const COMMODITY_LOGO_TYPES = {
-  BRENT: 'oil',
-  BRENT_OIL: 'oil',
   COPP: 'copper',
   COPPER: 'copper',
   GOLD: 'gold',
