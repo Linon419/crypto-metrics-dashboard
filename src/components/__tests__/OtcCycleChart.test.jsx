@@ -193,9 +193,9 @@ test('loads 1500 older candles to the left and merges them with current candles'
   expect(fetchCoinKlines).toHaveBeenLastCalledWith('BTC', expect.objectContaining({
     interval: '4h',
     limit: 1500,
-    refresh: true,
     endTime: new Date('2026-01-01T00:00:00.000Z').getTime() - 1,
   }));
+  expect(fetchCoinKlines.mock.calls[1][1]).not.toHaveProperty('refresh');
   await waitFor(() => expect(fetchCoinMetrics).toHaveBeenCalledTimes(2));
   expect(fetchCoinMetrics).toHaveBeenLastCalledWith('BTC', {
     startDate: '2025-12-30',
@@ -348,9 +348,9 @@ test('automatically loads older candles when the visible range reaches the left 
   expect(fetchCoinKlines).toHaveBeenLastCalledWith('BTC', expect.objectContaining({
     interval: '4h',
     limit: 1500,
-    refresh: true,
     endTime: new Date('2026-01-01T00:00:00.000Z').getTime() - 1,
   }));
+  expect(fetchCoinKlines.mock.calls[1][1]).not.toHaveProperty('refresh');
 });
 
 test('caps calculated date-range kline limit at the single request ceiling', () => {

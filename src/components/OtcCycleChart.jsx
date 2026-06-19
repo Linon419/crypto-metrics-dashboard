@@ -1075,7 +1075,6 @@ function OtcCycleChart({
       const request = {
         interval: selectedPeriod.value,
         limit: LEFT_EXPAND_LIMIT,
-        refresh: true,
         endTime: earliestOpenTime - 1,
       };
       if (isYahooFinanceSource) {
