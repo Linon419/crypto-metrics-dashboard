@@ -554,7 +554,9 @@ router.get('/:symbol/klines', async (req, res) => {
       startTime,
       endTime,
       refresh,
+      includePrePost: includePrePostQuery,
     } = req.query;
+    const includePrePost = includePrePostQuery === '1' || includePrePostQuery === 'true';
 
     const coin = await Coin.findOne({
       where: { symbol: symbol.toUpperCase() }
@@ -584,8 +586,10 @@ router.get('/:symbol/klines', async (req, res) => {
       limit,
       market: preferredMarket,
       tradingSymbol: preferredTradingSymbol,
+      coinSymbol: coin.symbol,
       startTime,
       endTime,
+      includePrePost,
       CoinKlineModel: CoinKline,
     });
 
@@ -606,6 +610,7 @@ router.get('/:symbol/klines', async (req, res) => {
         minSyncIntervalMs: YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
         CoinKlineModel: CoinKline,
         klineMapping,
+        includePrePost,
       });
 
       if (!syncResult?.skipped) {
@@ -615,8 +620,10 @@ router.get('/:symbol/klines', async (req, res) => {
           limit,
           market: preferredMarket,
           tradingSymbol: preferredTradingSymbol,
+          coinSymbol: coin.symbol,
           startTime,
           endTime,
+          includePrePost,
           CoinKlineModel: CoinKline,
         });
       }
@@ -632,6 +639,7 @@ router.get('/:symbol/klines', async (req, res) => {
         force: true,
         CoinKlineModel: CoinKline,
         klineMapping,
+        includePrePost,
       });
       rows = await findStoredCoinKlines({
         coinId: coin.id,
@@ -639,8 +647,10 @@ router.get('/:symbol/klines', async (req, res) => {
         limit,
         market: preferredMarket,
         tradingSymbol: preferredTradingSymbol,
+        coinSymbol: coin.symbol,
         startTime,
         endTime,
+        includePrePost,
         CoinKlineModel: CoinKline,
       });
     }

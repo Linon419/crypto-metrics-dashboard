@@ -943,6 +943,10 @@ function OtcCycleChart({
   const [expandingLeft, setExpandingLeft] = useState(false);
   const [error, setError] = useState(null);
   const [showMetricEvents, setShowMetricEvents] = useState(true);
+  const [includePrePostState, setIncludePrePostState] = useState({
+    symbol: normalizedSymbol,
+    value: false,
+  });
   const [hoveredMetricEvent, setHoveredMetricEvent] = useState(null);
   const [hoverValueLabels, setHoverValueLabels] = useState(null);
   const [hoverAxisLabel, setHoverAxisLabel] = useState(null);
@@ -960,6 +964,15 @@ function OtcCycleChart({
 
   const selectedPeriod = CHART_PERIODS.find(period => period.value === interval) || CHART_PERIODS[0];
   const isYahooFinanceSource = shouldUseYahooFinanceKlines(normalizedSymbol);
+  const includePrePost = includePrePostState.symbol === normalizedSymbol
+    ? includePrePostState.value
+    : false;
+  const handleIncludePrePostChange = useCallback((checked) => {
+    setIncludePrePostState({
+      symbol: normalizedSymbol,
+      value: checked,
+    });
+  }, [normalizedSymbol]);
   const updateHasMoreLeft = useCallback((value) => {
     hasMoreLeftRef.current = value;
     setHasMoreLeft(value);
@@ -993,6 +1006,12 @@ function OtcCycleChart({
         limit: klineLimit,
         refresh,
       };
+      if (isYahooFinanceSource) {
+        klineRequest.includePrePost = includePrePost;
+        if (includePrePost) {
+          klineRequest.refresh = true;
+        }
+      }
       if (!useLatestKlineWindow && !shouldPageDateRange && startDate) {
         klineRequest.startTime = new Date(startDate).getTime();
       }
@@ -1012,7 +1031,7 @@ function OtcCycleChart({
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [endDate, selectedPeriod.limit, selectedPeriod.value, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
+  }, [endDate, includePrePost, isYahooFinanceSource, selectedPeriod.limit, selectedPeriod.value, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
 
   useEffect(() => {
     loadChartData();
@@ -1022,7 +1041,7 @@ function OtcCycleChart({
     manualVisibleRangeRef.current = null;
     loadingOlderRef.current = false;
     updateHasMoreLeft(true);
-  }, [interval, startDate, symbol, updateHasMoreLeft]);
+  }, [includePrePost, interval, startDate, symbol, updateHasMoreLeft]);
 
   useEffect(() => {
     if (!isYahooFinanceSource) return () => {};
@@ -1053,12 +1072,16 @@ function OtcCycleChart({
     setExpandingLeft(true);
     setError(null);
     try {
-      const result = await fetchCoinKlines(symbol, {
+      const request = {
         interval: selectedPeriod.value,
         limit: LEFT_EXPAND_LIMIT,
         refresh: true,
         endTime: earliestOpenTime - 1,
-      });
+      };
+      if (isYahooFinanceSource) {
+        request.includePrePost = includePrePost;
+      }
+      const result = await fetchCoinKlines(symbol, request);
       const incomingKlines = (result?.klines || []).filter((kline) => {
         if (lowerBoundary === null) return true;
         const openTime = new Date(kline.openTime).getTime();
@@ -1099,7 +1122,7 @@ function OtcCycleChart({
       loadingOlderRef.current = false;
       setExpandingLeft(false);
     }
-  }, [endDate, expandingLeft, klines, selectedPeriod.value, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
+  }, [endDate, expandingLeft, includePrePost, isYahooFinanceSource, klines, selectedPeriod.value, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
 
   useEffect(() => {
     if (normalizedSymbol === 'VEGA' || isYahooFinanceSource) return () => {};
@@ -1485,6 +1508,17 @@ function OtcCycleChart({
             unCheckedChildren="指标点"
             aria-label="指标时间点"
           />
+          {isYahooFinanceSource && (
+            <Switch
+              className="otc-cycle-chart-panel__time-switch"
+              size="small"
+              checked={includePrePost}
+              onChange={handleIncludePrePostChange}
+              checkedChildren="盘前盘后"
+              unCheckedChildren="盘前盘后"
+              aria-label="盘前盘后"
+            />
+          )}
           <Button
             size="small"
             loading={expandingLeft}

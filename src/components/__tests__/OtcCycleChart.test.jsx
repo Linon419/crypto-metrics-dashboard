@@ -381,6 +381,10 @@ test('polls Yahoo Finance sources every 15 minutes without opening a kline strea
 
     await screen.findByText('量化 K 线');
     await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledTimes(1));
+    expect(fetchCoinKlines).toHaveBeenCalledWith('AXTI', expect.objectContaining({
+      interval: '4h',
+      includePrePost: false,
+    }));
     expect(subscribeCoinKlineStream).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -393,11 +397,37 @@ test('polls Yahoo Finance sources every 15 minutes without opening a kline strea
     expect(fetchCoinKlines).toHaveBeenLastCalledWith('AXTI', expect.objectContaining({
       interval: '4h',
       refresh: true,
+      includePrePost: false,
     }));
     expect(subscribeCoinKlineStream).not.toHaveBeenCalled();
   } finally {
     jest.useRealTimers();
   }
+});
+
+test('lets Yahoo Finance sources opt into pre and post market klines', async () => {
+  fetchCoinKlines.mockResolvedValue({
+    symbol: 'AXTI',
+    interval: '4h',
+    market: 'yahoo_finance',
+    klines,
+  });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+
+  render(<OtcCycleChart symbol="AXTI" />);
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledWith('AXTI', expect.objectContaining({
+    includePrePost: false,
+  })));
+
+  fireEvent.click(screen.getByLabelText('盘前盘后'));
+
+  await waitFor(() => expect(fetchCoinKlines).toHaveBeenLastCalledWith('AXTI', expect.objectContaining({
+    interval: '4h',
+    includePrePost: true,
+    refresh: true,
+  })));
 });
 
 test('builds TradingView model with signal markers and quant panels', () => {

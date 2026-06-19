@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { Op } = require('sequelize');
 
 const {
   DERIBIT_BTC_DVOL_MARKET,
@@ -133,6 +134,55 @@ async function run() {
     },
   });
   assert.strictEqual(latestWindowQueryOptions[0].limit, 1500);
+
+  const yahooRegularSessionQueryOptions = [];
+  await findStoredCoinKlines({
+    coinId: 1,
+    interval: '4h',
+    market: YAHOO_FINANCE_MARKET,
+    tradingSymbol: 'AMZN',
+    limit: 1500,
+    CoinKlineModel: {
+      async findAll(options) {
+        yahooRegularSessionQueryOptions.push(options);
+        return [];
+      },
+    },
+  });
+  assert.strictEqual(yahooRegularSessionQueryOptions[0].where.volume[Op.gt], 0);
+
+  const yahooIndexSessionQueryOptions = [];
+  await findStoredCoinKlines({
+    coinId: 1,
+    interval: '4h',
+    market: YAHOO_FINANCE_MARKET,
+    tradingSymbol: '^HSNP',
+    limit: 1500,
+    CoinKlineModel: {
+      async findAll(options) {
+        yahooIndexSessionQueryOptions.push(options);
+        return [];
+      },
+    },
+  });
+  assert.strictEqual(yahooIndexSessionQueryOptions[0].where.volume, undefined);
+
+  const yahooExtendedSessionQueryOptions = [];
+  await findStoredCoinKlines({
+    coinId: 1,
+    interval: '4h',
+    market: YAHOO_FINANCE_MARKET,
+    tradingSymbol: 'AMZN',
+    includePrePost: true,
+    limit: 1500,
+    CoinKlineModel: {
+      async findAll(options) {
+        yahooExtendedSessionQueryOptions.push(options);
+        return [];
+      },
+    },
+  });
+  assert.strictEqual(yahooExtendedSessionQueryOptions[0].where.volume, undefined);
 
   assert.strictEqual(shouldRefreshStoredCoinKlines({
     rows: [{
@@ -290,8 +340,15 @@ async function run() {
   const yahooUrl = buildYahooFinanceChartUrl({ symbol: 'CRCL', interval: '1d', range: '1y' });
   assert.match(yahooUrl, /query1\.finance\.yahoo\.com\/v8\/finance\/chart\/CRCL/);
   assert.match(yahooUrl, /interval=1d/);
-  assert.match(yahooUrl, /includePrePost=true/);
+  assert.match(yahooUrl, /includePrePost=false/);
   assert.match(yahooUrl, /range=1y/);
+  const yahooPrePostUrl = buildYahooFinanceChartUrl({
+    symbol: 'CRCL',
+    interval: '1d',
+    range: '1y',
+    includePrePost: true,
+  });
+  assert.match(yahooPrePostUrl, /includePrePost=true/);
 
   const goldYahooUrl = buildYahooFinanceChartUrl({ symbol: 'GOLD', interval: '1d', range: '1y' });
   assert.match(goldYahooUrl, /query1\.finance\.yahoo\.com\/v8\/finance\/chart\/XAU/);
@@ -340,11 +397,26 @@ async function run() {
   assert.strictEqual(yahooResult.tradingSymbol, 'CRCL');
   assert.strictEqual(yahooUrls.length, 1);
   assert.match(yahooUrls[0], /finance\/chart\/CRCL/);
-  assert.match(yahooUrls[0], /includePrePost=true/);
+  assert.match(yahooUrls[0], /includePrePost=false/);
   assert.strictEqual(yahooUpserted.length, 1);
   assert.strictEqual(yahooUpserted[0].market, 'yahoo_finance');
   assert.strictEqual(yahooUpserted[0].trading_symbol, 'CRCL');
   assert.strictEqual(yahooUpserted[0].close_price, 72);
+
+  const yahooPrePostUrls = [];
+  const yahooPrePostResult = await syncCoinKlines({
+    coin: { id: 9, symbol: 'CIRCLE' },
+    interval: '1d',
+    limit: 1,
+    includePrePost: true,
+    fetchImpl: async (url) => {
+      yahooPrePostUrls.push(String(url));
+      return yahooFetchImpl(url);
+    },
+    CoinKlineModel: yahooModel,
+  });
+  assert.strictEqual(yahooPrePostResult.market, 'yahoo_finance');
+  assert.match(yahooPrePostUrls[0], /includePrePost=true/);
 
   const stockUrls = [];
   const stockUpserted = [];

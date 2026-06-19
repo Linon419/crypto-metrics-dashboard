@@ -269,6 +269,7 @@ function buildYahooSyncCacheKey({
   limit = DEFAULT_LIMIT,
   startTime,
   endTime,
+  includePrePost = false,
 } = {}) {
   return [
     String(coinSymbol || '').trim().toUpperCase(),
@@ -276,6 +277,7 @@ function buildYahooSyncCacheKey({
     normalizeLimit(limit),
     startTime ? String(toTimestampMs(startTime, 'startTime')) : '',
     endTime ? String(toTimestampMs(endTime, 'endTime')) : '',
+    includePrePost ? 'prepost' : 'regular',
   ].join(':');
 }
 
@@ -286,6 +288,7 @@ function shouldSkipYahooSync({
   limit = DEFAULT_LIMIT,
   startTime,
   endTime,
+  includePrePost = false,
   minSyncIntervalMs = 0,
   now = Date.now(),
 } = {}) {
@@ -300,6 +303,7 @@ function shouldSkipYahooSync({
     limit,
     startTime,
     endTime,
+    includePrePost,
   });
   const nowMs = toTimestampMs(now, 'now');
   const lastSyncedAt = yahooSyncCache.get(key);
@@ -322,6 +326,15 @@ function rememberYahooSync(cacheKey, now = Date.now()) {
 
 function clearYahooSyncCache() {
   yahooSyncCache.clear();
+}
+
+function shouldFilterYahooZeroVolumeRows(tradingSymbol) {
+  const symbol = String(tradingSymbol || '').trim().toUpperCase();
+  if (!symbol) return false;
+  if (symbol.startsWith('^')) return false;
+  if (['XAU', 'XAG'].includes(symbol)) return false;
+  if (/[.=]/.test(symbol)) return false;
+  return true;
 }
 
 function shouldRefreshStoredCoinKlines({
@@ -659,11 +672,12 @@ function buildYahooFinanceChartUrl({
   range,
   startTime,
   endTime,
+  includePrePost = false,
 } = {}) {
   const yahooSymbol = resolveYahooSymbol(symbol);
   const params = new URLSearchParams({
     interval: normalizeYahooInterval(interval),
-    includePrePost: 'true',
+    includePrePost: includePrePost ? 'true' : 'false',
     events: 'history',
   });
 
@@ -744,6 +758,7 @@ async function fetchYahooFinanceChart({
   limit = DEFAULT_LIMIT,
   startTime,
   endTime,
+  includePrePost = false,
   fetchImpl = global.fetch,
 } = {}) {
   const url = buildYahooFinanceChartUrl({
@@ -751,6 +766,7 @@ async function fetchYahooFinanceChart({
     interval,
     startTime,
     endTime,
+    includePrePost,
   });
   const response = await fetchImpl(url, {
     headers: {
@@ -982,6 +998,7 @@ async function syncCoinKlines({
   limit = DEFAULT_LIMIT,
   startTime,
   endTime,
+  includePrePost = false,
   force = false,
   minSyncIntervalMs = 0,
   now = Date.now(),
@@ -1007,6 +1024,7 @@ async function syncCoinKlines({
     limit: normalizedLimit,
     startTime,
     endTime,
+    includePrePost,
     minSyncIntervalMs,
     now,
   });
@@ -1068,6 +1086,7 @@ async function syncCoinKlines({
     limit: normalizedLimit,
     startTime,
     endTime,
+    includePrePost,
     fetchImpl,
   });
 
@@ -1096,6 +1115,7 @@ async function syncCoinKlines({
       limit: normalizedLimit,
       startTime,
       endTime,
+      includePrePost,
     });
     rememberYahooSync(cacheKey, now);
   }
@@ -1120,8 +1140,10 @@ async function findStoredCoinKlines({
   limit = DEFAULT_LIMIT,
   market,
   tradingSymbol,
+  coinSymbol,
   startTime,
   endTime,
+  includePrePost = false,
   CoinKlineModel,
 } = {}) {
   if (!CoinKlineModel?.findAll) {
@@ -1138,6 +1160,14 @@ async function findStoredCoinKlines({
   }
   if (tradingSymbol) {
     where.trading_symbol = String(tradingSymbol).trim();
+  }
+  const yahooFilterSymbol = tradingSymbol || coinSymbol;
+  if (
+    market === YAHOO_FINANCE_MARKET
+    && !includePrePost
+    && shouldFilterYahooZeroVolumeRows(yahooFilterSymbol)
+  ) {
+    where.volume = { [Op.gt]: 0 };
   }
 
   if (startTime || endTime) {

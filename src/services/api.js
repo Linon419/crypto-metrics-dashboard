@@ -752,13 +752,15 @@ export const fetchCoinKlines = async (symbol, {
   refresh = false,
   startTime,
   endTime,
+  includePrePost = false,
 } = {}) => {
   if (!symbol) {
     return { symbol: '', interval, klines: [] };
   }
 
   const now = Date.now();
-  const cacheKey = `${String(symbol).toUpperCase()}:${interval}:${limit}:${startTime || ''}:${endTime || ''}`;
+  const sessionKey = includePrePost ? 'prepost' : 'regular';
+  const cacheKey = `${String(symbol).toUpperCase()}:${interval}:${limit}:${startTime || ''}:${endTime || ''}:${sessionKey}`;
   const cached = dataCache.coinKlines.get(cacheKey);
   if (!refresh && cached && (now - cached.fetchTime < 60 * 1000)) {
     return cached.data;
@@ -768,6 +770,7 @@ export const fetchCoinKlines = async (symbol, {
     const params = {
       interval,
       limit,
+      includePrePost: includePrePost ? 1 : 0,
       ...(refresh ? { refresh: 1 } : {}),
     };
     if (startTime) params.startTime = startTime;
