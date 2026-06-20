@@ -7,6 +7,8 @@ function formatPrice(value) {
 }
 
 function OptionsLiveSetupPanel({
+  expirationDate,
+  onExpirationChange,
   onPriceBasisChange,
   onQuantityMultiplierChange,
   onRefresh,
@@ -14,6 +16,9 @@ function OptionsLiveSetupPanel({
   quantityMultiplier,
   setup,
 }) {
+  const expirationOptions = setup?.controls?.expirations || [];
+  const selectedExpiration = expirationDate || setup?.controls?.selectedExpiration || null;
+
   return (
     <section className="options-live-panel">
       <div className="options-live-panel__head">
@@ -39,9 +44,20 @@ function OptionsLiveSetupPanel({
           />
         </label>
         <label>
-          <span>数量倍率</span>
+          <span>到期日</span>
+          <Select
+            aria-label="到期日"
+            disabled={!expirationOptions.length}
+            options={expirationOptions.map(value => ({ value, label: value }))}
+            size="small"
+            value={selectedExpiration}
+            onChange={onExpirationChange}
+          />
+        </label>
+        <label>
+          <span>整体倍率</span>
           <input
-            aria-label="数量倍率"
+            aria-label="整体倍率"
             min="0.1"
             step="0.1"
             type="number"
@@ -52,10 +68,6 @@ function OptionsLiveSetupPanel({
         <div>
           <span>BTC 价格</span>
           <strong>{formatPrice(setup?.underlyingPrice)}</strong>
-        </div>
-        <div>
-          <span>到期日</span>
-          <strong>{setup?.controls?.selectedExpiration || '-'}</strong>
         </div>
       </div>
 

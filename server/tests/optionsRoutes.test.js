@@ -11,7 +11,9 @@ function option({ strike, optionType, expirationDate = '2026-06-19' }) {
   return {
     instrumentName: `BTC-${expirationDate.replace(/-/g, '')}-${strike}-${optionType === 'call' ? 'C' : 'P'}`,
     expirationDate,
-    expirationTimestamp: Date.UTC(2026, 5, 19, 8),
+    expirationTimestamp: expirationDate === '2026-06-19'
+      ? Date.UTC(2026, 5, 19, 8)
+      : Date.UTC(2026, 6, 31, 8),
     strike,
     optionType,
     state: 'open',
@@ -31,11 +33,13 @@ function buildChain() {
     currency: 'BTC',
     underlyingPrice: 64000,
     updatedAt: new Date(NOW).toISOString(),
-    options: strikes.flatMap(strike => [
-      option({ strike, optionType: 'call' }),
-      option({ strike, optionType: 'put' }),
-    ]),
-    expirations: ['2026-06-19'],
+    options: ['2026-06-19', '2026-07-31'].flatMap(expirationDate => (
+      strikes.flatMap(strike => [
+        option({ strike, optionType: 'call', expirationDate }),
+        option({ strike, optionType: 'put', expirationDate }),
+      ])
+    )),
+    expirations: ['2026-06-19', '2026-07-31'],
   };
 }
 
@@ -76,13 +80,29 @@ async function run() {
     const chainResult = await requestJson(baseUrl, '/api/options/btc/chain');
     assert.strictEqual(chainResult.response.status, 200);
     assert.strictEqual(chainResult.payload.success, true);
-    assert.strictEqual(chainResult.payload.data.options.length, 14);
+    assert.strictEqual(chainResult.payload.data.options.length, 28);
 
     const setupResult = await requestJson(baseUrl, '/api/options/btc/strategies/iron-condor/setup');
     assert.strictEqual(setupResult.response.status, 200);
     assert.strictEqual(setupResult.payload.success, true);
     assert.strictEqual(setupResult.payload.data.strategyId, 'iron-condor');
     assert.strictEqual(setupResult.payload.data.legs.length, 4);
+    assert.strictEqual(
+      setupResult.payload.data.legs.every(leg => leg.greeks && Number.isFinite(leg.greeks.vega)),
+      true
+    );
+    assert.strictEqual(setupResult.payload.data.legs[0].greeks.theta, -10);
+
+    const selectedExpirySetup = await requestJson(
+      baseUrl,
+      '/api/options/btc/strategies/iron-condor/setup?expirationDate=2026-07-31'
+    );
+    assert.strictEqual(selectedExpirySetup.response.status, 200);
+    assert.strictEqual(selectedExpirySetup.payload.data.controls.selectedExpiration, '2026-07-31');
+    assert.strictEqual(
+      selectedExpirySetup.payload.data.legs.every(leg => leg.expirationDate === '2026-07-31'),
+      true
+    );
 
     const tickerResult = await requestJson(baseUrl, '/api/options/btc/ticker?instrument_name=BTC-20260619-64000-C');
     assert.strictEqual(tickerResult.response.status, 200);
@@ -98,8 +118,9 @@ async function run() {
     });
     assert.strictEqual(payoffResult.response.status, 200);
     assert.strictEqual(payoffResult.payload.success, true);
-    assert.strictEqual(payoffResult.payload.data.points.length, 21);
+    assert.ok(payoffResult.payload.data.points.length >= 21);
     assert.ok(Array.isArray(payoffResult.payload.data.metrics.breakevens));
+    assert.ok(Number.isFinite(payoffResult.payload.data.metrics.greeks.vega));
 
     const missingTicker = await requestJson(baseUrl, '/api/options/btc/ticker');
     assert.strictEqual(missingTicker.response.status, 400);

@@ -23,6 +23,7 @@ function OptionsScenarioMetrics({ metrics }) {
   const rows = [
     ['曲线口径', metrics.payoffHorizonLabel || '到期盈亏'],
     ['净权利金', formatBtc(metrics.netPremiumBtc)],
+    ['净权利金 USD', formatUsd(metrics.netPremiumUsd)],
     ['最大收益', formatBtc(metrics.maxProfitBtc)],
     ['最大亏损', formatBtc(metrics.maxLossBtc)],
     ['最大收益 USD', formatUsd(metrics.maxProfitUsd)],

@@ -606,12 +606,15 @@ export const fetchBtcOptionChain = async ({ refresh = false } = {}) => {
   }
 };
 
-export const fetchBtcOptionStrategySetup = async (strategyId, { refresh = false, priceBasis = 'mark' } = {}) => {
+export const fetchBtcOptionStrategySetup = async (
+  strategyId,
+  { refresh = false, priceBasis = 'mark', expirationDate = null } = {},
+) => {
   if (!strategyId) {
     throw new Error('strategyId is required');
   }
 
-  const cacheKey = `${strategyId}:${priceBasis}`;
+  const cacheKey = `${strategyId}:${priceBasis}:${expirationDate || 'auto'}`;
   const now = Date.now();
   const cached = dataCache.btcOptionStrategySetups.get(cacheKey);
   if (!refresh && cached && (now - cached.fetchTime < 15 * 1000)) {
@@ -622,6 +625,7 @@ export const fetchBtcOptionStrategySetup = async (strategyId, { refresh = false,
     const response = await callApiWithRetry(() => api.get(`/options/btc/strategies/${strategyId}/setup`, {
       params: {
         priceBasis,
+        ...(expirationDate ? { expirationDate } : {}),
         ...(refresh ? { refresh: 1 } : {}),
       },
     }));

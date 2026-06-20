@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Drawer, Empty, Spin, Tag, Typography } from 'antd';
 import {
   calculateBtcOptionPayoff,
@@ -8,6 +8,7 @@ import OptionsLegTable from './OptionsLegTable';
 import OptionsLiveSetupPanel from './OptionsLiveSetupPanel';
 import OptionsPayoffChart from './OptionsPayoffChart';
 import OptionsScenarioMetrics from './OptionsScenarioMetrics';
+import OptionsStrategicNotes from './OptionsStrategicNotes';
 
 const { Paragraph, Text } = Typography;
 
@@ -19,43 +20,85 @@ function OptionsStrategyDrawer({ strategy, open, onClose }) {
   const [priceBasis, setPriceBasis] = useState('mark');
   const [quantityMultiplier, setQuantityMultiplier] = useState(1);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [selectedExpiration, setSelectedExpiration] = useState(null);
+  const [selectedExpirationStrategyId, setSelectedExpirationStrategyId] = useState(null);
+  const [legQuantityOverrides, setLegQuantityOverrides] = useState({});
   const [setup, setSetup] = useState(null);
+  const setupRequestSeqRef = useRef(0);
+
+  useEffect(() => {
+    if (!open) return;
+    setError('');
+    setPayoff(null);
+    setPriceBasis('mark');
+    setQuantityMultiplier(1);
+    setSelectedExpiration(null);
+    setSelectedExpirationStrategyId(null);
+    setLegQuantityOverrides({});
+    setSetup(null);
+  }, [open, strategy?.id]);
 
   useEffect(() => {
     if (!open || !strategy?.id) return undefined;
 
     let cancelled = false;
+    const requestSeq = setupRequestSeqRef.current + 1;
+    setupRequestSeqRef.current = requestSeq;
+    const effectiveExpiration = selectedExpirationStrategyId === strategy.id
+      ? selectedExpiration
+      : null;
     setLoadingSetup(true);
     setError('');
     fetchBtcOptionStrategySetup(strategy.id, {
+      expirationDate: effectiveExpiration,
       priceBasis,
       refresh: refreshNonce > 0,
     })
       .then(response => {
-        if (cancelled) return;
+        if (cancelled || requestSeq !== setupRequestSeqRef.current) return;
         setSetup(response.data);
+        setLegQuantityOverrides({});
         setLoadingSetup(false);
       })
       .catch(requestError => {
-        if (cancelled) return;
+        if (cancelled || requestSeq !== setupRequestSeqRef.current) return;
         setError(requestError.message || '实时搭建加载失败');
       })
       .finally(() => {
-        if (!cancelled) setLoadingSetup(false);
+        if (!cancelled && requestSeq === setupRequestSeqRef.current) setLoadingSetup(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [open, priceBasis, refreshNonce, strategy?.id]);
+  }, [open, priceBasis, refreshNonce, selectedExpiration, selectedExpirationStrategyId, strategy?.id]);
 
   const adjustedLegs = useMemo(() => {
     if (!setup?.legs) return [];
     return setup.legs.map(leg => ({
       ...leg,
-      quantity: Number(((leg.quantity || 1) * quantityMultiplier).toFixed(6)),
+      quantity: Number((
+        legQuantityOverrides[leg.id || leg.instrumentName] ??
+        ((leg.quantity || 1) * quantityMultiplier)
+      ).toFixed(6)),
     }));
-  }, [quantityMultiplier, setup]);
+  }, [legQuantityOverrides, quantityMultiplier, setup]);
+
+  const handleExpirationChange = useCallback(value => {
+    setSelectedExpiration(value || null);
+    setSelectedExpirationStrategyId(value ? strategy?.id || null : null);
+    setLegQuantityOverrides({});
+  }, [strategy?.id]);
+
+  const handleLegQuantityChange = useCallback((leg, rawValue) => {
+    const nextQuantity = Number(rawValue);
+    if (!Number.isFinite(nextQuantity) || nextQuantity <= 0) return;
+    const key = leg.id || leg.instrumentName;
+    setLegQuantityOverrides(current => ({
+      ...current,
+      [key]: Number(nextQuantity.toFixed(6)),
+    }));
+  }, []);
 
   useEffect(() => {
     if (!open || !setup?.underlyingPrice || adjustedLegs.length === 0) return undefined;
@@ -87,7 +130,7 @@ function OptionsStrategyDrawer({ strategy, open, onClose }) {
   return (
     <Drawer
       title={strategy ? `${strategy.nameZh}（${strategy.nameEn}）` : '策略详情'}
-      width={1180}
+      width="min(1440px, calc(100vw - 24px))"
       open={open}
       onClose={onClose}
     >
@@ -101,6 +144,8 @@ function OptionsStrategyDrawer({ strategy, open, onClose }) {
               <ol>
                 {(strategy.operationSteps || []).map(step => <li key={step}>{step}</li>)}
               </ol>
+
+              <OptionsStrategicNotes strategy={strategy} />
 
               <h3>主要风险</h3>
               <div className="options-strategy-card__tags">
@@ -124,7 +169,9 @@ function OptionsStrategyDrawer({ strategy, open, onClose }) {
             <section className="options-drawer-column options-drawer-column--wide">
               <Spin spinning={loadingSetup}>
                 <OptionsLiveSetupPanel
+                  expirationDate={selectedExpirationStrategyId === strategy.id ? selectedExpiration : null}
                   loading={loadingSetup}
+                  onExpirationChange={handleExpirationChange}
                   onPriceBasisChange={setPriceBasis}
                   onQuantityMultiplierChange={setQuantityMultiplier}
                   onRefresh={() => setRefreshNonce(value => value + 1)}
@@ -132,7 +179,7 @@ function OptionsStrategyDrawer({ strategy, open, onClose }) {
                   quantityMultiplier={quantityMultiplier}
                   setup={setup}
                 />
-                <OptionsLegTable legs={adjustedLegs} />
+                <OptionsLegTable legs={adjustedLegs} onQuantityChange={handleLegQuantityChange} />
               </Spin>
             </section>
 

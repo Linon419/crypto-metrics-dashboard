@@ -19,18 +19,24 @@ function normalCdf(x) {
   return 0.5 * (1 + sign * erf);
 }
 
-function calculateOptionIntrinsicBtc(leg, spot) {
+function calculateOptionIntrinsicUsd(leg, spot) {
   const strike = toNumberOr(0, leg.strike);
   const scenarioSpot = toNumberOr(0, spot);
   if (scenarioSpot <= 0 || strike <= 0) return 0;
 
   if (leg.optionType === 'call') {
-    return Math.max(scenarioSpot - strike, 0) / scenarioSpot;
+    return Math.max(scenarioSpot - strike, 0);
   }
   if (leg.optionType === 'put') {
-    return Math.max(strike - scenarioSpot, 0) / scenarioSpot;
+    return Math.max(strike - scenarioSpot, 0);
   }
   return 0;
+}
+
+function calculateOptionIntrinsicBtc(leg, spot) {
+  const scenarioSpot = toNumberOr(0, spot);
+  if (scenarioSpot <= 0) return 0;
+  return calculateOptionIntrinsicUsd(leg, scenarioSpot) / scenarioSpot;
 }
 
 function sideMultiplier(side) {
@@ -43,24 +49,43 @@ function underlyingSideMultiplier(side) {
   return 1;
 }
 
-function calculateLegExpiryPnlBtc(leg, spot) {
+function getPremiumReferenceSpot(leg, spot) {
+  return toNumberOr(0, leg.underlyingPrice) || toNumberOr(0, spot);
+}
+
+function calculateEntryPremiumUsd(leg, spot) {
+  return toNumberOr(0, leg.entryPrice) * getPremiumReferenceSpot(leg, spot);
+}
+
+function calculateLegExpiryPnlUsd(leg, spot) {
+  const scenarioSpot = toNumberOr(0, spot);
   const quantity = toNumberOr(1, leg.quantity);
   if (leg.type === 'underlying') {
-    const entryPrice = toNumberOr(spot, leg.entryPrice);
-    return underlyingSideMultiplier(leg.side) * quantity * ((spot - entryPrice) / spot);
+    const entryPrice = toNumberOr(scenarioSpot, leg.entryPrice);
+    return underlyingSideMultiplier(leg.side) * quantity * (scenarioSpot - entryPrice);
   }
 
   if (leg.type !== 'option') return 0;
-  const intrinsic = calculateOptionIntrinsicBtc(leg, spot);
-  const entryPremium = toNumberOr(0, leg.entryPrice);
+  const intrinsic = calculateOptionIntrinsicUsd(leg, scenarioSpot);
+  const entryPremium = calculateEntryPremiumUsd(leg, scenarioSpot);
   return sideMultiplier(leg.side) * quantity * (intrinsic - entryPremium);
+}
+
+function calculateLegExpiryPnlBtc(leg, spot) {
+  const scenarioSpot = toNumberOr(0, spot);
+  if (scenarioSpot <= 0) return 0;
+  return calculateLegExpiryPnlUsd(leg, scenarioSpot) / scenarioSpot;
+}
+
+function calculatePortfolioExpiryPnlUsd(legs, spot) {
+  return legs.reduce((total, leg) => total + calculateLegExpiryPnlUsd(leg, spot), 0);
 }
 
 function calculatePortfolioExpiryPnlBtc(legs, spot) {
   return legs.reduce((total, leg) => total + calculateLegExpiryPnlBtc(leg, spot), 0);
 }
 
-function calculateBlackScholesOptionPriceBtc({
+function calculateBlackScholesOptionPriceUsd({
   spot,
   strike,
   timeToExpiryYears,
@@ -76,7 +101,7 @@ function calculateBlackScholesOptionPriceBtc({
 
   if (s <= 0 || k <= 0) return 0;
   if (t <= 0 || sigma <= 0) {
-    return calculateOptionIntrinsicBtc({ optionType, strike: k }, s);
+    return calculateOptionIntrinsicUsd({ optionType, strike: k }, s);
   }
 
   const sqrtT = Math.sqrt(t);
@@ -86,7 +111,13 @@ function calculateBlackScholesOptionPriceBtc({
   const callUsd = s * normalCdf(d1) - k * Math.exp(-r * t) * normalCdf(d2);
   const putUsd = k * Math.exp(-r * t) * normalCdf(-d2) - s * normalCdf(-d1);
   const usdValue = optionType === 'put' ? putUsd : callUsd;
-  return Math.max(usdValue, 0) / s;
+  return Math.max(usdValue, 0);
+}
+
+function calculateBlackScholesOptionPriceBtc(params) {
+  const spot = toNumberOr(0, params?.spot);
+  if (spot <= 0) return 0;
+  return calculateBlackScholesOptionPriceUsd(params) / spot;
 }
 
 function yearsToExpiry(expirationTimestamp, now) {
@@ -99,26 +130,37 @@ function normalizedVol(leg, ivShiftPoints = 0) {
 }
 
 function calculateLegScenarioPnlBtc(leg, spot, { now, ivShiftPoints = 0, timeShiftDays = 0 } = {}) {
+  const scenarioSpot = toNumberOr(0, spot);
+  if (scenarioSpot <= 0) return 0;
+  return calculateLegScenarioPnlUsd(leg, scenarioSpot, { now, ivShiftPoints, timeShiftDays }) / scenarioSpot;
+}
+
+function calculateLegScenarioPnlUsd(leg, spot, { now, ivShiftPoints = 0, timeShiftDays = 0 } = {}) {
+  const scenarioSpot = toNumberOr(0, spot);
   const quantity = toNumberOr(1, leg.quantity);
   if (leg.type === 'underlying') {
-    return calculateLegExpiryPnlBtc(leg, spot);
+    return calculateLegExpiryPnlUsd(leg, scenarioSpot);
   }
   if (leg.type !== 'option') return 0;
 
   const shiftedNow = now + timeShiftDays * 24 * 60 * 60 * 1000;
-  const modelPrice = calculateBlackScholesOptionPriceBtc({
-    spot,
+  const modelPrice = calculateBlackScholesOptionPriceUsd({
+    spot: scenarioSpot,
     strike: leg.strike,
     timeToExpiryYears: yearsToExpiry(leg.expirationTimestamp, shiftedNow),
     volatility: normalizedVol(leg, ivShiftPoints),
     rate: toNumberOr(0, leg.interestRate),
     optionType: leg.optionType,
   });
-  return sideMultiplier(leg.side) * quantity * (modelPrice - toNumberOr(0, leg.entryPrice));
+  return sideMultiplier(leg.side) * quantity * (modelPrice - calculateEntryPremiumUsd(leg, scenarioSpot));
 }
 
 function calculatePortfolioScenarioPnlBtc(legs, spot, scenario) {
   return legs.reduce((total, leg) => total + calculateLegScenarioPnlBtc(leg, spot, scenario), 0);
+}
+
+function calculatePortfolioScenarioPnlUsd(legs, spot, scenario) {
+  return legs.reduce((total, leg) => total + calculateLegScenarioPnlUsd(leg, spot, scenario), 0);
 }
 
 function getOptionExpirationTimestamps(legs = []) {
@@ -145,13 +187,30 @@ function buildPriceGrid(legs, underlyingPrice, pointCount = DEFAULT_POINT_COUNT)
     .filter(leg => leg.type === 'option')
     .map(leg => leg.strike)
     .filter(Number.isFinite);
-  const minStrike = Math.min(...strikes, underlyingPrice * 0.75);
-  const maxStrike = Math.max(...strikes, underlyingPrice * 1.25);
-  const min = Math.max(1, Math.min(minStrike * 0.9, underlyingPrice * 0.7));
-  const max = Math.max(maxStrike * 1.1, underlyingPrice * 1.3);
+  const min = Math.max(1, underlyingPrice * 0.5);
+  const max = Math.max(min + 1, underlyingPrice * 1.5);
   const safePointCount = Math.max(11, Math.min(201, Math.round(pointCount)));
   const step = (max - min) / (safePointCount - 1);
-  return Array.from({ length: safePointCount }, (_, index) => min + step * index);
+  const baseGrid = Array.from({ length: safePointCount }, (_, index) => min + step * index);
+  const keyPrices = [
+    underlyingPrice,
+    ...strikes,
+  ].filter(value => Number.isFinite(value) && value >= min && value <= max);
+
+  return [...new Set([...baseGrid, ...keyPrices].map(value => Math.round(value * 100) / 100))]
+    .sort((left, right) => left - right);
+}
+
+function normalizeLegsForPayoff(legs, spot) {
+  return legs.map(leg => {
+    if (leg.type !== 'option') return leg;
+    const underlyingPrice = toNumberOr(0, leg.underlyingPrice);
+    if (underlyingPrice > 0) return leg;
+    return {
+      ...leg,
+      underlyingPrice: spot,
+    };
+  });
 }
 
 function findBreakevens(points) {
@@ -159,13 +218,15 @@ function findBreakevens(points) {
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];
-    if (previous.expiryPnlBtc === 0) {
+    const previousPnl = previous.expiryPnlUsd ?? previous.expiryPnlBtc;
+    const currentPnl = current.expiryPnlUsd ?? current.expiryPnlBtc;
+    if (previousPnl === 0) {
       breakevens.push(previous.spot);
     }
-    if ((previous.expiryPnlBtc < 0 && current.expiryPnlBtc > 0) ||
-        (previous.expiryPnlBtc > 0 && current.expiryPnlBtc < 0)) {
-      const ratio = Math.abs(previous.expiryPnlBtc) /
-        (Math.abs(previous.expiryPnlBtc) + Math.abs(current.expiryPnlBtc));
+    if ((previousPnl < 0 && currentPnl > 0) ||
+        (previousPnl > 0 && currentPnl < 0)) {
+      const ratio = Math.abs(previousPnl) /
+        (Math.abs(previousPnl) + Math.abs(currentPnl));
       breakevens.push(previous.spot + (current.spot - previous.spot) * ratio);
     }
   }
@@ -176,6 +237,13 @@ function calculateNetPremiumBtc(legs) {
   return legs.reduce((total, leg) => {
     if (leg.type !== 'option') return total;
     return total - sideMultiplier(leg.side) * toNumberOr(1, leg.quantity) * toNumberOr(0, leg.entryPrice);
+  }, 0);
+}
+
+function calculateNetPremiumUsd(legs, spot) {
+  return legs.reduce((total, leg) => {
+    if (leg.type !== 'option') return total;
+    return total - sideMultiplier(leg.side) * toNumberOr(1, leg.quantity) * calculateEntryPremiumUsd(leg, spot);
   }, 0);
 }
 
@@ -219,33 +287,53 @@ function buildPayoffModel({
     throw new Error('underlyingPrice is required');
   }
 
-  const grid = buildPriceGrid(legs, spot, pointCount);
-  const payoffHorizon = getPayoffHorizon(legs, now);
+  const normalizedLegs = normalizeLegsForPayoff(legs, spot);
+  const grid = buildPriceGrid(normalizedLegs, spot, pointCount);
+  const payoffHorizon = getPayoffHorizon(normalizedLegs, now);
+  const strikes = [...new Set(normalizedLegs
+    .filter(leg => leg.type === 'option')
+    .map(leg => Number(leg.strike))
+    .filter(Number.isFinite))]
+    .sort((left, right) => left - right);
   const points = grid.map(price => {
-    const expiryPnlBtc = calculatePortfolioScenarioPnlBtc(legs, price, {
-      now: payoffHorizon.primaryExpirationTimestamp,
-    });
+    const expiryPnlUsd = payoffHorizon.hasMultipleExpirations
+      ? calculatePortfolioScenarioPnlUsd(normalizedLegs, price, {
+        now: payoffHorizon.primaryExpirationTimestamp,
+      })
+      : calculatePortfolioExpiryPnlUsd(normalizedLegs, price);
+    const expiryPnlBtc = price > 0 ? expiryPnlUsd / price : 0;
+    const currentEstimateUsd = calculatePortfolioScenarioPnlUsd(normalizedLegs, price, { now });
+    const ivDownUsd = calculatePortfolioScenarioPnlUsd(normalizedLegs, price, { now, ivShiftPoints: -ivShiftPoints });
+    const ivUpUsd = calculatePortfolioScenarioPnlUsd(normalizedLegs, price, { now, ivShiftPoints });
     const point = {
       spot: round(price, 2),
       expiryPnlBtc: round(expiryPnlBtc),
-      expiryPnlUsd: round(expiryPnlBtc * price, 2),
-      currentEstimateBtc: round(calculatePortfolioScenarioPnlBtc(legs, price, { now })),
-      ivDownBtc: round(calculatePortfolioScenarioPnlBtc(legs, price, { now, ivShiftPoints: -ivShiftPoints })),
-      ivUpBtc: round(calculatePortfolioScenarioPnlBtc(legs, price, { now, ivShiftPoints })),
+      expiryPnlUsd: round(expiryPnlUsd, 2),
+      currentEstimateBtc: round(currentEstimateUsd / price),
+      currentEstimateUsd: round(currentEstimateUsd, 2),
+      ivDownBtc: round(ivDownUsd / price),
+      ivDownUsd: round(ivDownUsd, 2),
+      ivUpBtc: round(ivUpUsd / price),
+      ivUpUsd: round(ivUpUsd, 2),
     };
 
     timeScenarioDays.forEach(days => {
-      point[`tPlus${days}Btc`] = round(calculatePortfolioScenarioPnlBtc(legs, price, {
+      const tPlusUsd = calculatePortfolioScenarioPnlUsd(normalizedLegs, price, {
         now,
         timeShiftDays: days,
-      }));
+      });
+      point[`tPlus${days}Btc`] = round(tPlusUsd / price);
+      point[`tPlus${days}Usd`] = round(tPlusUsd, 2);
     });
     return point;
   });
 
   const expiryValues = points.map(point => point.expiryPnlBtc);
+  const expiryUsdValues = points.map(point => point.expiryPnlUsd);
   const maxProfitBtc = Math.max(...expiryValues);
   const maxLossBtc = Math.min(...expiryValues);
+  const maxProfitUsd = Math.max(...expiryUsdValues);
+  const maxLossUsd = Math.min(...expiryUsdValues);
   const scenarioLabels = [
     'expiry',
     'currentEstimate',
@@ -259,13 +347,15 @@ function buildPayoffModel({
     scenarioLabels,
     metrics: {
       underlyingPrice: spot,
-      netPremiumBtc: round(calculateNetPremiumBtc(legs)),
+      netPremiumBtc: round(calculateNetPremiumBtc(normalizedLegs)),
+      netPremiumUsd: round(calculateNetPremiumUsd(normalizedLegs, spot), 2),
       maxProfitBtc: round(maxProfitBtc),
-      maxProfitUsd: round(maxProfitBtc * spot, 2),
+      maxProfitUsd: round(maxProfitUsd, 2),
       maxLossBtc: round(maxLossBtc),
-      maxLossUsd: round(maxLossBtc * spot, 2),
+      maxLossUsd: round(maxLossUsd, 2),
       breakevens: findBreakevens(points),
-      greeks: Object.fromEntries(Object.entries(aggregateGreeks(legs)).map(([key, value]) => [key, round(value, 6)])),
+      strikes,
+      greeks: Object.fromEntries(Object.entries(aggregateGreeks(normalizedLegs)).map(([key, value]) => [key, round(value, 6)])),
       generatedAt: new Date(now).toISOString(),
       hasMultipleExpirations: payoffHorizon.hasMultipleExpirations,
       payoffHorizonLabel: payoffHorizon.payoffHorizonLabel,
@@ -279,10 +369,16 @@ module.exports = {
   aggregateGreeks,
   buildPayoffModel,
   calculateBlackScholesOptionPriceBtc,
+  calculateBlackScholesOptionPriceUsd,
+  calculateEntryPremiumUsd,
   calculateLegExpiryPnlBtc,
+  calculateLegExpiryPnlUsd,
   calculateOptionIntrinsicBtc,
+  calculateOptionIntrinsicUsd,
   calculatePortfolioExpiryPnlBtc,
+  calculatePortfolioExpiryPnlUsd,
   calculatePortfolioScenarioPnlBtc,
+  calculatePortfolioScenarioPnlUsd,
   getPayoffHorizon,
   normalCdf,
 };

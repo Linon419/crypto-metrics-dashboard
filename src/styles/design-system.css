@@ -1374,7 +1374,7 @@ body {
 
 .options-drawer-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 0.85fr) minmax(320px, 1.15fr) minmax(360px, 1.25fr);
+  grid-template-columns: minmax(240px, 0.75fr) minmax(340px, 1fr) minmax(500px, 1.45fr);
   gap: 14px;
 }
 
@@ -1389,6 +1389,75 @@ body {
 
 .options-drawer-column h3 + ol {
   margin-top: 0;
+}
+
+.options-strategic-notes {
+  margin-top: 18px;
+}
+
+.options-strategic-notes__grid {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.options-strategic-note {
+  padding: 10px 12px;
+  border: 1px solid rgba(78, 68, 50, 0.12);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.options-strategic-note dt {
+  margin: 0 0 4px;
+  color: var(--cm-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.options-strategic-note dd {
+  margin: 0;
+  color: var(--cm-ink);
+  line-height: 1.55;
+}
+
+.options-strategic-comparison {
+  margin-top: 12px;
+}
+
+.options-strategic-comparison h4 {
+  margin: 0 0 8px;
+  color: var(--cm-ink);
+  font-size: 13px;
+}
+
+.options-strategic-comparison table {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(78, 68, 50, 0.12);
+  border-radius: 8px;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fffdf8;
+  font-size: 12px;
+}
+
+.options-strategic-comparison th,
+.options-strategic-comparison td {
+  padding: 8px 9px;
+  border-bottom: 1px solid rgba(78, 68, 50, 0.1);
+  text-align: left;
+  vertical-align: top;
+}
+
+.options-strategic-comparison th {
+  background: rgba(78, 68, 50, 0.06);
+  color: var(--cm-muted);
+  font-weight: 800;
+}
+
+.options-strategic-comparison tr:last-child td {
+  border-bottom: 0;
 }
 
 .options-live-alert {
@@ -1505,6 +1574,15 @@ body {
   color: var(--cm-muted);
 }
 
+.options-leg-quantity-input {
+  width: 72px;
+  min-height: 26px;
+  border: 1px solid rgba(78, 68, 50, 0.18);
+  border-radius: 6px;
+  padding: 3px 7px;
+  background: #fffdf8;
+}
+
 .options-metric-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1526,6 +1604,8 @@ body {
 }
 
 .options-payoff-chart {
+  width: 100%;
+  min-height: 320px;
   border: 1px solid rgba(78, 68, 50, 0.13);
   border-radius: 8px;
   background: #fffdf8;

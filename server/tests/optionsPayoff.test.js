@@ -4,13 +4,23 @@ const {
   buildPayoffModel,
   calculateBlackScholesOptionPriceBtc,
   calculateOptionIntrinsicBtc,
+  calculatePortfolioExpiryPnlUsd,
   calculatePortfolioExpiryPnlBtc,
 } = require('../utils/optionsPayoff');
 
 const EXPIRY = Date.UTC(2026, 5, 26, 8);
 const NOW = Date.UTC(2026, 5, 8, 8);
 
-function optionLeg({ id, side, optionType, strike, entryPrice, quantity = 1, expirationTimestamp = EXPIRY }) {
+function optionLeg({
+  id,
+  side,
+  optionType,
+  strike,
+  entryPrice,
+  quantity = 1,
+  expirationTimestamp = EXPIRY,
+  underlyingPrice = 64000,
+}) {
   return {
     id,
     role: id,
@@ -22,7 +32,7 @@ function optionLeg({ id, side, optionType, strike, entryPrice, quantity = 1, exp
     entryPrice,
     entryIv: 65,
     expirationTimestamp,
-    underlyingPrice: 64000,
+    underlyingPrice,
     interestRate: 0,
     greeks: {
       delta: optionType === 'call' ? 0.2 : -0.2,
@@ -57,6 +67,128 @@ async function run() {
   });
   assert.ok(callPrice > 0.07 && callPrice < 0.08);
 
+  const longStraddle = [
+    optionLeg({
+      id: 'straddle-call',
+      side: 'buy',
+      optionType: 'call',
+      strike: 100,
+      entryPrice: 0.05,
+      underlyingPrice: 100,
+    }),
+    optionLeg({
+      id: 'straddle-put',
+      side: 'buy',
+      optionType: 'put',
+      strike: 100,
+      entryPrice: 0.04,
+      underlyingPrice: 100,
+    }),
+  ];
+  const straddleModel = buildPayoffModel({
+    legs: longStraddle,
+    underlyingPrice: 100,
+    now: NOW,
+    pointCount: 15,
+  });
+  const straddleAt50 = straddleModel.points.find(point => point.spot === 50);
+  const straddleAt100 = straddleModel.points.find(point => point.spot === 100);
+  const straddleAt150 = straddleModel.points.find(point => point.spot === 150);
+  assert.strictEqual(straddleModel.points[0].spot, 50);
+  assert.strictEqual(straddleModel.points[straddleModel.points.length - 1].spot, 150);
+  assert.strictEqual(straddleAt50.expiryPnlUsd, 41);
+  assert.strictEqual(straddleAt100.expiryPnlUsd, -9);
+  assert.strictEqual(straddleAt150.expiryPnlUsd, 41);
+  assert.deepStrictEqual(straddleModel.metrics.breakevens, [91, 109]);
+  assert.deepStrictEqual(straddleModel.metrics.strikes, [100]);
+
+  const longStrangle = [
+    optionLeg({
+      id: 'strangle-put',
+      side: 'buy',
+      optionType: 'put',
+      strike: 90,
+      entryPrice: 0.03,
+      underlyingPrice: 100,
+    }),
+    optionLeg({
+      id: 'strangle-call',
+      side: 'buy',
+      optionType: 'call',
+      strike: 110,
+      entryPrice: 0.04,
+      underlyingPrice: 100,
+    }),
+  ];
+  const strangleModel = buildPayoffModel({
+    legs: longStrangle,
+    underlyingPrice: 100,
+    now: NOW,
+    pointCount: 61,
+  });
+  const strangleAt130 = strangleModel.points.find(point => point.spot === 130);
+  assert.strictEqual(strangleModel.points[0].spot, 50);
+  assert.strictEqual(strangleModel.points[strangleModel.points.length - 1].spot, 150);
+  assert.strictEqual(strangleAt130.expiryPnlUsd, 13);
+  assert.deepStrictEqual(strangleModel.metrics.breakevens, [83, 117]);
+  assert.deepStrictEqual(strangleModel.metrics.strikes, [90, 110]);
+
+  const missingUnderlyingReferenceLegs = [
+    optionLeg({
+      id: 'fixed-premium-call',
+      side: 'buy',
+      optionType: 'call',
+      strike: 100,
+      entryPrice: 0.1,
+      underlyingPrice: null,
+    }),
+  ];
+  assert.strictEqual(
+    calculatePortfolioExpiryPnlUsd(missingUnderlyingReferenceLegs, 150),
+    35,
+  );
+  const fixedPremiumModel = buildPayoffModel({
+    legs: missingUnderlyingReferenceLegs,
+    underlyingPrice: 100,
+    now: NOW,
+    pointCount: 11,
+  });
+  assert.strictEqual(
+    fixedPremiumModel.points.find(point => point.spot === 150).expiryPnlUsd,
+    40,
+  );
+
+  const narrowBtcStrangle = [
+    optionLeg({
+      id: 'narrow-btc-call',
+      side: 'buy',
+      optionType: 'call',
+      strike: 63000,
+      entryPrice: 0.00305,
+      underlyingPrice: 62491,
+    }),
+    optionLeg({
+      id: 'narrow-btc-put',
+      side: 'buy',
+      optionType: 'put',
+      strike: 62000,
+      entryPrice: 0.00442,
+      underlyingPrice: 62491,
+    }),
+  ];
+  const narrowBtcStrangleModel = buildPayoffModel({
+    legs: narrowBtcStrangle,
+    underlyingPrice: 62491,
+    now: NOW,
+    pointCount: 81,
+  });
+  const lowerStrikePoint = narrowBtcStrangleModel.points.find(point => point.spot === 62000);
+  const upperStrikePoint = narrowBtcStrangleModel.points.find(point => point.spot === 63000);
+  assert.ok(lowerStrikePoint);
+  assert.ok(upperStrikePoint);
+  assert.strictEqual(lowerStrikePoint.expiryPnlUsd, -466.81);
+  assert.strictEqual(upperStrikePoint.expiryPnlUsd, -466.81);
+
   const ironCondor = [
     optionLeg({ id: 'long-put-wing', side: 'buy', optionType: 'put', strike: 52000, entryPrice: 0.002 }),
     optionLeg({ id: 'short-put', side: 'sell', optionType: 'put', strike: 60000, entryPrice: 0.012 }),
@@ -77,7 +209,7 @@ async function run() {
     pointCount: 31,
   });
 
-  assert.strictEqual(payoff.points.length, 31);
+  assert.ok(payoff.points.length >= 31);
   assert.ok(payoff.metrics.maxProfitBtc > 0.02);
   assert.ok(payoff.metrics.maxLossBtc < -0.1);
   assert.strictEqual(payoff.metrics.netPremiumBtc, 0.021);

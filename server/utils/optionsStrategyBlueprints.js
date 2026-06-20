@@ -1,6 +1,8 @@
 const { OPTIONS_STRATEGY_CATALOG } = require('../../scripts/optionsStrategyCatalog');
 
 const DEFAULT_PRICE_BASIS = 'mark';
+const MIN_DEFAULT_EXPIRATION_DAYS = 14;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function asTimestamp(dateLike) {
   const timestamp = typeof dateLike === 'number' ? dateLike : Date.parse(dateLike);
@@ -32,22 +34,48 @@ function getUnderlyingPrice(chain) {
     0;
 }
 
-function getExpirations(chain, now = Date.now()) {
-  return [...new Set(chain.options
-    .filter(option => option.state === 'open' && option.expirationTimestamp > now)
+function getExpirationEntries(chain, now = Date.now()) {
+  const nowTimestamp = asTimestamp(now);
+  const byDate = new Map();
+  chain.options
+    .filter(option => option.state === 'open' && option.expirationTimestamp > nowTimestamp)
     .sort((left, right) => left.expirationTimestamp - right.expirationTimestamp)
-    .map(option => option.expirationDate))];
+    .forEach(option => {
+      if (!byDate.has(option.expirationDate)) {
+        byDate.set(option.expirationDate, {
+          date: option.expirationDate,
+          timestamp: option.expirationTimestamp,
+        });
+      }
+    });
+  return [...byDate.values()];
 }
 
-function chooseExpiration(chain, now, mode = 'primary') {
-  const expirations = getExpirations(chain, now);
-  if (expirations.length === 0) {
+function getExpirations(chain, now = Date.now()) {
+  return getExpirationEntries(chain, now).map(entry => entry.date);
+}
+
+function chooseDefaultPrimaryExpirationIndex(expirationEntries, now) {
+  const nowTimestamp = asTimestamp(now);
+  const minimumTimestamp = nowTimestamp + MIN_DEFAULT_EXPIRATION_DAYS * MS_PER_DAY;
+  const index = expirationEntries.findIndex(entry => entry.timestamp >= minimumTimestamp);
+  return index >= 0 ? index : 0;
+}
+
+function chooseExpiration(chain, now, mode = 'primary', selectedExpiration = null) {
+  const expirationEntries = getExpirationEntries(chain, now);
+  if (expirationEntries.length === 0) {
     throw new Error('No BTC option expirations are available');
   }
+  const expirations = expirationEntries.map(entry => entry.date);
+  const selectedIndex = selectedExpiration ? expirations.indexOf(selectedExpiration) : -1;
+  const primaryIndex = selectedIndex >= 0
+    ? selectedIndex
+    : chooseDefaultPrimaryExpirationIndex(expirationEntries, now);
   if (mode === 'far') {
-    return expirations[Math.min(1, expirations.length - 1)];
+    return expirations[Math.min(primaryIndex + 1, expirations.length - 1)];
   }
-  return expirations[0];
+  return expirations[primaryIndex];
 }
 
 function optionsFor(chain, expirationDate, optionType) {
@@ -111,7 +139,7 @@ function optionLeg(role, side, option, quantity = 1, priceBasis = DEFAULT_PRICE_
   };
 }
 
-function underlyingLeg(role, side, quantity, entryPrice) {
+function underlyingLeg(role, side, quantity, entryPrice, extra = {}) {
   return {
     id: role,
     role,
@@ -120,13 +148,64 @@ function underlyingLeg(role, side, quantity, entryPrice) {
     quantity,
     entryPrice,
     underlyingPrice: entryPrice,
+    ...extra,
   };
 }
 
-function buildCommonSetup({ strategyId, chain, now = Date.now(), priceBasis = DEFAULT_PRICE_BASIS }, buildLegs) {
+function legSideMultiplier(side) {
+  return side === 'sell' || side === 'short' ? -1 : 1;
+}
+
+function getLegDelta(leg) {
+  const greekDelta = Number(leg?.greeks?.delta);
+  if (Number.isFinite(greekDelta)) return greekDelta;
+  if (leg?.optionType === 'call') return 0.5;
+  if (leg?.optionType === 'put') return -0.5;
+  return 0;
+}
+
+function calculateOptionNetDelta(legs = []) {
+  return legs
+    .filter(leg => leg.type === 'option')
+    .reduce((total, leg) => (
+      total + legSideMultiplier(leg.side) * (Number(leg.quantity) || 1) * getLegDelta(leg)
+    ), 0);
+}
+
+function buildDeltaHedgeLeg(optionNetDelta, underlyingPrice) {
+  return underlyingLeg(
+    'delta-hedge',
+    optionNetDelta >= 0 ? 'short' : 'long',
+    Number(Math.abs(optionNetDelta).toFixed(6)),
+    underlyingPrice,
+    {
+      instrumentName: 'BTC-PERP / 现货对冲',
+      hedgePurpose: 'delta-neutral',
+    }
+  );
+}
+
+function withGammaScalpingDeltaHedge(legs, underlyingPrice) {
+  const optionLegs = legs.filter(leg => leg.type === 'option');
+  const otherLegs = legs.filter(leg => leg.type !== 'option' && leg.role !== 'delta-hedge');
+  const optionNetDelta = calculateOptionNetDelta(optionLegs);
+  return [
+    ...optionLegs,
+    buildDeltaHedgeLeg(optionNetDelta, underlyingPrice),
+    ...otherLegs,
+  ];
+}
+
+function buildCommonSetup({
+  strategyId,
+  chain,
+  now = Date.now(),
+  priceBasis = DEFAULT_PRICE_BASIS,
+  selectedExpiration = null,
+}, buildLegs) {
   const blueprint = getStrategyBlueprint(strategyId);
   const underlyingPrice = getUnderlyingPrice(chain);
-  const legs = buildLegs({ chain, now, priceBasis, underlyingPrice });
+  const legs = buildLegs({ chain, now, priceBasis, underlyingPrice, selectedExpiration });
   const optionLegs = legs.filter(leg => leg.type === 'option');
   const expirations = getExpirations(chain, now);
 
@@ -151,13 +230,13 @@ function buildCommonSetup({ strategyId, chain, now = Date.now(), priceBasis = DE
   };
 }
 
-function sameExpiry(chain, now) {
-  return chooseExpiration(chain, now, 'primary');
+function sameExpiry(chain, now, selectedExpiration = null) {
+  return chooseExpiration(chain, now, 'primary', selectedExpiration);
 }
 
 function makeStraddle(side) {
-  return ({ chain, now, priceBasis }) => {
-    const expiration = sameExpiry(chain, now);
+  return ({ chain, now, priceBasis, selectedExpiration }) => {
+    const expiration = sameExpiry(chain, now, selectedExpiration);
     return [
       optionLeg(`${side}-atm-call`, side, chooseAtm(chain, expiration, 'call'), 1, priceBasis),
       optionLeg(`${side}-atm-put`, side, chooseAtm(chain, expiration, 'put'), 1, priceBasis),
@@ -166,8 +245,8 @@ function makeStraddle(side) {
 }
 
 function makeStrangle(side) {
-  return ({ chain, now, priceBasis }) => {
-    const expiration = sameExpiry(chain, now);
+  return ({ chain, now, priceBasis, selectedExpiration }) => {
+    const expiration = sameExpiry(chain, now, selectedExpiration);
     return [
       optionLeg(`${side}-otm-call`, side, chooseOffset(chain, expiration, 'call', 1), 1, priceBasis),
       optionLeg(`${side}-otm-put`, side, chooseOffset(chain, expiration, 'put', -1), 1, priceBasis),
@@ -175,8 +254,8 @@ function makeStrangle(side) {
   };
 }
 
-function ironCondor({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function ironCondor({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('long-put-wing', 'buy', chooseOffset(chain, expiration, 'put', -3), 1, priceBasis),
     optionLeg('short-put', 'sell', chooseOffset(chain, expiration, 'put', -1), 1, priceBasis),
@@ -185,9 +264,9 @@ function ironCondor({ chain, now, priceBasis }) {
   ];
 }
 
-function calendarSpread({ chain, now, priceBasis }) {
-  const near = chooseExpiration(chain, now, 'primary');
-  const far = chooseExpiration(chain, now, 'far');
+function calendarSpread({ chain, now, priceBasis, selectedExpiration }) {
+  const near = chooseExpiration(chain, now, 'primary', selectedExpiration);
+  const far = chooseExpiration(chain, now, 'far', selectedExpiration);
   const nearCall = chooseAtm(chain, near, 'call');
   const farCall = chooseByStrike(chain, far, 'call', nearCall.strike);
   return [
@@ -196,17 +275,17 @@ function calendarSpread({ chain, now, priceBasis }) {
   ];
 }
 
-function diagonalSpread({ chain, now, priceBasis }) {
-  const near = chooseExpiration(chain, now, 'primary');
-  const far = chooseExpiration(chain, now, 'far');
+function diagonalSpread({ chain, now, priceBasis, selectedExpiration }) {
+  const near = chooseExpiration(chain, now, 'primary', selectedExpiration);
+  const far = chooseExpiration(chain, now, 'far', selectedExpiration);
   return [
     optionLeg('far-long-call', 'buy', chooseAtm(chain, far, 'call'), 1, priceBasis),
     optionLeg('near-short-call', 'sell', chooseOffset(chain, near, 'call', 1), 1, priceBasis),
   ];
 }
 
-function butterfly({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function butterfly({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('long-low-call', 'buy', chooseOffset(chain, expiration, 'call', -1), 1, priceBasis),
     optionLeg('short-middle-call', 'sell', chooseAtm(chain, expiration, 'call'), 2, priceBasis),
@@ -214,8 +293,8 @@ function butterfly({ chain, now, priceBasis }) {
   ];
 }
 
-function collar({ chain, now, priceBasis, underlyingPrice }) {
-  const expiration = sameExpiry(chain, now);
+function collar({ chain, now, priceBasis, underlyingPrice, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     underlyingLeg('spot-btc', 'long', 1, underlyingPrice),
     optionLeg('protective-put', 'buy', chooseOffset(chain, expiration, 'put', -1), 1, priceBasis),
@@ -223,8 +302,8 @@ function collar({ chain, now, priceBasis, underlyingPrice }) {
   ];
 }
 
-function putSpreadCollar({ chain, now, priceBasis, underlyingPrice }) {
-  const expiration = sameExpiry(chain, now);
+function putSpreadCollar({ chain, now, priceBasis, underlyingPrice, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     underlyingLeg('spot-btc', 'long', 1, underlyingPrice),
     optionLeg('long-protective-put', 'buy', chooseOffset(chain, expiration, 'put', -1), 1, priceBasis),
@@ -233,48 +312,49 @@ function putSpreadCollar({ chain, now, priceBasis, underlyingPrice }) {
   ];
 }
 
-function gammaScalping({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
-  return [
+function gammaScalping({ chain, now, priceBasis, underlyingPrice, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
+  const optionLegs = [
     optionLeg('long-gamma-call', 'buy', chooseAtm(chain, expiration, 'call'), 1, priceBasis),
     optionLeg('long-gamma-put', 'buy', chooseAtm(chain, expiration, 'put'), 1, priceBasis),
   ];
+  return withGammaScalpingDeltaHedge(optionLegs, underlyingPrice);
 }
 
-function bullCallSpread({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function bullCallSpread({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('long-lower-call', 'buy', chooseAtm(chain, expiration, 'call'), 1, priceBasis),
     optionLeg('short-higher-call', 'sell', chooseOffset(chain, expiration, 'call', 1), 1, priceBasis),
   ];
 }
 
-function bullPutSpread({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function bullPutSpread({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('short-higher-put', 'sell', chooseOffset(chain, expiration, 'put', -1), 1, priceBasis),
     optionLeg('long-lower-put', 'buy', chooseOffset(chain, expiration, 'put', -2), 1, priceBasis),
   ];
 }
 
-function bearPutSpread({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function bearPutSpread({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('long-higher-put', 'buy', chooseAtm(chain, expiration, 'put'), 1, priceBasis),
     optionLeg('short-lower-put', 'sell', chooseOffset(chain, expiration, 'put', -1), 1, priceBasis),
   ];
 }
 
-function riskReversal({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function riskReversal({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('short-put', 'sell', chooseOffset(chain, expiration, 'put', -1), 1, priceBasis),
     optionLeg('long-call', 'buy', chooseOffset(chain, expiration, 'call', 1), 1, priceBasis),
   ];
 }
 
-function syntheticLongStock({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function syntheticLongStock({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   const call = chooseAtm(chain, expiration, 'call');
   return [
     optionLeg('long-call', 'buy', call, 1, priceBasis),
@@ -282,8 +362,8 @@ function syntheticLongStock({ chain, now, priceBasis }) {
   ];
 }
 
-function bullishCrab({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function bullishCrab({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('long-low-call', 'buy', chooseOffset(chain, expiration, 'call', -1), 1, priceBasis),
     optionLeg('short-middle-call', 'sell', chooseAtm(chain, expiration, 'call'), 1, priceBasis),
@@ -292,16 +372,16 @@ function bullishCrab({ chain, now, priceBasis }) {
   ];
 }
 
-function ratioSpread({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function ratioSpread({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('short-lower-call', 'sell', chooseAtm(chain, expiration, 'call'), 1, priceBasis),
     optionLeg('long-higher-calls', 'buy', chooseOffset(chain, expiration, 'call', 1), 2, priceBasis),
   ];
 }
 
-function bullThreeLeg({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function bullThreeLeg({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('short-lower-put', 'sell', chooseOffset(chain, expiration, 'put', -1), 1, priceBasis),
     optionLeg('long-middle-call', 'buy', chooseAtm(chain, expiration, 'call'), 1, priceBasis),
@@ -309,8 +389,8 @@ function bullThreeLeg({ chain, now, priceBasis }) {
   ];
 }
 
-function alligatorStrategy({ chain, now, priceBasis }) {
-  const expiration = sameExpiry(chain, now);
+function alligatorStrategy({ chain, now, priceBasis, selectedExpiration }) {
+  const expiration = sameExpiry(chain, now, selectedExpiration);
   return [
     optionLeg('long-lower-call', 'buy', chooseAtm(chain, expiration, 'call'), 1, priceBasis),
     optionLeg('short-higher-call', 'sell', chooseOffset(chain, expiration, 'call', 1), 1, priceBasis),
@@ -363,13 +443,28 @@ function getStrategyBlueprint(strategyId) {
   return blueprint;
 }
 
-function buildStrategySetup({ strategyId, chain, now = Date.now(), priceBasis = DEFAULT_PRICE_BASIS }) {
+function buildStrategySetup({
+  strategyId,
+  chain,
+  now = Date.now(),
+  priceBasis = DEFAULT_PRICE_BASIS,
+  expirationDate = null,
+  selectedExpiration = expirationDate,
+}) {
   if (!chain || !Array.isArray(chain.options)) {
     throw new Error('A normalized BTC option chain is required');
   }
 
   const blueprint = getStrategyBlueprint(strategyId);
-  return buildCommonSetup({ strategyId, chain, now, priceBasis }, blueprint.buildLegs);
+  return buildCommonSetup({ strategyId, chain, now, priceBasis, selectedExpiration }, blueprint.buildLegs);
+}
+
+function rebalanceStrategySetupHedges(setup) {
+  if (setup?.strategyId !== 'gamma-scalping') return setup;
+  return {
+    ...setup,
+    legs: withGammaScalpingDeltaHedge(setup.legs || [], setup.underlyingPrice),
+  };
 }
 
 module.exports = {
@@ -378,7 +473,9 @@ module.exports = {
   getPrice,
   getStrategyBlueprint,
   listStrategyBlueprints,
+  rebalanceStrategySetupHedges,
   __testUtils: {
+    calculateOptionNetDelta,
     chooseAtm,
     chooseOffset,
     inferStep,

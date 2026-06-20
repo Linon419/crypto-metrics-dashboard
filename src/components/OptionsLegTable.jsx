@@ -8,7 +8,13 @@ function formatNumber(value, digits = 4) {
   });
 }
 
-function OptionsLegTable({ legs = [] }) {
+function getUnderlyingLabel(leg) {
+  if (leg.instrumentName) return leg.instrumentName;
+  if (leg.role === 'delta-hedge') return 'BTC 期货/现货对冲';
+  return 'BTC 底仓';
+}
+
+function OptionsLegTable({ legs = [], onQuantityChange }) {
   if (!legs.length) {
     return <Empty description="暂无实时腿位" />;
   }
@@ -36,7 +42,7 @@ function OptionsLegTable({ legs = [] }) {
                 </Tag>
               </td>
               <td>
-                {leg.type === 'underlying' ? 'BTC 底仓' : (
+                {leg.type === 'underlying' ? getUnderlyingLabel(leg) : (
                   <div>
                     <strong>{leg.instrumentName}</strong>
                     <span>{leg.optionType?.toUpperCase()}</span>
@@ -45,7 +51,19 @@ function OptionsLegTable({ legs = [] }) {
               </td>
               <td>{leg.expirationDate || '-'}</td>
               <td>{formatNumber(leg.strike, 0)}</td>
-              <td>{formatNumber(leg.quantity, 2)}</td>
+              <td>
+                {onQuantityChange ? (
+                  <input
+                    aria-label={`数量 ${leg.instrumentName || leg.role || leg.id}`}
+                    className="options-leg-quantity-input"
+                    min="0.01"
+                    step="0.1"
+                    type="number"
+                    value={leg.quantity}
+                    onChange={event => onQuantityChange(leg, event.target.value)}
+                  />
+                ) : formatNumber(leg.quantity, 2)}
+              </td>
               <td>{leg.type === 'underlying' ? `$${formatNumber(leg.entryPrice, 0)}` : `${formatNumber(leg.entryPrice, 5)} BTC`}</td>
               <td>{leg.entryIv ? `${formatNumber(leg.entryIv, 1)}%` : '-'}</td>
             </tr>

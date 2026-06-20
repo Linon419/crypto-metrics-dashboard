@@ -27,6 +27,7 @@
     "node-cron": "^4.2.1",
     "node-telegram-bot-api": "^0.66.0",
     "openai": "^4.98.0",
+    "plotly.js-basic-dist-min": "^3.6.0",
     "react": "^19.1.2",
     "react-dom": "^19.1.2",
     "react-redux": "^9.2.0",
