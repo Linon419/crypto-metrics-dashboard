@@ -11,7 +11,7 @@ COPY public/ ./public/
 COPY src/ ./src/
 
 # 安装依赖并构建前端
-RUN npm install
+RUN npm ci
 RUN npm run build
 
 # 阶段 2: 设置API服务器和Telegram机器人
@@ -27,13 +27,11 @@ COPY telegram-bot/ ./telegram-bot/
 
 # 安装后端依赖
 WORKDIR /app/server
-RUN npm install --production
-# 安装认证所需模块
-RUN npm install jsonwebtoken bcryptjs
+RUN npm ci --omit=dev
 
 # 安装Telegram机器人依赖
 WORKDIR /app/telegram-bot
-RUN npm install --production
+RUN npm ci --omit=dev
 
 # 回到根目录
 WORKDIR /app
