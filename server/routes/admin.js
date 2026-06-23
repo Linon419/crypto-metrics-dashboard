@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { Op } = require('sequelize');
 const router = express.Router();
 const {
+  AppSetting,
   BtcPricePoint,
   Coin,
   CoinKline,
@@ -20,6 +21,17 @@ const {
 } = require('../models');
 const { verifyToken, requireAdmin } = require('../middleware/auth');
 const { getSystemSettings, updateSystemSettings } = require('../utils/settings');
+const {
+  getOpenAIPromptSettings,
+  resetOpenAIPromptSettings,
+  updateOpenAIPromptSettings,
+} = require('../utils/openaiPromptSettings');
+const {
+  __testUtils: {
+    DEFAULT_SYSTEM_PROMPT,
+    getDefaultPromptTemplate,
+  },
+} = require('../services/openaiService');
 const {
   PatchValidationError,
   runDatabasePatch,
@@ -63,6 +75,26 @@ function createStatusError(message, statusCode = 500) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+async function buildOpenAIPromptSettingsResponse({
+  AppSettingModel = AppSetting,
+} = {}) {
+  const savedSettings = await getOpenAIPromptSettings({ AppSettingModel });
+  const envSystemPrompt = process.env.OPENAI_SYSTEM_PROMPT || null;
+  const envUserPromptTemplate = process.env.OPENAI_PROMPT || null;
+  const defaultUserPromptTemplate = getDefaultPromptTemplate();
+
+  return {
+    systemPrompt: savedSettings.systemPrompt || envSystemPrompt || DEFAULT_SYSTEM_PROMPT,
+    userPromptTemplate: savedSettings.userPromptTemplate || envUserPromptTemplate || defaultUserPromptTemplate,
+    defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    defaultUserPromptTemplate,
+    sources: {
+      systemPrompt: savedSettings.systemPrompt ? 'database' : (envSystemPrompt ? 'env' : 'default'),
+      userPromptTemplate: savedSettings.userPromptTemplate ? 'database' : (envUserPromptTemplate ? 'env' : 'default'),
+    },
+  };
 }
 
 function parseOptionalDate(value, boundary) {
@@ -1352,7 +1384,66 @@ router.put('/settings', async (req, res) => {
   }
 });
 
+router.get('/openai-prompt-settings', async (req, res) => {
+  try {
+    await AppSetting?.sync?.();
+    const settings = await buildOpenAIPromptSettingsResponse();
+    res.json({
+      success: true,
+      settings,
+    });
+  } catch (error) {
+    console.error('获取AI解析Prompt设置失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '获取AI解析Prompt设置失败',
+    });
+  }
+});
+
+router.put('/openai-prompt-settings', async (req, res) => {
+  try {
+    await AppSetting?.sync?.();
+    await updateOpenAIPromptSettings({ AppSettingModel: AppSetting }, {
+      systemPrompt: req.body.systemPrompt,
+      userPromptTemplate: req.body.userPromptTemplate,
+    });
+    const settings = await buildOpenAIPromptSettingsResponse();
+    res.json({
+      success: true,
+      message: 'AI解析Prompt设置已保存',
+      settings,
+    });
+  } catch (error) {
+    console.error('保存AI解析Prompt设置失败:', error);
+    res.status(error.statusCode || 400).json({
+      success: false,
+      error: error.message || '保存AI解析Prompt设置失败',
+    });
+  }
+});
+
+router.post('/openai-prompt-settings/reset', async (req, res) => {
+  try {
+    await AppSetting?.sync?.();
+    await resetOpenAIPromptSettings({ AppSettingModel: AppSetting });
+    const settings = await buildOpenAIPromptSettingsResponse();
+    res.json({
+      success: true,
+      message: 'AI解析Prompt设置已恢复默认',
+      settings,
+    });
+  } catch (error) {
+    console.error('恢复AI解析Prompt设置失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '恢复AI解析Prompt设置失败',
+    });
+  }
+});
+
 router.__test = {
+  buildOpenAIPromptSettingsResponse,
   buildCoinMetricStatusById,
   createAdminCoin,
   deleteAdminCoin,

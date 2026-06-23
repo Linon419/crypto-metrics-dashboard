@@ -104,4 +104,35 @@ describe('KlineMappingSettings', () => {
       tradingSymbol: '^BTC',
     }, 'binance_usdm_perpetual')).toBe('BTCUSDT');
   });
+
+  test('keeps China futures mapping symbols unchanged', () => {
+    expect(getTradingSymbolForMarket({
+      coinSymbol: 'CN_HOG',
+      market: 'yahoo_finance',
+      tradingSymbol: 'LH0',
+    }, 'china_futures_sina')).toBe('LH0');
+  });
+
+  test('shows China futures source label', async () => {
+    fetchKlineMappings.mockResolvedValueOnce({
+      mappings: [
+        {
+          coinId: 2,
+          coinSymbol: 'CN_HOG',
+          coinName: '国内生猪',
+          market: 'china_futures_sina',
+          tradingSymbol: 'LH0',
+          enabled: true,
+          notes: '默认映射',
+          isDefault: true,
+        },
+      ],
+    });
+
+    render(<KlineMappingSettings />);
+
+    expect(await screen.findByText('CN_HOG')).toBeInTheDocument();
+    expect(screen.getAllByText('新浪国内期货').length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue('LH0')).toBeInTheDocument();
+  });
 });

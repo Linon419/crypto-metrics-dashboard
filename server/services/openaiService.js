@@ -2,11 +2,16 @@
 const { OpenAI } = require('openai');
 require('dotenv').config();
 const { parseFlexibleDateTime, formatToISO } = require('../utils/timeParser');
+const {
+  getOpenAIPromptSettings,
+  renderPromptTemplate,
+} = require('../utils/openaiPromptSettings');
 
 // 延迟初始化OpenAI客户端
 let openai = null;
 
 const MOMENTUM_INDICATORS = ['$', '*', '※', '‼', '↑', 'w'];
+const DEFAULT_SYSTEM_PROMPT = '你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。';
 
 function getOpenAIClient() {
   if (!openai) {
@@ -214,12 +219,16 @@ ${processedText}
 | 期权波动率/比特币Vega交易 | VEGA |
 | Trump / $Trump | TRUMP |
 | 黄金OTC | GOLD |
+| 白银 / Xag / XAG / Silver / SILVER | XAG |
 | 地产/水泥 | ESTATE |
 | 布伦特原油 | OIL |
 | 美股个股 | 保持原样大写（HOOD, COIN, CIRCLE, TSLA, NVDA, AAPL, GOOG等） |
 | 国内人工智能ETF | CN_AI_ETF |
 | 国内机器人ETF | CN_ROBOT |
 | A股指数 | CN_INDEX |
+| 国内生猪 / 生猪 / 猪肉CPI / 消费CPI生猪 | CN_HOG |
+| 海力士 / SK 海力士 / SK海力士 / SK Hynix / HYNIX / SK_HYNIX | SK_HYNIX |
+| 三星电子 / Samsung Electronics / 三星 | SAMSUNG |
 
 ---
 
@@ -323,6 +332,33 @@ ${processedText}
 
 开始解析数据。`;
 }
+
+function getDefaultPromptTemplate() {
+  const currentDate = new Date().toISOString().split('T')[0];
+  return getDefaultPrompt('{{processedText}}')
+    .replace(`**当前日期**: ${currentDate} (YYYY-MM-DD)`, '**当前日期**: {{currentDate}} (YYYY-MM-DD)');
+}
+
+async function resolvePromptConfig(processedText) {
+  const savedSettings = await getOpenAIPromptSettings();
+  const systemPrompt = savedSettings.systemPrompt
+    || process.env.OPENAI_SYSTEM_PROMPT
+    || DEFAULT_SYSTEM_PROMPT;
+  const promptTemplate = savedSettings.userPromptTemplate || process.env.OPENAI_PROMPT || null;
+  const prompt = promptTemplate
+    ? renderPromptTemplate(promptTemplate, { processedText })
+    : getDefaultPrompt(processedText);
+
+  return {
+    prompt,
+    systemPrompt,
+    source: {
+      systemPrompt: savedSettings.systemPrompt ? 'database' : (process.env.OPENAI_SYSTEM_PROMPT ? 'env' : 'default'),
+      userPromptTemplate: savedSettings.userPromptTemplate ? 'database' : (process.env.OPENAI_PROMPT ? 'env' : 'default'),
+    },
+  };
+}
+
 /**
  * 处理原始加密货币指标数据
  * @param {string} rawText - 原始文本数据
@@ -337,9 +373,7 @@ async function processRawData(rawText, customModel = null) {
     // 预处理日期 - 在发送到AI前先修复常见格式问题
     const processedText = preprocessDateFormat(rawText);
 
-    // 构建提示 - 从环境变量获取或使用默认值
-    const customPrompt = process.env.OPENAI_PROMPT;
-    const prompt = customPrompt ? customPrompt.replace('{{processedText}}', processedText) : getDefaultPrompt(processedText);
+    const { prompt, systemPrompt, source: promptSource } = await resolvePromptConfig(processedText);
 
     console.log('============ API请求开始 ============');
     const apiStartTime = Date.now();
@@ -348,8 +382,6 @@ async function processRawData(rawText, customModel = null) {
     const openaiClient = getOpenAIClient();
     // 优先使用传入的模型，其次使用环境变量，最后使用默认值
     const model = customModel || process.env.OPENAI_MODEL || "gpt-4o";
-    const systemPrompt = process.env.OPENAI_SYSTEM_PROMPT || "你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。";
-
     console.log('使用的模型:', model);
     if (customModel) {
       console.log('模型来源: 用户选择');
@@ -358,6 +390,7 @@ async function processRawData(rawText, customModel = null) {
     } else {
       console.log('模型来源: 默认配置');
     }
+    console.log('Prompt来源:', promptSource);
     console.log('数据大小:', rawText.length, '字符');
 
     // 设置OpenAI API调用超时（6分钟）
@@ -581,11 +614,14 @@ function validateAndFixDate(date, rawText, currentYear) {
 module.exports = {
   processRawData,
   __testUtils: {
+    DEFAULT_SYSTEM_PROMPT,
     filterMomentumIndicatorsByRawText,
     getCoinEvidenceBlock,
     getDefaultPrompt,
+    getDefaultPromptTemplate,
     hasIndicatorSource,
     normalizeMomentumIndicators,
+    resolvePromptConfig,
     validateAndFixDate,
   },
 };

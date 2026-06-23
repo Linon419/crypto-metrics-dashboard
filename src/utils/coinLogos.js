@@ -8,7 +8,7 @@ const LOGO_COLORS = [
   ['#4f46e5', '#e0e7ff'],
   ['#be123c', '#ffe4e6'],
 ];
-const LOGO_CACHE_VERSION = '20260618-aaoi-official';
+const LOGO_CACHE_VERSION = '20260623-new-symbol-logos-v2';
 
 function normalizeSymbol(symbol) {
   return String(symbol || '').trim().toUpperCase();

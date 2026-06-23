@@ -2,18 +2,22 @@ const { Op } = require('sequelize');
 const {
   KLINE_MARKETS,
   findLatestMetricDate,
+  getChinaFuturesSinaTradingSymbol,
   getYahooTradingSymbol,
   normalizeBinanceTradingSymbol,
   resolveEffectiveKlineMapping,
+  shouldUseChinaFuturesSina,
 } = require('./coinKlineMappings');
 
 const BINANCE_USDM_KLINES_URL = 'https://fapi.binance.com/fapi/v1/klines';
 const BINANCE_SPOT_KLINES_URL = 'https://api.binance.com/api/v3/klines';
 const YAHOO_FINANCE_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart';
+const CHINA_FUTURES_SINA_JSONP_URL = 'https://stock2.finance.sina.com.cn/futures/api/jsonp.php';
 const DEFAULT_MARKET = 'binance_usdm_perpetual';
 const BINANCE_SPOT_MARKET = 'binance_spot';
 const YAHOO_FINANCE_MARKET = 'yahoo_finance';
 const DERIBIT_BTC_DVOL_MARKET = 'deribit_btc_dvol';
+const CHINA_FUTURES_SINA_MARKET = 'china_futures_sina';
 const DERIBIT_BTC_DVOL_SYMBOL = 'BTC-DVOL';
 const DEFAULT_INTERVAL = '1d';
 const DEFAULT_LIMIT = 365;
@@ -217,12 +221,20 @@ function shouldUseYahooFinance(symbol, klineMapping) {
   return YAHOO_FINANCE_COIN_SYMBOLS.has(String(symbol || '').trim().toUpperCase());
 }
 
+function shouldUseChinaFuturesSinaMarket(symbol, klineMapping) {
+  if (klineMapping?.enabled && klineMapping.market === CHINA_FUTURES_SINA_MARKET) {
+    return true;
+  }
+  return shouldUseChinaFuturesSina(symbol);
+}
+
 function getPreferredKlineMarket(symbol, klineMapping) {
   const effectiveMapping = klineMapping
     ? resolveEffectiveKlineMapping({ symbol }, klineMapping)
     : null;
   if (effectiveMapping?.enabled && effectiveMapping.market) return effectiveMapping.market;
   if (shouldUseDeribitBtcDvol(symbol)) return DERIBIT_BTC_DVOL_MARKET;
+  if (shouldUseChinaFuturesSinaMarket(symbol)) return CHINA_FUTURES_SINA_MARKET;
   if (shouldUseYahooFinance(symbol)) return YAHOO_FINANCE_MARKET;
   return null;
 }
@@ -233,6 +245,22 @@ function normalizeYahooInterval(interval = DEFAULT_INTERVAL) {
   if (normalized === '1w') return '1wk';
   if (normalized === '1M') return '1mo';
   return normalized;
+}
+
+function normalizeChinaFuturesSinaIntervalType(interval = DEFAULT_INTERVAL) {
+  const normalized = normalizeInterval(interval);
+  const intervalTypes = {
+    '15m': '15',
+    '30m': '30',
+    '1h': '60',
+    '4h': '240',
+    '1d': 'D',
+  };
+  const type = intervalTypes[normalized];
+  if (!type) {
+    throw new Error(`Unsupported China futures Sina interval: ${interval}`);
+  }
+  return type;
 }
 
 function normalizeLimit(limit = DEFAULT_LIMIT) {
@@ -691,6 +719,38 @@ function buildYahooFinanceChartUrl({
   return `${YAHOO_FINANCE_CHART_URL}/${encodeURIComponent(yahooSymbol)}?${params.toString()}`;
 }
 
+function buildChinaFuturesSinaUrl({
+  symbol,
+  interval = DEFAULT_INTERVAL,
+  limit = DEFAULT_LIMIT,
+  timestamp = Date.now(),
+} = {}) {
+  const tradingSymbol = String(symbol || '').trim().toUpperCase();
+  if (!tradingSymbol) {
+    throw new Error('China futures Sina symbol is required');
+  }
+
+  const type = normalizeChinaFuturesSinaIntervalType(interval);
+  const normalizedLimit = normalizeLimit(limit);
+  const stamp = new Date(toTimestampMs(timestamp, 'timestamp'))
+    .toISOString()
+    .replace(/\D/g, '')
+    .slice(0, 14);
+  const callback = `var _${tradingSymbol}_${type}_${stamp}=`;
+  const service = type === 'D'
+    ? 'InnerFuturesNewService.getDailyKLine'
+    : 'InnerFuturesNewService.getFewMinLine';
+  const params = new URLSearchParams({ symbol: tradingSymbol });
+
+  if (type === 'D') {
+    params.set('datalen', String(normalizedLimit));
+  } else {
+    params.set('type', type);
+  }
+
+  return `${CHINA_FUTURES_SINA_JSONP_URL}/${encodeURIComponent(callback)}/${service}?${params.toString()}`;
+}
+
 async function fetchKlinesFromUrl(url, fetchImpl, errorPrefix) {
   if (typeof fetchImpl !== 'function') {
     throw new Error('fetch is unavailable in this Node runtime');
@@ -798,6 +858,116 @@ async function fetchYahooFinanceChart({
   });
 
   return rows.slice(-normalizeLimit(limit));
+}
+
+function parseChinaFuturesSinaJsonp(text) {
+  const rawText = String(text || '');
+  const start = rawText.indexOf('(');
+  const end = rawText.lastIndexOf(')');
+  if (start < 0 || end <= start) {
+    throw new Error('China futures Sina response is not JSONP');
+  }
+
+  const payload = JSON.parse(rawText.slice(start + 1, end));
+  if (payload && !Array.isArray(payload) && payload.__ERROR) {
+    throw new Error(`China futures Sina request failed: ${payload.__ERRORMSG || payload.__ERROR}`);
+  }
+  if (!Array.isArray(payload)) {
+    throw new Error('China futures Sina response is empty');
+  }
+
+  return payload;
+}
+
+function parseChinaFuturesSinaTimestamp(value) {
+  const text = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return Date.parse(`${text}T00:00:00+08:00`);
+  }
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)) {
+    return Date.parse(`${text.replace(' ', 'T')}+08:00`);
+  }
+  return Date.parse(text);
+}
+
+function parseChinaFuturesSinaKlineRows(rows, {
+  coinId,
+  coinSymbol,
+  tradingSymbol,
+  interval = DEFAULT_INTERVAL,
+} = {}) {
+  if (!Array.isArray(rows)) {
+    throw new Error('Invalid China futures Sina kline payload');
+  }
+
+  const normalizedInterval = normalizeInterval(interval);
+  const intervalMs = INTERVAL_MS[normalizedInterval] || INTERVAL_MS['1d'];
+  const resolvedTradingSymbol = String(tradingSymbol || getChinaFuturesSinaTradingSymbol(coinSymbol)).toUpperCase();
+
+  return rows
+    .map((row) => {
+      const openTimeMs = parseChinaFuturesSinaTimestamp(row?.d);
+      if (!Number.isFinite(openTimeMs)) return null;
+
+      return {
+        coin_id: coinId,
+        coin_symbol: String(coinSymbol || '').toUpperCase(),
+        trading_symbol: resolvedTradingSymbol,
+        market: CHINA_FUTURES_SINA_MARKET,
+        interval: normalizedInterval,
+        open_time: new Date(openTimeMs),
+        close_time: new Date(openTimeMs + intervalMs - 1),
+        open_price: toNumber(row.o, 'open'),
+        high_price: toNumber(row.h, 'high'),
+        low_price: toNumber(row.l, 'low'),
+        close_price: toNumber(row.c, 'close'),
+        volume: toNumber(row.v || 0, 'volume'),
+        quote_volume: toNumber(row.p || 0, 'openInterest'),
+        trade_count: 0,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function fetchChinaFuturesSinaKlines({
+  symbol,
+  interval = DEFAULT_INTERVAL,
+  limit = DEFAULT_LIMIT,
+  startTime,
+  endTime,
+  fetchImpl = global.fetch,
+} = {}) {
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch is unavailable in this Node runtime');
+  }
+
+  const url = buildChinaFuturesSinaUrl({ symbol, interval, limit });
+  const response = await fetchImpl(url, {
+    headers: {
+      accept: 'application/javascript,text/javascript,*/*',
+      'user-agent': 'Mozilla/5.0 crypto-metrics-dashboard/0.1',
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`China futures Sina request failed: ${response.status} ${body}`.trim());
+  }
+
+  const text = await response.text();
+  const rawRows = parseChinaFuturesSinaJsonp(text);
+  const startMs = startTime ? toNumber(startTime, 'startTime') : null;
+  const endMs = endTime ? toNumber(endTime, 'endTime') : null;
+  const rows = parseChinaFuturesSinaKlineRows(rawRows, {
+    coinSymbol: symbol,
+    tradingSymbol: symbol,
+    interval,
+  });
+
+  return rows
+    .filter(row => (startMs === null || row.open_time.getTime() >= startMs)
+      && (endMs === null || row.open_time.getTime() <= endMs))
+    .slice(-normalizeLimit(limit));
 }
 
 async function fetchDeribitBtcDvolKlines({
@@ -935,6 +1105,21 @@ async function fetchMarketKlinesWithFallback(options) {
     return { rows, market: BINANCE_SPOT_MARKET, tradingSymbol };
   }
 
+  if (klineMapping?.enabled && klineMapping.market === KLINE_MARKETS.CHINA_FUTURES_SINA) {
+    const tradingSymbol = String(klineMapping.trading_symbol || '').trim().toUpperCase();
+    const rows = await fetchChinaFuturesSinaKlines({
+      ...options,
+      symbol: tradingSymbol,
+    });
+    return {
+      rows,
+      market: CHINA_FUTURES_SINA_MARKET,
+      tradingSymbol,
+      normalizedRows: true,
+      fallbackReason: null,
+    };
+  }
+
   if (shouldUseYahooFinance(options.coinSymbol)) {
     const yahooSymbol = resolveYahooSymbol(options.coinSymbol);
     const rows = await fetchYahooFinanceChart({
@@ -945,6 +1130,21 @@ async function fetchMarketKlinesWithFallback(options) {
       rows,
       market: YAHOO_FINANCE_MARKET,
       tradingSymbol: yahooSymbol,
+      normalizedRows: true,
+      fallbackReason: null,
+    };
+  }
+
+  if (shouldUseChinaFuturesSinaMarket(options.coinSymbol)) {
+    const tradingSymbol = getChinaFuturesSinaTradingSymbol(options.coinSymbol);
+    const rows = await fetchChinaFuturesSinaKlines({
+      ...options,
+      symbol: tradingSymbol,
+    });
+    return {
+      rows,
+      market: CHINA_FUTURES_SINA_MARKET,
+      tradingSymbol,
       normalizedRows: true,
       fallbackReason: null,
     };
@@ -1211,6 +1411,8 @@ module.exports = {
   BINANCE_USDM_KLINES_URL,
   BINANCE_SPOT_KLINES_URL,
   BINANCE_SPOT_MARKET,
+  CHINA_FUTURES_SINA_MARKET,
+  CHINA_FUTURES_SINA_JSONP_URL,
   DERIBIT_BTC_DVOL_MARKET,
   DERIBIT_BTC_DVOL_SYMBOL,
   DEFAULT_INTERVAL,
@@ -1218,6 +1420,7 @@ module.exports = {
   DEFAULT_MARKET,
   MAX_LIMIT,
   YAHOO_FINANCE_MARKET,
+  buildChinaFuturesSinaUrl,
   buildCoinKlineBackfillChunks,
   buildBinanceSpotKlinesUrl,
   buildBinanceUsdmKlinesUrl,
@@ -1225,6 +1428,7 @@ module.exports = {
   clearYahooSyncCache,
   fetchBinanceSpotKlines,
   fetchBinanceUsdmKlines,
+  fetchChinaFuturesSinaKlines,
   fetchDeribitBtcDvolKlines,
   fetchMarketKlinesWithFallback,
   fetchYahooFinanceChart,
@@ -1236,6 +1440,7 @@ module.exports = {
   normalizeLimit,
   normalizeTradingSymbol,
   parseBinanceKlineRow,
+  parseChinaFuturesSinaKlineRows,
   parseYahooChartResult,
   resolveYahooSymbol,
   shouldRefreshStoredCoinKlines,

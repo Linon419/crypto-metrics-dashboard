@@ -6,14 +6,14 @@ describe('coinLogos', () => {
   });
 
   test('uses backend logo cache route by default', () => {
-    expect(getCoinLogoUrl('BTC')).toBe('http://localhost:3001/api/logos/BTC?v=20260618-aaoi-official');
-    expect(getCoinLogoUrl('pltr')).toBe('http://localhost:3001/api/logos/PLTR?v=20260618-aaoi-official');
+    expect(getCoinLogoUrl('BTC')).toBe('http://localhost:3001/api/logos/BTC?v=20260623-new-symbol-logos-v2');
+    expect(getCoinLogoUrl('pltr')).toBe('http://localhost:3001/api/logos/PLTR?v=20260623-new-symbol-logos-v2');
   });
 
   test('uses runtime API base URL when configured', () => {
     window.runtimeConfig = { API_BASE_URL: 'https://example.com/custom-api/' };
 
-    expect(getCoinLogoUrl('ETH')).toBe('https://example.com/custom-api/logos/ETH?v=20260618-aaoi-official');
+    expect(getCoinLogoUrl('ETH')).toBe('https://example.com/custom-api/logos/ETH?v=20260623-new-symbol-logos-v2');
   });
 
   test('keeps data and blob logo URLs inline', () => {

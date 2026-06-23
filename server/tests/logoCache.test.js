@@ -31,6 +31,21 @@ async function run() {
     assert.strictEqual(estateLogo.source, 'inline');
     assert.match(estateLogo.body.toString('utf8'), /house-bg/);
 
+    const hogLogo = await getLogoResponse('CN_HOG', { cacheDir: tempDir });
+    assert.strictEqual(hogLogo.contentType, 'image/svg+xml; charset=utf-8');
+    assert.strictEqual(hogLogo.source, 'inline');
+    assert.match(hogLogo.body.toString('utf8'), /hog-bg/);
+
+    const samsungLogo = await getLogoResponse('SAMSUNG', { cacheDir: tempDir });
+    assert.strictEqual(samsungLogo.contentType, 'image/svg+xml; charset=utf-8');
+    assert.strictEqual(samsungLogo.source, 'inline');
+    assert.match(samsungLogo.body.toString('utf8'), /samsung-bg/);
+
+    const skHynixLogo = await getLogoResponse('SK_HYNIX', { cacheDir: tempDir });
+    assert.strictEqual(skHynixLogo.contentType, 'image/svg+xml; charset=utf-8');
+    assert.strictEqual(skHynixLogo.source, 'inline');
+    assert.match(skHynixLogo.body.toString('utf8'), /sk-hynix-bg/);
+
     let downloadCount = 0;
     const httpClient = {
       async get(url) {

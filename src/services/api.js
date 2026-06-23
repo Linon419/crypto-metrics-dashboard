@@ -1370,6 +1370,36 @@ export const seedDefaultKlineMappings = async () => {
   }
 };
 
+export const fetchOpenAIPromptSettings = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/admin/openai-prompt-settings'));
+    return response.data;
+  } catch (error) {
+    console.error('[fetchOpenAIPromptSettings] 获取AI解析Prompt设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const updateOpenAIPromptSettings = async (payload) => {
+  try {
+    const response = await callApiWithRetry(() => api.put('/admin/openai-prompt-settings', payload));
+    return response.data;
+  } catch (error) {
+    console.error('[updateOpenAIPromptSettings] 保存AI解析Prompt设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const resetOpenAIPromptSettings = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.post('/admin/openai-prompt-settings/reset'));
+    return response.data;
+  } catch (error) {
+    console.error('[resetOpenAIPromptSettings] 恢复AI解析Prompt设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
 export const previewKlineCleanup = async (payload) => {
   try {
     const response = await callApiWithRetry(() => api.post('/admin/kline-cleanup/preview', payload));

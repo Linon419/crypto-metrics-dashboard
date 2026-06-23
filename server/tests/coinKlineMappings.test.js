@@ -13,6 +13,7 @@ async function run() {
   assert.deepStrictEqual(Object.keys(KLINE_MARKETS).sort(), [
     'BINANCE_SPOT',
     'BINANCE_USDM_PERPETUAL',
+    'CHINA_FUTURES_SINA',
     'DERIBIT_BTC_DVOL',
     'YAHOO_FINANCE',
   ]);
@@ -67,6 +68,34 @@ async function run() {
   assert.deepStrictEqual(getDefaultKlineMappingForSymbol('OIL'), {
     market: 'yahoo_finance',
     trading_symbol: 'BZ=F',
+    enabled: true,
+    notes: '默认映射',
+  });
+
+  assert.deepStrictEqual(getDefaultKlineMappingForSymbol('SK_HYNIX'), {
+    market: 'binance_usdm_perpetual',
+    trading_symbol: 'SKHYNIXUSDT',
+    enabled: true,
+    notes: '默认映射',
+  });
+
+  assert.deepStrictEqual(getDefaultKlineMappingForSymbol('HYNIX'), {
+    market: 'binance_usdm_perpetual',
+    trading_symbol: 'SKHYNIXUSDT',
+    enabled: true,
+    notes: '默认映射',
+  });
+
+  assert.deepStrictEqual(getDefaultKlineMappingForSymbol('SAMSUNG'), {
+    market: 'binance_usdm_perpetual',
+    trading_symbol: 'SAMSUNGUSDT',
+    enabled: true,
+    notes: '默认映射',
+  });
+
+  assert.deepStrictEqual(getDefaultKlineMappingForSymbol('CN_HOG'), {
+    market: 'china_futures_sina',
+    trading_symbol: 'LH0',
     enabled: true,
     notes: '默认映射',
   });

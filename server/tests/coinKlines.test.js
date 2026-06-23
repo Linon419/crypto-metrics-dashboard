@@ -4,17 +4,21 @@ const { Op } = require('sequelize');
 const {
   DERIBIT_BTC_DVOL_MARKET,
   DERIBIT_BTC_DVOL_SYMBOL,
+  CHINA_FUTURES_SINA_MARKET,
   YAHOO_FINANCE_MARKET,
   YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
+  buildChinaFuturesSinaUrl,
   buildCoinKlineBackfillChunks,
   buildBinanceUsdmKlinesUrl,
   buildYahooFinanceChartUrl,
   clearYahooSyncCache,
   fetchBinanceUsdmKlines,
+  fetchChinaFuturesSinaKlines,
   findCoinKlineBackfillGaps,
   findStoredCoinKlines,
   getPreferredKlineMarket,
   parseBinanceKlineRow,
+  parseChinaFuturesSinaKlineRows,
   resolveYahooSymbol,
   shouldRefreshStoredCoinKlines,
   syncCoinKlines,
@@ -335,6 +339,7 @@ async function run() {
   assert.strictEqual(resolveYahooSymbol('CN_INDEX'), '000300.SS');
   assert.strictEqual(resolveYahooSymbol('CN_ROBOT'), '562500.SS');
   assert.strictEqual(getPreferredKlineMarket('VEGA'), DERIBIT_BTC_DVOL_MARKET);
+  assert.strictEqual(getPreferredKlineMarket('SK_HYNIX'), null);
   assert.strictEqual(getPreferredKlineMarket('AXTI'), YAHOO_FINANCE_MARKET);
   assert.strictEqual(getPreferredKlineMarket('BTC'), null);
   const yahooUrl = buildYahooFinanceChartUrl({ symbol: 'CRCL', interval: '1d', range: '1y' });
@@ -352,6 +357,57 @@ async function run() {
 
   const goldYahooUrl = buildYahooFinanceChartUrl({ symbol: 'GOLD', interval: '1d', range: '1y' });
   assert.match(goldYahooUrl, /query1\.finance\.yahoo\.com\/v8\/finance\/chart\/XAU/);
+
+  assert.strictEqual(getPreferredKlineMarket('CN_HOG'), CHINA_FUTURES_SINA_MARKET);
+  const hogMinuteUrl = buildChinaFuturesSinaUrl({ symbol: 'LH0', interval: '4h' });
+  assert.match(hogMinuteUrl, /InnerFuturesNewService\.getFewMinLine/);
+  assert.match(hogMinuteUrl, /symbol=LH0/);
+  assert.match(hogMinuteUrl, /type=240/);
+  const hogDailyUrl = buildChinaFuturesSinaUrl({ symbol: 'LH0', interval: '1d', limit: 500 });
+  assert.match(hogDailyUrl, /InnerFuturesNewService\.getDailyKLine/);
+  assert.match(hogDailyUrl, /datalen=500/);
+
+  const parsedHogRows = parseChinaFuturesSinaKlineRows([
+    { d: '2026-06-19 10:00:00', o: '13500.000', h: '13520.000', l: '13445.000', c: '13450.000', v: '7930', p: '77198' },
+    { d: '2026-06-19 14:00:00', o: '13450.000', h: '13480.000', l: '13410.000', c: '13475.000', v: '4457', p: '78792' },
+  ], {
+    coinId: 14,
+    coinSymbol: 'CN_HOG',
+    tradingSymbol: 'LH0',
+    interval: '4h',
+  });
+  assert.strictEqual(parsedHogRows.length, 2);
+  assert.strictEqual(parsedHogRows[0].market, CHINA_FUTURES_SINA_MARKET);
+  assert.strictEqual(parsedHogRows[0].trading_symbol, 'LH0');
+  assert.strictEqual(parsedHogRows[0].close_price, 13450);
+  assert.strictEqual(parsedHogRows[0].quote_volume, 77198);
+
+  const hogUrls = [];
+  const hogUpserted = [];
+  const hogResult = await syncCoinKlines({
+    coin: { id: 14, symbol: 'CN_HOG' },
+    interval: '4h',
+    limit: 2,
+    fetchImpl: async (url) => {
+      hogUrls.push(String(url));
+      return {
+        ok: true,
+        text: async () => 'var _LH0_240_20260623000000=([{"d":"2026-06-19 10:00:00","o":"13500.000","h":"13520.000","l":"13445.000","c":"13450.000","v":"7930","p":"77198"}]);',
+      };
+    },
+    CoinKlineModel: {
+      async upsert(payload) {
+        hogUpserted.push(payload);
+      },
+    },
+  });
+
+  assert.strictEqual(hogResult.market, CHINA_FUTURES_SINA_MARKET);
+  assert.strictEqual(hogResult.tradingSymbol, 'LH0');
+  assert.match(hogUrls[0], /InnerFuturesNewService\.getFewMinLine/);
+  assert.strictEqual(hogUpserted.length, 1);
+  assert.strictEqual(hogUpserted[0].coin_symbol, 'CN_HOG');
+  assert.strictEqual(hogUpserted[0].close_price, 13450);
 
   const yahooUrls = [];
   const yahooUpserted = [];

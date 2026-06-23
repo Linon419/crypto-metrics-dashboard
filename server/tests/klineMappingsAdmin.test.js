@@ -27,6 +27,7 @@ function createFakeModels() {
       },
     }],
   ]);
+  const appSettings = new Map();
   const klineRows = [
     {
       coin_symbol: 'GOLD',
@@ -137,6 +138,32 @@ function createFakeModels() {
         return before - this.rows.length;
       },
     },
+    AppSettingModel: {
+      async findAll() {
+        return Array.from(appSettings.values());
+      },
+      async findOne(options) {
+        return appSettings.get(options.where.key) || null;
+      },
+      async create(payload) {
+        const row = {
+          ...payload,
+          update(nextPayload) {
+            Object.assign(this, nextPayload);
+            return Promise.resolve(this);
+          },
+          get() {
+            return this;
+          },
+        };
+        appSettings.set(payload.key, row);
+        return row;
+      },
+      async destroy(options) {
+        const keys = Array.isArray(options.where.key) ? options.where.key : [options.where.key];
+        keys.forEach(key => appSettings.delete(key));
+      },
+    },
   };
 }
 
@@ -147,6 +174,7 @@ async function run() {
     seedDefaultKlineMappings,
     deleteKlinesByCleanupFilters,
     updateKlineMapping,
+    buildOpenAIPromptSettingsResponse,
   } = adminRouter.__test;
 
   const models = createFakeModels();
@@ -238,6 +266,19 @@ async function run() {
   });
   assert.strictEqual(deleted.deleted, 1);
   assert.strictEqual(cleanupModels.CoinKlineModel.rows.length, 2);
+
+  const promptModels = createFakeModels();
+  const defaultPromptSettings = await buildOpenAIPromptSettingsResponse(promptModels);
+  assert.strictEqual(defaultPromptSettings.sources.userPromptTemplate, 'default');
+  assert.ok(defaultPromptSettings.userPromptTemplate.includes('{{processedText}}'));
+
+  await promptModels.AppSettingModel.create({
+    key: 'openai_user_prompt_template',
+    value: '自定义 {{processedText}}',
+  });
+  const savedPromptSettings = await buildOpenAIPromptSettingsResponse(promptModels);
+  assert.strictEqual(savedPromptSettings.sources.userPromptTemplate, 'database');
+  assert.strictEqual(savedPromptSettings.userPromptTemplate, '自定义 {{processedText}}');
 
   console.log('klineMappingsAdmin.test.js passed');
 }

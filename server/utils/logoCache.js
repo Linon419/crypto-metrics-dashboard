@@ -28,6 +28,8 @@ const DOMAIN_LOGO_HOSTS = {
 
 const BRAND_LOGO_TYPES = {
   AAOI: 'aaoi',
+  SAMSUNG: 'samsung',
+  SK_HYNIX: 'sk_hynix',
 };
 
 const COMMODITY_LOGO_TYPES = {
@@ -41,6 +43,7 @@ const COMMODITY_LOGO_TYPES = {
 };
 
 const THEMATIC_LOGO_TYPES = {
+  CN_HOG: 'hog',
   ESTATE: 'house',
   地产: 'house',
 };
@@ -195,6 +198,25 @@ function buildCommodityLogoSvg(type) {
 
 function buildThematicLogoSvg(type) {
   const thematicLogos = {
+    hog: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="hog-bg" x1="12" y1="8" x2="52" y2="58">
+            <stop offset="0" stop-color="#fee2e2"/>
+            <stop offset="0.48" stop-color="#fb7185"/>
+            <stop offset="1" stop-color="#be123c"/>
+          </linearGradient>
+        </defs>
+        <rect width="64" height="64" rx="32" fill="url(#hog-bg)"/>
+        <ellipse cx="32" cy="34" rx="18" ry="14" fill="#fff1f2"/>
+        <circle cx="24" cy="30" r="3" fill="#9f1239"/>
+        <circle cx="40" cy="30" r="3" fill="#9f1239"/>
+        <ellipse cx="32" cy="39" rx="8" ry="5" fill="#fecdd3" stroke="#9f1239" stroke-width="2"/>
+        <circle cx="29" cy="39" r="1.4" fill="#9f1239"/>
+        <circle cx="35" cy="39" r="1.4" fill="#9f1239"/>
+        <path d="M18 24c-4-8 6-9 8-3M46 24c4-8-6-9-8-3" fill="#fff1f2" stroke="#9f1239" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    `,
     house: `
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
         <defs>
@@ -232,6 +254,35 @@ function buildBrandLogoSvg(type) {
           <path d="m4.70128,3.28146c-.05126-.02399-.10773-.01716-.16151-.02591-.28559-.04647-.53562-.1618-.74027-.36933-.01075-.0109-.02247-.02092-.0344-.03053-.0048-.00386-.01138-.00551-.01722-.00819-.0184.01408-.00626.028-.00101.04067.03354.08097.06807.16153.10127.24264.008.01954.02281.03801.01618.06186-.01939.01565-.04213.01005-.06324.01009-.25892.00044-.51784-.00092-.77674.00135-.04917.00043-.07334-.01656-.09305-.06114-.2693-.6093-.54036-1.21781-.81136-1.82635-.0113-.02538-.01888-.05351-.04049-.07414-.03291.03813-.44779.98079-.47395,1.0753.01974.02401.04796.01544.07269.01563.17114.00135.34229.00136.51344.00217.02342.00011.04744-.00309.0693.00461.00592.02464-.00743.0414-.01502.05882-.10766.24708-.21754.49321-.32299.74122-.02058.04841-.04606.06415-.09768.06395-.4915-.00185-.983-.00104-1.47451-.00132-.02138-.00001-.04382.00461-.06379-.00787.00843-.04898,1.30689-3.00289,1.36598-3.10653h.84455c.31837.70523.63769,1.41257.95786,2.12179.02646-.01612.01679-.03243.01585-.04609-.01599-.23402-.03848-.46779-.02942-.70282.00832-.21567.04087-.42749.10893-.63272.11388-.3434.33896-.58625.67583-.71698.39066-.1516.78553-.14769,1.17508.00522.34185.13419.56508.38345.67623.73283.0219.06885.03961.13902.06098.20805.00477.01542.00213.0352.0291.05352.00037-.11833.00088-.22881.00101-.33928.00013-.11185-.00022-.22371-.00017-.33556.00004-.11112-.00043-.22227.00042-.33663h.80918c.02201.02242.01636.04777.01637.07109.00031.99352.00029,1.98704.00009,2.98056,0,.02151.00369.044-.01252.06853h-.80057c-.0056-.16644-.00321-.33426-.00724-.50184-.00406-.1684-.00673-.33684-.02054-.50676-.00577.02215-.01243.04412-.01717.06649-.10196.4804-.399.78203-.85852.93298-.09376.0308-.19118.04815-.29.05548-.0218.00162-.04403.00197-.0631.01518h-.22386Zm-.35834-1.63233c0,.05042-.00268.10101.00054.15122.00757.11831.02331.23541.06628.34714.02501.06503.06246.12092.12197.15905.1372.08793.28524.11102.44045.06144.15539-.04964.23658-.16781.27071-.3205.05176-.23151.05122-.46538.0213-.6996-.01-.0783-.0278-.15496-.0584-.22845-.03555-.08538-.09566-.14586-.17969-.18272-.15023-.0659-.29893-.05349-.44606.01092-.07134.03123-.12258.08333-.15607.15321-.01901.03966-.03293.08108-.04269.12398-.03179.1397-.04212.28144-.03834.4243Z" fill="#fff"/>
           <rect y="3.33634" width="7.28228" height=".15465" fill="#fff"/>
         </g>
+      </svg>
+    `,
+    samsung: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="samsung-bg" x1="10" y1="8" x2="54" y2="56">
+            <stop offset="0" stop-color="#dbeafe"/>
+            <stop offset="0.5" stop-color="#1d4ed8"/>
+            <stop offset="1" stop-color="#0f172a"/>
+          </linearGradient>
+        </defs>
+        <rect width="64" height="64" rx="32" fill="url(#samsung-bg)"/>
+        <ellipse cx="32" cy="32" rx="24" ry="13" fill="#eff6ff" opacity="0.95" transform="rotate(-10 32 32)"/>
+        <text x="32" y="37" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="800" fill="#1d4ed8" letter-spacing="0">SAMSUNG</text>
+      </svg>
+    `,
+    sk_hynix: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="sk-hynix-bg" x1="10" y1="8" x2="54" y2="56">
+            <stop offset="0" stop-color="#fed7aa"/>
+            <stop offset="0.5" stop-color="#f97316"/>
+            <stop offset="1" stop-color="#991b1b"/>
+          </linearGradient>
+        </defs>
+        <rect width="64" height="64" rx="32" fill="url(#sk-hynix-bg)"/>
+        <path d="M16 38c6-13 18-21 34-24-8 8-10 20-6 34-6-9-15-12-28-10z" fill="#fff7ed" opacity="0.95"/>
+        <text x="32" y="39" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="800" fill="#9a3412">SK</text>
+        <text x="32" y="50" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="8" font-weight="800" fill="#fff7ed">HYNIX</text>
       </svg>
     `,
   };

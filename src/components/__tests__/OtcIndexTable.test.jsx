@@ -82,7 +82,7 @@ describe('OtcIndexTable', () => {
 
     const logos = screen.getAllByAltText('COIN1 logo');
     expect(logos.length).toBeGreaterThan(0);
-    expect(logos[0]).toHaveAttribute('src', 'http://localhost:3001/api/logos/COIN1?v=20260618-aaoi-official');
+    expect(logos[0]).toHaveAttribute('src', 'http://localhost:3001/api/logos/COIN1?v=20260623-new-symbol-logos-v2');
   });
 
   test('renders asterisk momentum indicator', () => {

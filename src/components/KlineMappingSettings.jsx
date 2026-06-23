@@ -30,6 +30,7 @@ const MARKET_OPTIONS = [
   { value: 'binance_spot', label: 'Binance 现货' },
   { value: 'yahoo_finance', label: 'Yahoo Finance' },
   { value: 'deribit_btc_dvol', label: 'Deribit BTC DVOL' },
+  { value: 'china_futures_sina', label: '新浪国内期货' },
 ];
 
 const MARKET_LABELS = MARKET_OPTIONS.reduce((labels, option) => ({

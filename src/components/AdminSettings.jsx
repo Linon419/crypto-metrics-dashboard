@@ -4,11 +4,13 @@ import {
   BarChartOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  FileTextOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import CoinManagement from './CoinManagement';
 import KlineCleanupSettings from './KlineCleanupSettings';
 import KlineMappingSettings from './KlineMappingSettings';
+import PromptSettings from './PromptSettings';
 
 const { Title, Text } = Typography;
 
@@ -55,6 +57,16 @@ function AdminSettings() {
               </span>
             ),
             children: <KlineCleanupSettings />,
+          },
+          {
+            key: 'prompt-settings',
+            label: (
+              <span>
+                <FileTextOutlined />
+                AI解析 Prompt
+              </span>
+            ),
+            children: <PromptSettings />,
           },
         ]}
       />

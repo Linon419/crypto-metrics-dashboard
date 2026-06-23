@@ -2,7 +2,12 @@ const assert = require('assert');
 
 const { __testUtils } = require('../services/openaiService');
 
-const { filterMomentumIndicatorsByRawText, getDefaultPrompt, validateAndFixDate } = __testUtils || {};
+const {
+  filterMomentumIndicatorsByRawText,
+  getDefaultPrompt,
+  getDefaultPromptTemplate,
+  validateAndFixDate,
+} = __testUtils || {};
 
 function run() {
   assert.strictEqual(
@@ -85,6 +90,18 @@ function run() {
   assert.ok(potentialWatchPrompt.includes('昨日复盘'));
   assert.ok(potentialWatchPrompt.includes('整段内容一律忽略'));
   assert.ok(potentialWatchPrompt.includes('谢林兜底区全部忽略'));
+
+  const promptTemplate = getDefaultPromptTemplate();
+  assert.ok(promptTemplate.includes('{{currentDate}}'));
+  assert.ok(promptTemplate.includes('{{processedText}}'));
+  assert.ok(promptTemplate.includes('CN_AI_ETF'));
+  assert.ok(promptTemplate.includes('白银'));
+  assert.ok(promptTemplate.includes('XAG'));
+  assert.ok(promptTemplate.includes('CN_HOG'));
+  assert.ok(promptTemplate.includes('SK 海力士'));
+  assert.ok(promptTemplate.includes('SK_HYNIX'));
+  assert.ok(promptTemplate.includes('HYNIX'));
+  assert.ok(promptTemplate.includes('SAMSUNG'));
 
   console.log('openaiMomentumSource.test.js passed');
 }
