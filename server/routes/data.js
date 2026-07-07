@@ -65,6 +65,19 @@ function normalizeOptionEnum(value, rules) {
   return normalized.replace(/[\s-]+/g, '_');
 }
 
+function normalizeOptionStrategy(value) {
+  if (typeof value !== 'string') return null;
+
+  const strategyValue = value
+    .trim()
+    .replace(/^(组成|构成|compose|build)\s*[:：]?\s*/i, '');
+
+  return normalizeOptionEnum(strategyValue, [
+    { value: 'iron_condor', patterns: ['iron condor', 'iron_condor', '铁鹰'] },
+    { value: 'gamma_squeeze', patterns: ['gamma squeeze', 'gamma_squeeze', '伽马挤压', 'gamma挤压'] },
+  ]);
+}
+
 function normalizeOptionTuning(value) {
   if (!value || typeof value !== 'object') return null;
 
@@ -81,9 +94,7 @@ function normalizeOptionTuning(value) {
       { value: 'positive', patterns: ['positive', '正数', '为正', '正'] },
       { value: 'negative', patterns: ['negative', '负数', '为负', '负'] },
     ]),
-    strategy: normalizeOptionEnum(strategySource, [
-      { value: 'iron_condor', patterns: ['iron condor', 'iron_condor', '铁鹰'] },
-    ]),
+    strategy: normalizeOptionStrategy(strategySource),
     raw_text: typeof rawText === 'string' && rawText.trim() ? rawText.trim() : null,
   };
 

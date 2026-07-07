@@ -244,13 +244,16 @@ ${processedText}
 
 ### 5. 期权调参识别
 
-当输入出现“期权调参”“delta调为中性”“vega正数”“组成 iron condor”等内容时，输出独立的 optionTuning 对象。
+当输入出现“期权调参”“delta调为中性”“vega正数”“组成 iron condor”“组成 gamma squeeze”等内容时，输出独立的 optionTuning 对象。
 
 | 原文描述 | 输出字段 |
 |----------|----------|
 | delta调为中性 / delta 中性 / delta neutral | optionTuning.deltaTarget = "neutral" |
 | vega 正数 / vega为正 / positive vega | optionTuning.vegaTarget = "positive" |
 | 组成 iron condor / 铁鹰 / iron condor | optionTuning.strategy = "iron_condor" |
+| 组成 gamma squeeze / gamma squeeze / 伽马挤压 | optionTuning.strategy = "gamma_squeeze" |
+
+遇到其他“组成 X”策略时，将 X 转为小写 snake_case 后填入 optionTuning.strategy，例如“组成 long straddle”输出 "long_straddle"。
 
 保留期权调参相关原文到 optionTuning.rawText。没有期权调参板块时，optionTuning 返回 null。
 
@@ -282,7 +285,7 @@ ${processedText}
   "optionTuning": {
     "deltaTarget": "neutral",
     "vegaTarget": "positive",
-    "strategy": "iron_condor",
+    "strategy": "gamma_squeeze",
     "rawText": "期权调参原文"
   },
   "dailyReminder": "..."
@@ -303,7 +306,7 @@ ${processedText}
 - optionTuning: 期权调参板块；无该板块时返回null
 - optionTuning.deltaTarget: "neutral"
 - optionTuning.vegaTarget: "positive"
-- optionTuning.strategy: "iron_condor"
+- optionTuning.strategy: "iron_condor" | "gamma_squeeze" | 其他小写 snake_case 策略名
 - optionTuning.rawText: 期权调参原文
 - dailyReminder: 每日提醒原文
 

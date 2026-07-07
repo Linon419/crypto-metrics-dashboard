@@ -2,8 +2,6 @@ const assert = require('assert');
 
 const {
   OPTIONS_STRATEGY_CATALOG,
-  collectMatchingParagraphs,
-  normalizeText,
 } = require('../optionsStrategyCatalog');
 
 function testCatalogIntegrity() {
@@ -34,43 +32,19 @@ function testCatalogIntegrity() {
   });
 }
 
-function testTextMatching() {
-  const text = normalizeText(`
-    老师这里讲铁鹰策略，也就是 iron condor。
-    下方做 bull put spread，上方做 bear call spread。
-
-    这一段讲第二战法，和铁鹰无关。
-  `);
-
-  const matches = collectMatchingParagraphs(text, ['铁鹰', 'iron condor'], 500);
-  assert.strictEqual(matches.length, 1);
-  assert.ok(matches[0].includes('iron condor'));
-  assert.ok(matches[0].includes('bear call spread'));
-}
-
 testCatalogIntegrity();
-testTextMatching();
 
-const { buildIndexFromSourceTexts } = require('../build-options-knowledge-index');
+const { buildIndex } = require('../build-options-knowledge-index');
 
-function testBuildIndexFromSourceTexts() {
-  const index = buildIndexFromSourceTexts({
-    sourceTexts: [
-      {
-        sourceFile: 'day11微信录音 魔方_20260414225958_原文.docx',
-        text: '铁鹰策略就是 iron condor，下方做 bull put spread，上方做 bear call spread，目标是在区间内收租。',
-      },
-    ],
-    maxExcerptChars: 500,
-  });
+function testBuildIndex() {
+  const index = buildIndex();
 
   const ironCondor = index.find(item => item.id === 'iron-condor');
   assert.ok(ironCondor);
-  assert.strictEqual(ironCondor.quotes.length, 1);
-  assert.strictEqual(ironCondor.quotes[0].sourceFile, 'day11微信录音 魔方_20260414225958_原文.docx');
-  assert.ok(ironCondor.quotes[0].excerpt.includes('iron condor'));
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(ironCondor, 'quotes'), false);
+  assert.ok(ironCondor.operationSteps.length >= 4);
 }
 
-testBuildIndexFromSourceTexts();
+testBuildIndex();
 
 console.log('optionsKnowledgeIndex.test.js passed');

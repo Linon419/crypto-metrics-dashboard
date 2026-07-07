@@ -39,7 +39,6 @@ function buildSearchText(strategy) {
     ...(strategy.coreGreeks || []),
     ...(strategy.sourceLessons || []),
     ...(strategy.keywords || []),
-    ...(strategy.quotes || []).map(quote => `${quote.sourceFile || ''} ${quote.excerpt || ''}`),
   ].join(' ').toLowerCase();
 }
 

@@ -13,7 +13,6 @@ const strategies = [
     strategyTypes: ['卖出波动率', '区间结构'],
     coreGreeks: ['theta', 'vega'],
     sourceLessons: ['day11'],
-    quotes: [{ excerpt: '区间内收租' }],
   },
   {
     id: 'long-straddle',
@@ -23,7 +22,6 @@ const strategies = [
     strategyTypes: ['买入波动率'],
     coreGreeks: ['gamma', 'vega'],
     sourceLessons: ['day3'],
-    quotes: [{ excerpt: '买波动' }],
   },
 ];
 
@@ -41,7 +39,7 @@ test('filters by market state and strategy type', () => {
   expect(result.map(item => item.id)).toEqual(['iron-condor']);
 });
 
-test('searches names greeks lessons and excerpts', () => {
+test('searches names greeks and lessons', () => {
   expect(filterOptionsStrategies(strategies, { searchTerm: 'gamma' }).map(item => item.id)).toEqual(['long-straddle']);
   expect(filterOptionsStrategies(strategies, { searchTerm: '铁鹰' }).map(item => item.id)).toEqual(['iron-condor']);
   expect(filterOptionsStrategies(strategies, { searchTerm: 'day11' }).map(item => item.id)).toEqual(['iron-condor']);

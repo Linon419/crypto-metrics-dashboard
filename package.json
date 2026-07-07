@@ -45,6 +45,8 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "build:launchers": "node scripts/build-launcher-packages.js",
+    "build:launchers:with-data": "node scripts/build-launcher-packages.js --include-db",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "server": "node start-server.js",

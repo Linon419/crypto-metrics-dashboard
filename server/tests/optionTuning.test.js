@@ -37,6 +37,26 @@ async function run() {
   });
 
   assert.deepStrictEqual(
+    normalizeOptionTuning({
+      deltaTarget: 'delta调为中性',
+      vegaTarget: 'vega 正数',
+      strategy: '组成 gamma squeeze',
+      rawText: 'delta调为中性\nvega 正数\n组成 gamma squeeze',
+    }),
+    {
+      delta_target: 'neutral',
+      vega_target: 'positive',
+      strategy: 'gamma_squeeze',
+      raw_text: 'delta调为中性\nvega 正数\n组成 gamma squeeze',
+    }
+  );
+
+  assert.strictEqual(
+    normalizeOptionTuning({ strategy: '组成 long straddle' }).strategy,
+    'long_straddle'
+  );
+
+  assert.deepStrictEqual(
     serializeOptionTuning({
       delta_target: 'neutral',
       vega_target: 'positive',
@@ -79,15 +99,15 @@ async function run() {
     optionTuning: {
       deltaTarget: 'delta调为中性',
       vegaTarget: 'vega 正数',
-      strategy: '组成 iron condor',
-      rawText: '期权调参\ndelta调为中性\nvega 正数\n组成 iron condor',
+      strategy: '组成 gamma squeeze',
+      rawText: '期权调参\ndelta调为中性\nvega 正数\n组成 gamma squeeze',
     },
   });
 
   const saved = await OptionTuning.findOne({ where: { date: '2026-06-17' }, raw: true });
   assert.strictEqual(saved.delta_target, 'neutral');
   assert.strictEqual(saved.vega_target, 'positive');
-  assert.strictEqual(saved.strategy, 'iron_condor');
+  assert.strictEqual(saved.strategy, 'gamma_squeeze');
   assert.strictEqual(saved.time_precision, 'minute');
 
   await sequelize.close();

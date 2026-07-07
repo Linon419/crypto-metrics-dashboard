@@ -47,7 +47,6 @@ const firstStrategy = {
   nameEn: 'ratio spread',
   operationSteps: [],
   risks: [],
-  quotes: [],
 };
 
 const secondStrategy = {
@@ -56,7 +55,6 @@ const secondStrategy = {
   nameEn: 'gamma scalping',
   operationSteps: [],
   risks: [],
-  quotes: [],
 };
 
 function buildSetup(strategyId) {

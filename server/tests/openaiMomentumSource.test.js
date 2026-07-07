@@ -74,11 +74,13 @@ function run() {
     'getDefaultPrompt should be exported for tests'
   );
 
-  const prompt = getDefaultPrompt('期权调参\ndelta调为中性\nvega 正数\n组成 iron condor');
+  const prompt = getDefaultPrompt('期权调参\ndelta调为中性\nvega 正数\n组成 gamma squeeze');
   assert.ok(prompt.includes('optionTuning'));
   assert.ok(prompt.includes('deltaTarget'));
   assert.ok(prompt.includes('vegaTarget'));
   assert.ok(prompt.includes('iron_condor'));
+  assert.ok(prompt.includes('gamma_squeeze'));
+  assert.ok(prompt.includes('snake_case'));
 
   const potentialWatchPrompt = getDefaultPrompt([
     '今日潜力观察 日内大盘不稳时不必操作',

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Drawer, Empty, Spin, Tag, Typography } from 'antd';
+import { Alert, Drawer, Spin, Tag } from 'antd';
 import {
   calculateBtcOptionPayoff,
   fetchBtcOptionStrategySetup,
@@ -9,8 +9,6 @@ import OptionsLiveSetupPanel from './OptionsLiveSetupPanel';
 import OptionsPayoffChart from './OptionsPayoffChart';
 import OptionsScenarioMetrics from './OptionsScenarioMetrics';
 import OptionsStrategicNotes from './OptionsStrategicNotes';
-
-const { Paragraph, Text } = Typography;
 
 function OptionsStrategyDrawer({ strategy, open, onClose }) {
   const [error, setError] = useState('');
@@ -152,18 +150,6 @@ function OptionsStrategyDrawer({ strategy, open, onClose }) {
                 {(strategy.risks || []).map(risk => <Tag key={risk} color="volcano">{risk}</Tag>)}
               </div>
 
-              <h3>老师原文</h3>
-              {(strategy.quotes || []).length > 0 ? (
-                strategy.quotes.map((quote, index) => (
-                  <div className="options-quote" key={`${quote.sourceFile}-${index}`}>
-                    <Text strong>{quote.sourceFile}</Text>
-                    <Paragraph>{quote.excerpt}</Paragraph>
-                    <Button size="small" onClick={() => navigator.clipboard?.writeText(quote.excerpt)}>复制原文</Button>
-                  </div>
-                ))
-              ) : (
-                <Empty description="待补充来源" />
-              )}
             </section>
 
             <section className="options-drawer-column options-drawer-column--wide">

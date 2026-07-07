@@ -42,11 +42,11 @@ function OptionsPage() {
         <div>
           <div className="dashboard-eyebrow">Options Playbook</div>
           <h1>期权策略库</h1>
-          <Text>按市场状态和策略属性检索《魔方内参》期权原文、操作步骤和风险点。</Text>
+          <Text>按市场状态和策略属性检索期权策略、操作步骤和风险点。</Text>
         </div>
         <Input
           className="options-search"
-          placeholder="搜索策略、Greek、课程或原文"
+          placeholder="搜索策略、Greek 或课程编号"
           value={searchTerm}
           onChange={event => setSearchTerm(event.target.value)}
         />

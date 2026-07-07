@@ -325,40 +325,8 @@ const OPTIONS_STRATEGY_CATALOG = [
   },
 ];
 
-function normalizeText(value) {
-  return String(value || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[　]/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .trim();
-}
-
-function splitParagraphs(text) {
-  return normalizeText(text)
-    .split(/\n{2,}|\n(?=\S)/)
-    .map(paragraph => paragraph.trim())
-    .filter(paragraph => paragraph.length >= 12);
-}
-
-function collectMatchingParagraphs(text, keywords, maxExcerptChars = 1200) {
-  const loweredKeywords = keywords.map(keyword => String(keyword).toLowerCase());
-  return splitParagraphs(text)
-    .filter(paragraph => {
-      const lowered = paragraph.toLowerCase();
-      const marksUnrelated = loweredKeywords.some(keyword => lowered.includes(`${keyword}无关`));
-      return !marksUnrelated && loweredKeywords.some(keyword => lowered.includes(keyword));
-    })
-    .map(paragraph => paragraph.length > maxExcerptChars
-      ? `${paragraph.slice(0, maxExcerptChars)}`
-      : paragraph);
-}
-
 module.exports = {
   MARKET_STATES,
   OPTIONS_STRATEGY_CATALOG,
   STRATEGY_TYPES,
-  collectMatchingParagraphs,
-  normalizeText,
-  splitParagraphs,
 };

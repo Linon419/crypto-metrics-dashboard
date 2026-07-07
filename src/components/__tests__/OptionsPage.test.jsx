@@ -39,7 +39,6 @@ jest.mock('../../data/optionsKnowledgeIndex.json', () => ([
     coreGreeks: ['theta', 'vega', 'gamma'],
     risks: ['单边突破区间'],
     sourceLessons: ['day11'],
-    quotes: [{ sourceFile: 'day11.docx', excerpt: '铁鹰策略原文' }],
     images: [],
   },
   {
@@ -54,7 +53,6 @@ jest.mock('../../data/optionsKnowledgeIndex.json', () => ([
     coreGreeks: ['gamma', 'vega'],
     risks: ['theta 消耗'],
     sourceLessons: ['day3'],
-    quotes: [{ sourceFile: 'day3.docx', excerpt: '买波动原文' }],
     images: [],
   },
 ]), { virtual: true });
@@ -84,7 +82,7 @@ test('renders options page and filters strategies', async () => {
   expect(screen.getByText('铁鹰策略')).toBeInTheDocument();
   expect(screen.queryByText('买入跨式')).toBeNull();
 
-  fireEvent.change(screen.getByPlaceholderText('搜索策略、Greek、课程或原文'), {
+  fireEvent.change(screen.getByPlaceholderText('搜索策略、Greek 或课程编号'), {
     target: { value: 'iron condor' },
   });
 
