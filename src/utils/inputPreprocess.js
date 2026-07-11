@@ -1,6 +1,28 @@
 const TIME_FORMAT_REGEX = /^\s*(\d{1,2}\.\d{1,2}(\s+\d{1,2}(:\d{2})?)?|\d{4}-\d{2}-\d{2}(\s+\d{2}:\d{2})?|\d{2,4}\.\d{1,2}\.\d{1,2}(\s+\d{1,2}(:\d{2})?)?)\s*$/;
 const CLOCK_TIME_FORMAT_REGEX = /^\s*(\d{1,2}\.\d{1,2}|\d{4}-\d{2}-\d{2}|\d{2,4}\.\d{1,2}\.\d{1,2})\s+\d{1,2}(:\d{2})?\s*$/;
 
+export const getRawDataTimezoneOffset = (rawData, now = new Date()) => {
+  const firstLine = String(rawData || '').split('\n')[0].trim();
+  const match = firstLine.match(/^(?:(\d{2,4})[-.])?(\d{1,2})[-.](\d{1,2})(?:[ T](\d{1,2})(?::(\d{2}))?)?$/);
+  if (!match) return now.getTimezoneOffset();
+
+  const [, yearText, monthText, dayText, hourText, minuteText] = match;
+  const month = Number(monthText);
+  let year = yearText ? Number(yearText) : now.getFullYear();
+  if (year < 100) year += 2000;
+  if (!yearText && month > now.getMonth() + 7) year -= 1;
+  if (!yearText && month < now.getMonth() - 5) year += 1;
+
+  const localDate = new Date(
+    year,
+    month - 1,
+    Number(dayText),
+    Number(hourText || 0),
+    Number(minuteText || 0),
+  );
+  return Number.isNaN(localDate.getTime()) ? now.getTimezoneOffset() : localDate.getTimezoneOffset();
+};
+
 export const formatDateForDisplay = (date, time, precision) => {
   if (!date) return '';
   const month = date.month() + 1;

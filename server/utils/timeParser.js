@@ -15,6 +15,45 @@ function getLocalParts(date) {
   };
 }
 
+function parseWallClockInOffset(dateInput, timezoneOffsetMinutes) {
+  const match = typeof dateInput === 'string'
+    ? dateInput.trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2})(?::(\d{2}))?)?$/)
+    : null;
+  const offset = Number(timezoneOffsetMinutes);
+
+  if (!match || !Number.isFinite(offset) || Math.abs(offset) > 14 * 60) {
+    return parseFlexibleDateTime(dateInput);
+  }
+
+  const [, yearText, monthText, dayText, hourText, minuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = hourText === undefined ? 0 : Number(hourText);
+  const minute = minuteText === undefined ? 0 : Number(minuteText);
+  const utcWallClock = Date.UTC(year, month - 1, day, hour, minute);
+  const validation = new Date(utcWallClock);
+
+  if (
+    validation.getUTCFullYear() !== year
+    || validation.getUTCMonth() !== month - 1
+    || validation.getUTCDate() !== day
+    || validation.getUTCHours() !== hour
+    || validation.getUTCMinutes() !== minute
+  ) {
+    return parseFlexibleDateTime(dateInput);
+  }
+
+  return {
+    date: `${yearText}-${monthText}-${dayText}`,
+    originalInput: dateInput.trim(),
+    timestamp: new Date(utcWallClock + offset * 60 * 1000),
+    precision: hourText === undefined ? 'day' : minuteText === undefined ? 'hour' : 'minute',
+    isValid: true,
+    source: 'client-offset',
+  };
+}
+
 /**
  * 解析灵活的时间输入格式
  * @param {string} dateInput - 输入的时间字符串
@@ -394,6 +433,7 @@ function validateTimePrecision(precision) {
 
 module.exports = {
   parseFlexibleDateTime,
+  parseWallClockInOffset,
   formatDateForStorage,
   formatDateForDisplay,
   formatToISO,

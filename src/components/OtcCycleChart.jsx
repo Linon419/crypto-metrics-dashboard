@@ -125,10 +125,10 @@ function formatMetric(value, digits = 0) {
 function formatPublishTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '--';
-  const month = date.getUTCMonth() + 1;
-  const day = date.getUTCDate();
-  const hour = String(date.getUTCHours()).padStart(2, '0');
-  const minute = String(date.getUTCMinutes()).padStart(2, '0');
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
   return `${month}/${day} ${hour}:${minute}`;
 }
 
@@ -143,11 +143,11 @@ export function formatChartAxisTime(value) {
   const date = timestamp ? new Date(timestamp) : null;
   if (!date || Number.isNaN(date.getTime())) return '';
 
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  const hour = String(date.getUTCHours()).padStart(2, '0');
-  const minute = String(date.getUTCMinutes()).padStart(2, '0');
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
   return `${year}-${month}-${day} ${hour}:${minute}`;
 }
 

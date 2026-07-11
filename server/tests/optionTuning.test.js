@@ -52,6 +52,15 @@ async function run() {
   );
 
   assert.strictEqual(
+    normalizeOptionTuning({
+      deltaTarget: 'neutral',
+      vegaTarget: 'positive',
+      rawText: '期权调参\ndelta调为中性\nvega 正数\n组成 gamma squeeze',
+    }).strategy,
+    'gamma_squeeze'
+  );
+
+  assert.strictEqual(
     normalizeOptionTuning({ strategy: '组成 long straddle' }).strategy,
     'long_straddle'
   );

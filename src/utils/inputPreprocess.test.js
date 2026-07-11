@@ -1,7 +1,14 @@
 import dayjs from 'dayjs';
-import { preprocessRawDataForSubmit } from './inputPreprocess';
+import { getRawDataTimezoneOffset, preprocessRawDataForSubmit } from './inputPreprocess';
+
+process.env.TZ = 'Australia/Sydney';
 
 describe('preprocessRawDataForSubmit', () => {
+  test('uses the input date to preserve Sydney daylight-saving offset', () => {
+    expect(getRawDataTimezoneOffset('2026-07-11 00:04\nBTC 场外指数818')).toBe(-600);
+    expect(getRawDataTimezoneOffset('2026-01-11 00:04\nBTC 场外指数818')).toBe(-660);
+  });
+
   test('keeps a pasted ISO minute timestamp when picker override is disabled', () => {
     const rawData = '2026-05-18 23:01\nBTC 场外指数1200\n爆破指数100';
 

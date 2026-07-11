@@ -2,7 +2,7 @@ process.env.TZ = 'Australia/Sydney';
 
 const assert = require('assert');
 
-const { parseFlexibleDateTime } = require('../utils/timeParser');
+const { parseFlexibleDateTime, parseWallClockInOffset } = require('../utils/timeParser');
 
 function assertLocalMinuteParse(input) {
   const parsed = parseFlexibleDateTime(input);
@@ -18,6 +18,11 @@ function assertLocalMinuteParse(input) {
 }
 
 function run() {
+  const sydneyWallClock = parseWallClockInOffset('2026-07-11 00:04', -600);
+  assert.strictEqual(sydneyWallClock.date, '2026-07-11');
+  assert.strictEqual(sydneyWallClock.timestamp.toISOString(), '2026-07-10T14:04:00.000Z');
+  assert.strictEqual(sydneyWallClock.precision, 'minute');
+
   assertLocalMinuteParse('2026-05-20 00:01');
   assertLocalMinuteParse('2026-05-20T00:01');
   assertLocalMinuteParse('2026.5.20 00:01');

@@ -1,5 +1,6 @@
 // src/services/api.js
 import axios from 'axios';
+import { getRawDataTimezoneOffset } from '../utils/inputPreprocess';
 
 // --- 1. 运行时 API 基地址配置 ---
 // 默认的 API 基地址，主要用于本地开发或作为备用
@@ -313,7 +314,10 @@ export const submitRawData = async (rawData, model = null) => {
     // 对于大数据量提交，使用独立的 Axios 实例配置（如果需要不同的超时或特定头）
     // 但如果拦截器（如token）也需要，则需要确保它们也被应用
     // 为了简单起见，如果baseURL是相同的，可以考虑使用全局api实例并覆盖特定配置
-    const requestBody = { rawData };
+    const requestBody = {
+      rawData,
+      clientTimezoneOffsetMinutes: getRawDataTimezoneOffset(rawData),
+    };
     if (model) {
       requestBody.model = model;
       console.log('[API] 使用指定的AI模型:', model);

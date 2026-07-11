@@ -12,7 +12,7 @@ const {
   scoreBayesianPeriodQuality,
 } = require('../utils/periodQuality');
 const { buildPeriodRiskNotes } = require('../utils/periodRiskNotes');
-const { parseFlexibleDateTime, validateTimePrecision } = require('../utils/timeParser');
+const { parseFlexibleDateTime, parseWallClockInOffset, validateTimePrecision } = require('../utils/timeParser');
 const { evaluateStrategySignal } = require('../utils/strategySignals');
 
 // --- 辅助函数：计算百分比变化 ---
@@ -81,10 +81,10 @@ function normalizeOptionStrategy(value) {
 function normalizeOptionTuning(value) {
   if (!value || typeof value !== 'object') return null;
 
+  const rawText = value.rawText ?? value.raw_text ?? null;
   const deltaSource = value.deltaTarget ?? value.delta_target ?? '';
   const vegaSource = value.vegaTarget ?? value.vega_target ?? '';
-  const strategySource = value.strategy ?? '';
-  const rawText = value.rawText ?? value.raw_text ?? null;
+  const strategySource = value.strategy || rawText || '';
 
   const normalized = {
     delta_target: normalizeOptionEnum(deltaSource, [
@@ -231,7 +231,7 @@ function attachStrategySignal(metric, history = []) {
 
 // --- 路由：处理原始数据输入并存储 ---
 router.post('/input', async (req, res) => {
-  const { rawData, model } = req.body;
+  const { rawData, model, clientTimezoneOffsetMinutes } = req.body;
   if (!rawData || typeof rawData !== 'string' || rawData.trim() === '') {
     return res.status(400).json({ success: false, error: 'Raw data is required and must be a non-empty string' });
   }
@@ -261,7 +261,7 @@ router.post('/input', async (req, res) => {
 
     console.log('[DATA_INPUT] Storing processed data into database...');
     const dbStartTime = Date.now();
-    const result = await storeProcessedData(processedData);
+    const result = await storeProcessedData(processedData, clientTimezoneOffsetMinutes);
     const dbEndTime = Date.now();
     console.log(`[DATA_INPUT] ⏱️ 数据库存储耗时: ${((dbEndTime - dbStartTime) / 1000).toFixed(2)} 秒`);
     console.log('[DATA_INPUT] Data storage complete.');
@@ -322,7 +322,7 @@ router.post('/input', async (req, res) => {
 });
 
 // --- 辅助函数：存储 OpenAI 处理后的数据 ---
-async function storeProcessedData(data) {
+async function storeProcessedData(data, clientTimezoneOffsetMinutes = null) {
   console.log('======== [STORE_DATA] STARTING DATA STORAGE ========');
   // console.log('[STORE_DATA] Received data:', JSON.stringify(data, null, 2));
 
@@ -337,7 +337,7 @@ async function storeProcessedData(data) {
 
   try {
     // 解析时间信息
-    const timeInfo = parseFlexibleDateTime(date);
+    const timeInfo = parseWallClockInOffset(date, clientTimezoneOffsetMinutes);
     console.log(`[STORE_DATA] Processing data for date: ${date}`);
     console.log(`[STORE_DATA] Parsed time info:`, timeInfo);
     console.log(`[STORE_DATA] Number of coins to process: ${coins.length}`);

@@ -14,6 +14,8 @@ import OtcCycleChart, {
 } from '../OtcCycleChart';
 import { fetchCoinKlines, fetchCoinMetrics, subscribeCoinKlineStream } from '../../services/api';
 
+process.env.TZ = 'Australia/Sydney';
+
 const mockChartInstances = [];
 const mockSeriesInstances = [];
 const mockMakeSeries = () => {
@@ -138,8 +140,8 @@ test('formats the crosshair x-axis label with exact date and time', async () => 
   await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
 
   const [, options] = createChart.mock.calls[2];
-  expect(options.localization.timeFormatter(Math.floor(new Date('2026-01-02T04:30:00.000Z').getTime() / 1000))).toBe('2026-01-02 04:30');
-  expect(formatChartAxisTime(Math.floor(new Date('2026-01-02T04:30:00.000Z').getTime() / 1000))).toBe('2026-01-02 04:30');
+  expect(options.localization.timeFormatter(Math.floor(new Date('2026-01-02T04:30:00.000Z').getTime() / 1000))).toBe('2026-01-02 15:30');
+  expect(formatChartAxisTime(Math.floor(new Date('2026-01-02T04:30:00.000Z').getTime() / 1000))).toBe('2026-01-02 15:30');
 });
 
 test('shows exact bottom-axis time while hovering the price kline pane', async () => {
@@ -161,7 +163,26 @@ test('shows exact bottom-axis time while hovering the price kline pane', async (
     });
   });
 
-  expect(await screen.findByText('2026-01-02 04:30')).toBeInTheDocument();
+  expect(await screen.findByText('2026-01-02 15:30')).toBeInTheDocument();
+});
+
+test('shows metric publish time in the browser timezone', () => {
+  const localKlines = [
+    { openTime: '2026-07-10T16:00:00.000Z', open: 100, high: 110, low: 90, close: 105, volume: 10 },
+  ];
+  const localMetrics = [
+    {
+      date: '2026-07-11',
+      timestamp: '2026-07-10T14:04:00.000Z',
+      time_precision: 'minute',
+      otc_index: 818,
+      explosion_index: 196,
+    },
+  ];
+
+  const model = buildTradingViewCycleModel({ klines: localKlines, metrics: localMetrics });
+
+  expect(model.metricEvents[0].displayTime).toBe('7/11 00:04');
 });
 
 test('loads 1500 older candles to the left and merges them with current candles', async () => {
@@ -619,7 +640,7 @@ test('aligns metric timestamps to nearest kline while keeping original publish t
       time: Math.floor(new Date('2026-03-01T00:18:00.000Z').getTime() / 1000),
       alignedTime: model.rows[1].time,
       publishedAt: '2026-03-01T00:18:00.000Z',
-      displayTime: '3/1 00:18',
+      displayTime: '3/1 11:18',
       otcIndex: 1100,
       explosionIndex: -20,
     }),
@@ -627,7 +648,7 @@ test('aligns metric timestamps to nearest kline while keeping original publish t
       time: Math.floor(new Date('2026-03-01T00:28:00.000Z').getTime() / 1000),
       alignedTime: model.rows[2].time,
       publishedAt: '2026-03-01T00:28:00.000Z',
-      displayTime: '3/1 00:28',
+      displayTime: '3/1 11:28',
       otcIndex: 1180,
       explosionIndex: 35,
     }),
