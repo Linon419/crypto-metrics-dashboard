@@ -9,6 +9,31 @@ const LOGO_COLORS = [
   ['#be123c', '#ffe4e6'],
 ];
 const LOGO_CACHE_VERSION = '20260623-new-symbol-logos-v2';
+const BACKEND_LOGO_SYMBOLS = new Set([
+  'AAOI',
+  'A_SHARES',
+  'A_SHARES_INDEX',
+  'CEMENT',
+  'CN_AI_ETF',
+  'CN_HOG',
+  'CN_INDEX',
+  'CN_ROBOT',
+  'COPP',
+  'COPPER',
+  'DOMESTIC_AI',
+  'DOMESTIC_AI_ETF',
+  'DOMESTIC_ROBOTICS',
+  'DOMESTIC_ROBOT_ETF',
+  'ESTATE',
+  'GOLD',
+  'LIQUIDITY',
+  'OIL',
+  'SAMSUNG',
+  'SILVER',
+  'SK_HYNIX',
+  'XAG',
+  'XAU',
+]);
 
 function normalizeSymbol(symbol) {
   return String(symbol || '').trim().toUpperCase();
@@ -51,6 +76,15 @@ function getApiBaseUrl() {
   return 'http://localhost:3001/api';
 }
 
+function getBrandfetchClientId() {
+  if (typeof window === 'undefined') return '';
+  return String(window.runtimeConfig?.BRANDFETCH_CLIENT_ID || '').trim();
+}
+
+function getBrandfetchLogoUrl(symbol, clientId) {
+  return `https://cdn.brandfetch.io/${encodeURIComponent(symbol)}?c=${encodeURIComponent(clientId)}`;
+}
+
 export function getCoinLogoUrl(symbol, explicitLogoUrl) {
   const trimmedLogoUrl = String(explicitLogoUrl || '').trim();
   if (trimmedLogoUrl.startsWith('data:image/') || trimmedLogoUrl.startsWith('blob:')) {
@@ -59,6 +93,12 @@ export function getCoinLogoUrl(symbol, explicitLogoUrl) {
 
   const normalizedSymbol = normalizeSymbol(symbol);
   if (!normalizedSymbol) return getCoinLogoFallbackUrl(symbol);
+
+  const hasExplicitRemoteLogo = /^https?:\/\//i.test(trimmedLogoUrl);
+  if (!hasExplicitRemoteLogo && !BACKEND_LOGO_SYMBOLS.has(normalizedSymbol)) {
+    const clientId = getBrandfetchClientId();
+    if (clientId) return getBrandfetchLogoUrl(normalizedSymbol, clientId);
+  }
 
   return `${getApiBaseUrl()}/logos/${encodeURIComponent(normalizedSymbol)}?v=${LOGO_CACHE_VERSION}`;
 }

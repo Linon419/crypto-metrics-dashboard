@@ -14,6 +14,7 @@ services:
       - DB_STORAGE=/data/db/database.sqlite
       - JWT_SECRET=${JWT_SECRET}
       - API_PUBLIC_HOST=http://168.138.207.11:3080
+      - BRANDFETCH_CLIENT_ID=${BRANDFETCH_CLIENT_ID:-}
       # Telegram Bot 配置
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - API_BASE_URL=http://localhost:3001/api

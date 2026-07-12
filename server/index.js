@@ -9,6 +9,7 @@ require('dotenv').config();
 const checkFirstRun = require('./middleware/checkFirstRun');
 const mcpGatewayRouter = require('./routes/mcpGateway');
 const { attachKlineWebSocketServer } = require('./services/klineWebSocketServer');
+const { buildRuntimeConfigScript } = require('./utils/runtimeConfig');
 
 const app = express();
 const server = http.createServer(app);
@@ -86,13 +87,10 @@ app.get('/app-config.js', (req, res) => {
     return res.status(500).send(errorScript);
   }
 
-  const configScript = `
-      // 此文件由服务器动态生成
-      console.log('[App Config] Runtime configuration loaded.');
-      window.runtimeConfig = {
-        API_BASE_URL: '${apiPublicHost}${apiBasePath}'
-      };
-    `;
+  const configScript = buildRuntimeConfigScript({
+    apiBaseUrl: `${apiPublicHost}${apiBasePath}`,
+    brandfetchClientId: process.env.BRANDFETCH_CLIENT_ID,
+  });
 
   res.type('application/javascript');
   res.send(configScript);

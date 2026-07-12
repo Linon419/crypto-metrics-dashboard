@@ -23,7 +23,10 @@ npm run dev
 - `OPENAI_API_KEY`：用于 `POST /api/data/input` 的 AI 结构化解析。
 - `DB_STORAGE`：SQLite 数据文件路径，例如：`/data/db/database.sqlite`。
 - `API_PUBLIC_HOST`：后端用于生成 `/app-config.js`，供前端在运行时获取 `API_BASE_URL`，例如：`http://your-domain:3080`。
+- `BRANDFETCH_CLIENT_ID`：Brandfetch Developer Portal 提供的公开 Client ID。配置后，浏览器会为新增标的自动加载官方 Logo；留空时继续使用现有后端 Logo 路由与 SVG 回退图。
 - `MCP_GATEWAY_TOKEN`：MCP 网关共享密钥（公网/局域网部署强烈建议开启，用于保护 MCP 接口）。
+
+Brandfetch Logo API 图片由浏览器直接加载。部署时保留浏览器默认的 `strict-origin-when-cross-origin` Referrer Policy，满足 Brandfetch 的直接嵌入要求。
 
 ### 管理员初始化（首次启动）
 
