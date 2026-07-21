@@ -1,379 +1,370 @@
+<div align="center">
+
 # Crypto Metrics Dashboard
 
-Crypto Metrics Dashboard 是一套面向加密市场日常数据录入、结构化解析、指标追踪和本地化分发的全栈应用。系统以 React 前端、Express API、SQLite 数据库和 AI 原文解析服务为核心，支持本地单机运行、开发调试、Docker 部署和 Windows/macOS 一键启动包分发。
+**A self-hosted workspace for structuring daily crypto market notes, tracking market signals, and exploring options scenarios.**
 
-## 功能范围
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-- **原文解析**：将日更原文解析为标准化 JSON，并写入 SQLite。
-- **指标看板**：展示场外指数、爆破指数、进退场阶段、动能标记、谢林点位和历史变化。
-- **流动性记录**：维护 BTC、ETH、SOL 和总市场资金变化及原文备注。
-- **期权调参**：识别 `deltaTarget`、`vegaTarget`、`strategy` 和原文片段。
-- **期权策略库**：按市场状态、策略属性、操作步骤和风险点检索策略内容。
-- **K 线联动**：支持 K 线映射、回补、清理、WebSocket 更新和图表展示。
-- **数据管理**：提供数据库 JSON 导出/导入、SQLite 文件备份和本地数据包分发。
-- **管理后台**：支持用户、币种、K 线映射、K 线清理和 AI Prompt 设置。
-- **扩展接口**：包含 Telegram Bot 和 MCP Gateway 集成入口。
+[![Docker Image](https://github.com/Linon419/crypto-metrics-dashboard/actions/workflows/docker-image.yml/badge.svg)](https://github.com/Linon419/crypto-metrics-dashboard/actions/workflows/docker-image.yml)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![SQLite](https://img.shields.io/badge/SQLite-3-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 
-## 系统架构
+</div>
 
-```text
-Raw Text Input
-  -> React Admin UI
-  -> Express API
-  -> AI Parsing Service
-  -> Normalization / Validation
-  -> SQLite
-  -> Dashboard / Kline / Options Views
+Crypto Metrics Dashboard combines a React interface, an Express API, SQLite persistence, and an OpenAI-compatible parsing service. It turns unstructured daily market text into queryable metrics and provides dashboards for OTC signals, liquidity, market phases, volatility, K-line data, and BTC options.
+
+The project supports local-first operation, development workflows, Docker deployment, Windows/macOS launchers, Telegram notifications, and an HTTP MCP gateway.
+
+> [!IMPORTANT]
+> This project is designed for research and operational monitoring. Independently verify all data and analysis before making investment decisions.
+
+## Table of contents
+
+- [Highlights](#highlights)
+- [Architecture](#architecture)
+- [Technology stack](#technology-stack)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Data and backups](#data-and-backups)
+- [API and integrations](#api-and-integrations)
+- [Docker deployment](#docker-deployment)
+- [Project structure](#project-structure)
+- [Development](#development)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Highlights
+
+- **AI-assisted ingestion** — Parse daily market notes into normalized JSON through OpenAI or a compatible API provider.
+- **Market signal dashboard** — Track OTC and liquidation indexes, entry/exit phases, momentum markers, Schelling price points, and historical changes.
+- **Liquidity monitoring** — Record BTC, ETH, SOL, and total-market fund flows with daily commentary.
+- **Options workspace** — Inspect BTC volatility, strategy blueprints, live Deribit option data, scenario Greeks, and payoff curves.
+- **K-line pipeline** — Configure symbol mappings, backfill and clean candles, stream Binance updates over WebSocket, and render historical charts.
+- **Operations console** — Manage users, tracked assets, timestamps, parsing prompts, database patches, and application settings.
+- **Portable data** — Export and import JSON snapshots, back up SQLite directly, or create launcher bundles with a database included.
+- **Integration endpoints** — Connect through the Telegram bot or the authenticated HTTP MCP gateway.
+- **Automatic asset logos** — Resolve, cache, and serve logos with provider-backed and generated fallbacks.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Input["Daily market notes"] --> UI["React admin UI"]
+    UI --> API["Express REST API + JWT"]
+    API --> Parser["OpenAI-compatible parser"]
+    API <--> DB[(SQLite)]
+    API <--> Market["Binance / Deribit / logo sources"]
+    DB --> Views["Dashboard / K-line / options views"]
+    API --> Integrations["Telegram bot / MCP gateway"]
 ```
 
-主要组成：
-
-| 层级 | 技术与目录 | 职责 |
+| Layer | Implementation | Responsibility |
 | --- | --- | --- |
-| 前端 | `src/`，React + Ant Design + ECharts | 数据录入、指标看板、管理后台、图表展示 |
-| 后端 | `server/`，Express + Sequelize | API、认证、数据入库、导出导入、MCP Gateway |
-| 数据库 | SQLite | 指标、用户、流动性、期权调参、K 线数据 |
-| 启动器 | `launchers/`、`scripts/start-local-dashboard.js` | Windows/macOS 本地一键启动 |
-| 部署 | `docker-compose.yml`、`deploy/` | Docker Compose、环境变量、MCP 配置 |
+| Web client | React, Redux Toolkit, Ant Design, ECharts, Plotly | Data entry, dashboards, administration, interactive charts |
+| API | Express, JWT, Sequelize | Authentication, parsing, validation, persistence, data management |
+| Storage | SQLite | Users, assets, metrics, liquidity, options tuning, K-line data, settings |
+| Market adapters | Binance, Deribit, configurable logo providers | Candles, live streams, BTC volatility, option-chain enrichment, logos |
+| Integrations | Telegram Bot, HTTP JSON-RPC MCP gateway | Notifications and programmatic access |
+| Distribution | Docker, Windows/macOS launchers | Self-hosting and local one-click operation |
 
-## 运行模式
+## Technology stack
 
-| 模式 | 使用对象 | 启动方式 | 访问地址 |
-| --- | --- | --- | --- |
-| 本地分发包 | 终端用户 | 双击启动器 | `http://localhost:3001` |
-| 开发模式 | 开发者 | `npm run dev` | 前端 `3000`，后端 `3001` |
-| API 调试 | 开发者 | `npm run server` | `http://localhost:3001/api/test` |
-| Docker 部署 | 服务器环境 | `docker compose up -d` | 由 `API_PUBLIC_HOST` 配置 |
+| Area | Main technologies |
+| --- | --- |
+| Frontend | React 19, React Router, Redux Toolkit, Ant Design |
+| Visualization | ECharts, Recharts, Plotly, Lightweight Charts |
+| Backend | Node.js, Express, Sequelize |
+| Database | SQLite |
+| AI parsing | OpenAI Node SDK with configurable base URL and model |
+| Real-time data | WebSocket, Binance market streams |
+| Packaging | Docker Compose, multi-architecture GHCR image, local launcher bundles |
 
-## 本地分发包
+## Quick start
 
-本地分发包用于在用户自己的电脑上运行完整服务。用户下载仓库或解压分发包后，复制根目录 `.env.example` 为 `.env`，再通过启动器运行。启动器会自动执行依赖安装、前端构建、后端启动和浏览器打开流程。
+### Option 1: local launcher
 
-用户侧前置要求：
+This path builds the frontend, starts the API and browser, and keeps all data on the local machine.
 
-```text
-Node.js LTS: https://nodejs.org/
-```
+Requirements:
 
-配置入口：
-
-```bash
-cp .env.example .env
-```
-
-本地访问地址：
-
-```text
-http://localhost:3001
-```
-
-初始管理员账号：
-
-```text
-username: admin
-password: 123456
-```
-
-该账号用于本地初始访问；正式分发前可在管理后台修改密码。
-
-### 生成分发包
-
-生成纯代码分发包：
-
-```bash
-npm run build:launchers
-```
-
-生成随附当前 `database.sqlite` 的数据分发包：
-
-```bash
-npm run build:launchers:with-data
-```
-
-输出目录：
-
-```text
-local-artifacts/launchers/
-```
-
-输出文件：
-
-```text
-crypto-dashboard-local-one-click.zip
-crypto-dashboard-local-one-click-with-data.zip
-```
-
-### 启动入口
-
-Windows：
-
-```text
-launchers/windows/Start Crypto Dashboard.bat
-```
-
-macOS：
-
-```text
-launchers/mac/Start Crypto Dashboard.command
-```
-
-终端窗口需要保持运行，服务生命周期与该窗口绑定。
-
-本地启动器、后端服务和开发命令共用根目录 `.env`。AI 原文解析依赖真实 `OPENAI_API_KEY`；未配置时，历史数据查看、数据管理和本地看板仍可使用。
-
-本地启动器说明见 [launchers/README.md](launchers/README.md)。
-
-## 本地开发
-
-### 环境要求
-
-- Node.js LTS
+- Node.js 18 or a newer LTS release
 - npm
-- OpenAI API key 或兼容 OpenAI 的 API provider
 
-### 初始化
+```bash
+git clone https://github.com/Linon419/crypto-metrics-dashboard.git
+cd crypto-metrics-dashboard
+cp .env.example .env
+node scripts/start-local-dashboard.js
+```
+
+Open <http://localhost:3001>. The launcher also opens this address automatically.
+
+For a new local database created from `.env.example`, use:
+
+```text
+Username: admin
+Password: 123456
+```
+
+> [!CAUTION]
+> `123456` is a development-only sample credential. Set a unique strong `ADMIN_PASSWORD` before the first launch of every shared or production instance, or change the password immediately after the first local sign-in.
+
+AI parsing becomes available after `OPENAI_API_KEY` is configured; dashboards and local data management remain available through the launcher with an empty key.
+
+Platform launchers are also available:
+
+- Windows: `launchers/windows/Start Crypto Dashboard.bat`
+- macOS: `launchers/mac/Start Crypto Dashboard.command`
+
+See [Local launcher documentation](launchers/README.md) for packaging and platform notes.
+
+### Option 2: development mode
+
+Install the web and server dependencies, then configure the root environment file:
 
 ```bash
 npm install
+npm --prefix server install
 cp .env.example .env
 ```
 
-编辑根目录 `.env`：
-
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o
-DB_STORAGE=./database.sqlite
-JWT_SECRET=local_dev_secret_change_me_please_32_chars
-API_PUBLIC_HOST=http://localhost:3001
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=123456
-```
-
-启动前后端开发服务：
+Set a usable `OPENAI_API_KEY` in `.env`. The `npm run server` preflight checks this value before starting the backend.
 
 ```bash
 npm run dev
 ```
 
-只启动后端 API：
-
-```bash
-npm run server
-```
-
-访问地址：
-
-```text
-Frontend: http://localhost:3000
-Backend:  http://localhost:3001
-Health:   http://localhost:3001/api/test
-```
-
-## 配置项
-
-### 后端基础配置
-
-| 变量 | 说明 | 示例 |
-| --- | --- | --- |
-| `PORT` | 后端监听端口 | `3001` |
-| `DB_STORAGE` | SQLite 文件路径 | `./database.sqlite` |
-| `JWT_SECRET` | JWT 签名密钥 | `local_dev_secret_change_me_please_32_chars` |
-| `API_PUBLIC_HOST` | 前端运行时 API 主机 | `http://localhost:3001` |
-| `ADMIN_USERNAME` | 首个管理员用户名 | `admin` |
-| `ADMIN_PASSWORD` | 首个管理员密码 | `123456` |
-
-### AI 解析配置
-
-| 变量 | 说明 | 示例 |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | OpenAI 或兼容服务密钥 | `sk-...` |
-| `OPENAI_BASE_URL` | API Base URL | `https://api.openai.com/v1` |
-| `OPENAI_MODEL` | 解析模型 | `gpt-4o` |
-| `OPENAI_SYSTEM_PROMPT` | 系统 Prompt 覆盖项 | 可选 |
-| `OPENAI_PROMPT` | 用户 Prompt 模板覆盖项 | 可选，需包含 `{{processedText}}` |
-
-### 生产部署配置
-
-生产环境建议使用强随机密钥，并通过 `.env` 或平台 Secret 注入：
-
-```env
-JWT_SECRET=please_generate_a_strong_secret_at_least_32_chars
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-5-mini
-DB_STORAGE=/data/db/database.sqlite
-API_PUBLIC_HOST=http://your-domain-or-ip:3080
-MCP_GATEWAY_TOKEN=please_set_a_strong_gateway_token
-```
-
-部署模板：
-
-```text
-deploy/docker/.env.example
-deploy/docker/docker-compose.prod.yml
-docker-compose.yml
-```
-
-部署说明：
-
-- [docs/deployment/server-deployment.md](docs/deployment/server-deployment.md)
-- [docs/deployment/openai-config.md](docs/deployment/openai-config.md)
-
-## 数据模型与持久化
-
-默认数据库：
-
-```text
-database.sqlite
-```
-
-生产数据库建议路径：
-
-```text
-/data/db/database.sqlite
-```
-
-关键数据域：
-
-| 数据域 | 内容 |
+| Service | URL |
 | --- | --- |
-| `Coins` | 币种基础信息 |
-| `DailyMetrics` | 场外指数、爆破指数、进退场、动能标记 |
-| `LiquidityOverviews` | 流动性变化和备注 |
-| `OptionTunings` | 期权调参结果和原文 |
-| `TrendingCoins` | 今日潜力观察类数据 |
-| `CoinKlines` / `CoinKlineMappings` | K 线数据和交易对映射 |
-| `Users` | 用户和管理员账号 |
+| React development server | <http://localhost:3000> |
+| Express API | <http://localhost:3001> |
+| Health check | <http://localhost:3001/api/test> |
+| API documentation | <http://localhost:3001/api/docs/html> |
 
-数据迁移方式：
+## Configuration
 
-- 页面内导出/导入数据库 JSON。
-- 直接备份或替换 `database.sqlite`。
-- 使用 `npm run build:launchers:with-data` 生成随附数据库的分发包。
+Copy `.env.example` to `.env` for local operation. Production templates live under `deploy/docker/`.
 
-运行产物已纳入 `.gitignore`：
+### Core server settings
 
-```text
-database.sqlite
-*.sqlite
-local-artifacts/
-backups/
-logs/
-server/client/build/
-```
+| Variable | Required | Purpose | Example |
+| --- | --- | --- | --- |
+| `NODE_ENV` | Production | Runtime mode | `production` |
+| `PORT` | Optional | API listening port | `3001` |
+| `API_PUBLIC_HOST` | Yes | Public origin used to generate the frontend runtime API URL; omit the `/api` suffix | `https://metrics.example.com` |
+| `DB_STORAGE` | Optional | SQLite database path | `./database.sqlite` |
+| `JWT_SECRET` | Yes in production | JWT signing secret; production startup requires at least 32 characters | Random 32+ character value |
+| `ADMIN_USERNAME` | First run | Initial administrator username | `admin` |
+| `ADMIN_EMAIL` | First run | Initial administrator email | `admin@example.com` |
+| `ADMIN_PASSWORD` | First run | Initial administrator password | Strong unique password |
+| `DEV_AUTH_BYPASS` | Development only | Explicit local authentication bypass | `true` |
 
-## AI 解析与本地归一化
+When `ADMIN_PASSWORD` is absent, the server generates a strong password and writes it once to the startup log. Save it before the log is rotated.
 
-系统主流程使用 AI 解析整段原文，本地代码负责结构校验和高确定性字段归一化。
+### AI parsing
 
-期权调参标准输出：
+| Variable | Required | Purpose | Default |
+| --- | --- | --- | --- |
+| `OPENAI_API_KEY` | For AI ingestion | API credential | — |
+| `OPENAI_BASE_URL` | Optional | OpenAI-compatible API base URL | `https://api.openai.com/v1` |
+| `OPENAI_MODEL` | Optional | Parsing model | `gpt-4o` |
+| `OPENAI_SYSTEM_PROMPT` | Optional | System prompt override | Built-in prompt |
+| `OPENAI_PROMPT` | Optional | User prompt template containing `{{processedText}}` | Built-in template |
 
-```json
-{
-  "deltaTarget": "neutral",
-  "vegaTarget": "positive",
-  "strategy": "gamma_squeeze",
-  "rawText": "期权调参原文"
-}
-```
+Prompt rules can also be maintained from **Admin → AI Parsing Prompt**. See [OpenAI configuration](docs/deployment/openai-config.md) for provider examples.
 
-策略名归一化示例：
+### Optional integrations
 
-```text
-组成 gamma squeeze -> gamma_squeeze
-组成 iron condor   -> iron_condor
-组成 long straddle -> long_straddle
-```
-
-管理员可在后台 `AI解析 Prompt` 页面维护解析规则、币种别名和特殊板块处理策略。
-
-## 常用命令
-
-```bash
-npm start                         # React 前端开发服务
-npm run server                    # Express 后端 API
-npm run dev                       # 前后端开发服务
-npm run dev-full                  # 前端 + 后端 + Telegram Bot
-npm run build                     # 前端生产构建
-npm test                          # React 测试
-npm run build:launchers           # 生成本地分发包
-npm run build:launchers:with-data # 生成随附数据库的本地分发包
-npm run bot                       # 启动 Telegram Bot
-```
-
-## API 入口
-
-| 方法 | 路径 | 用途 |
+| Variable | Integration | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/test` | 健康检查 |
-| `POST` | `/api/data/input` | 原文解析并入库 |
-| `GET` | `/api/data/latest` | 获取最新指标 |
-| `GET` | `/api/data/export-all` | 导出数据库 JSON |
-| `POST` | `/api/data/import-all` | 导入数据库 JSON |
-| `GET` | `/api/docs` | API 文档入口 |
-| `POST` | `/default/crypto/mcp` | MCP Gateway |
+| `BRANDFETCH_CLIENT_ID` | Asset logos | Browser-side official logo lookup |
+| `LOGO_CACHE_DIR` | Asset logos | Server-side logo cache directory |
+| `TELEGRAM_BOT_TOKEN` | Telegram | Bot token |
+| `API_BASE_URL` | Telegram | Dashboard API base URL |
+| `ADMIN_CHAT_IDS` | Telegram | Comma-separated administrator chat IDs |
+| `MCP_GATEWAY_TOKEN` | MCP | Bearer token protecting the gateway |
+| `CRYPTO_API_BASE_URL` | MCP | Internal dashboard API URL |
+| `CRYPTO_DEFAULT_USERNAME` | MCP | Optional automatic backend login |
+| `CRYPTO_DEFAULT_PASSWORD` | MCP | Optional automatic backend login |
+| `TZ` | Server and bot | Runtime timezone |
 
-接口定义由 [server/routes/docs.js](server/routes/docs.js) 维护。
+## Data and backups
 
-## Telegram Bot
+SQLite is the default persistence layer. Sequelize synchronizes the schema during server startup.
 
-根目录 `.env` 配置：
+| Data domain | Main models |
+| --- | --- |
+| Assets and mappings | `Coins`, `CoinKlineMappings` |
+| Daily signals | `DailyMetrics`, `TrendingCoins` |
+| Liquidity | `LiquidityOverviews` |
+| Options tuning | `OptionTunings` |
+| Candles and price points | `CoinKlines`, `BtcPricePoints` |
+| Access and preferences | `Users`, `UserFavorites`, `AppSettings` |
 
-```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-API_BASE_URL=http://localhost:3001/api
-ADMIN_CHAT_IDS=123456789,987654321
+Backup options:
+
+1. Export a JSON snapshot from the administration interface or `GET /api/data/export-all`.
+2. Copy the SQLite file configured by `DB_STORAGE` while the service is stopped or through a SQLite-safe backup procedure.
+3. Build a local distribution bundle containing the current root `database.sqlite` with `npm run build:launchers:with-data`.
+
+Restore JSON snapshots through the administration interface or `POST /api/data/import-database`. Validate backups in a separate environment before production restoration.
+
+Bundles created with `build:launchers:with-data` contain the complete database, including user records and password hashes. Handle them as sensitive backup artifacts.
+
+## API and integrations
+
+Interactive HTML documentation is served from `/api/docs/html`; the JSON definition is available at `/api/docs`.
+
+| Access | Method | Endpoint | Purpose |
+| --- | --- | --- | --- |
+| Public | `GET` | `/api/test` | Health check |
+| Public | `GET` | `/api/public/top-otc-crypto` | Latest top OTC assets |
+| Public | `GET` | `/api/public/bottom-otc-crypto` | Latest bottom OTC assets |
+| Public | `GET` | `/api/logos/:symbol` | Cached or generated asset logo |
+| Authentication | `POST` | `/api/auth/login` | Obtain a JWT |
+| Authenticated | `POST` | `/api/data/input` | Parse and persist source text |
+| Authenticated | `GET` | `/api/data/latest` | Read the latest structured metrics |
+| Authenticated | `GET` | `/api/data/export-all` | Export a JSON snapshot |
+| Authenticated | `POST` | `/api/data/import-database` | Import a JSON snapshot |
+| Authenticated | `GET` | `/api/volatility/btc` | BTC realized/implied volatility snapshot |
+| Authenticated | `GET` | `/api/options/btc/chain` | BTC option chain |
+| WebSocket | — | `/ws/klines?symbol=BTC&interval=1d` | Live K-line updates |
+
+Protected REST endpoints expect:
+
+```http
+Authorization: Bearer <jwt>
 ```
 
-启动：
+### Telegram bot
 
 ```bash
+npm --prefix telegram-bot install
 npm run bot
 ```
 
-完整配置参考 [telegram-bot/.env.example](telegram-bot/.env.example)。
+Configure `TELEGRAM_BOT_TOKEN`, `API_BASE_URL`, and `ADMIN_CHAT_IDS`. The complete template is available at [`telegram-bot/.env.example`](telegram-bot/.env.example).
 
-## MCP Gateway
+### MCP gateway
 
-MCP Gateway 挂载路径：
+The HTTP JSON-RPC gateway is mounted at:
 
 ```text
 POST /default/crypto/mcp
 ```
 
-鉴权方式：
+Every gateway request requires:
 
-```text
+```http
 Authorization: Bearer <MCP_GATEWAY_TOKEN>
 ```
 
-配置目录：
+Optional `Mcp-Session-Id` headers preserve the backend JWT session for 30 minutes. Gateway manifests and the design note are available under [`deploy/mcp/`](deploy/mcp/) and [MCP gateway design](docs/plans/2026-01-14-mcp-gateway-design.md).
 
-```text
-deploy/mcp/
+## Docker deployment
+
+The repository publishes `linux/amd64` and `linux/arm64` images to GitHub Container Registry through GitHub Actions.
+
+Prepare the production template:
+
+```bash
+cp deploy/docker/.env.example deploy/docker/.env
 ```
 
-设计说明见 [docs/plans/2026-01-14-mcp-gateway-design.md](docs/plans/2026-01-14-mcp-gateway-design.md)。
+Set strong production secrets, then review `API_PUBLIC_HOST` and the host volume path in `deploy/docker/docker-compose.prod.yml` for the target server.
 
-## 目录结构
+```bash
+docker compose \
+  --env-file deploy/docker/.env \
+  -f deploy/docker/docker-compose.prod.yml \
+  up -d
+```
+
+The included template exposes the application on port `3080` and persists SQLite under `/data/db` inside the container. See [Server deployment](docs/deployment/server-deployment.md) for operational notes.
+
+## Project structure
 
 ```text
 .
-├── public/                 # React 静态资源
-├── src/                    # React 前端
-├── server/                 # Express API、数据库模型、路由
-├── telegram-bot/           # Telegram Bot
-├── launchers/              # Windows/macOS 本地启动器
-├── scripts/                # 构建、启动、数据脚本
-├── deploy/
-│   ├── docker/             # Docker Compose 示例和环境变量模板
-│   └── mcp/                # MCP Gateway 配置
-├── docs/
-│   ├── deployment/         # 部署和 OpenAI 配置
-│   ├── plans/              # 设计方案
-│   └── archive/            # 历史文档
-├── package.json
+├── public/                  # Static web assets
+├── src/                     # React application
+│   ├── components/          # Dashboard, options, and admin UI
+│   ├── redux/               # Client state
+│   ├── services/            # API and WebSocket client
+│   └── utils/               # Formatting and domain logic
+├── server/                  # Express API
+│   ├── middleware/          # Authentication and first-run setup
+│   ├── models/              # Sequelize models
+│   ├── routes/              # REST API and MCP gateway
+│   ├── services/            # AI and WebSocket services
+│   └── utils/               # Market adapters and domain logic
+├── telegram-bot/            # Telegram notification bot
+├── launchers/               # Windows and macOS launchers
+├── scripts/                 # Build and local distribution scripts
+├── deploy/                  # Docker and MCP deployment manifests
+├── docs/                    # Deployment, design, and maintenance docs
+├── Dockerfile
 └── docker-compose.yml
 ```
+
+## Development
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `npm start` | Start the React development server |
+| `npm run server` | Start the Express API through the root preflight script |
+| `npm run dev` | Start the frontend and API together |
+| `npm run dev-full` | Start the frontend, API, and Telegram bot |
+| `npm run build` | Create a production frontend build |
+| `npm test` | Run the React test suite |
+| `npm run build:launchers` | Build local launcher packages |
+| `npm run build:launchers:with-data` | Build launcher packages with `database.sqlite` |
+
+The backend also contains focused Node test scripts under `server/tests/`. Run a specific test directly, for example:
+
+```bash
+node server/tests/optionsPayoff.test.js
+node server/tests/klineWebSocket.test.js
+```
+
+### Launcher packages
+
+```bash
+npm run build:launchers
+npm run build:launchers:with-data
+```
+
+Artifacts are written to `local-artifacts/launchers/` as folders and ZIP archives.
+
+## Security
+
+- Generate unique values for `JWT_SECRET`, `ADMIN_PASSWORD`, and `MCP_GATEWAY_TOKEN` in every deployment.
+- Store API keys in `.env` files or a secret manager. The repository ignores environment files and runtime databases.
+- Use HTTPS through a reverse proxy for internet-facing deployments.
+- Restrict file permissions for the SQLite database, backups, logs, and logo cache.
+- Keep `DEV_AUTH_BYPASS` scoped to local development.
+- Review public registration and administrator settings before exposing the service.
+- Rotate the sample local administrator password during the first session.
+
+Please report security-sensitive findings privately to the repository owner through their [GitHub profile](https://github.com/Linon419).
+
+## Contributing
+
+Issues and pull requests are welcome. A focused contribution flow keeps changes reviewable:
+
+1. Open an issue describing the problem, expected behavior, and reproduction context.
+2. Create a topic branch from `main`.
+3. Add tests for behavior changes and run the directly relevant checks.
+4. Use a Conventional Commit-style message such as `fix(api): correct option payoff validation`.
+5. Open a pull request with scope, validation evidence, configuration impact, and screenshots for UI changes.
+
+Keep generated databases, credentials, logs, local artifacts, and provider responses outside commits.
+
+## License
+
+Licensing status is currently pending: the repository has no root `LICENSE` file. Review reuse and distribution terms with the repository owner until an explicit license is published. An OSI-approved license should accompany any formal open-source release.
