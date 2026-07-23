@@ -20,6 +20,10 @@ async function run() {
       getRemoteLogoUrl('BTC'),
       'https://assets.coincap.io/assets/icons/btc@2x.png'
     );
+    assert.strictEqual(
+      getRemoteLogoUrl('SPCX'),
+      'https://icons.duckduckgo.com/ip3/spacex.com.ico'
+    );
 
     const aaoiLogo = await getLogoResponse('AAOI', { cacheDir: tempDir });
     assert.strictEqual(aaoiLogo.contentType, 'image/svg+xml; charset=utf-8');
@@ -45,6 +49,11 @@ async function run() {
     assert.strictEqual(skHynixLogo.contentType, 'image/svg+xml; charset=utf-8');
     assert.strictEqual(skHynixLogo.source, 'inline');
     assert.match(skHynixLogo.body.toString('utf8'), /sk-hynix-bg/);
+
+    const vegaLogo = await getLogoResponse('VEGA', { cacheDir: tempDir });
+    assert.strictEqual(vegaLogo.contentType, 'image/svg+xml; charset=utf-8');
+    assert.strictEqual(vegaLogo.source, 'inline');
+    assert.match(vegaLogo.body.toString('utf8'), /volatility-bg/);
 
     let downloadCount = 0;
     const httpClient = {

@@ -23,6 +23,7 @@ const DOMAIN_LOGO_HOSTS = {
   ORCL: 'oracle.com',
   PLTR: 'palantir.com',
   SNDK: 'sandisk.com',
+  SPCX: 'spacex.com',
   TSLA: 'tesla.com',
 };
 
@@ -45,6 +46,7 @@ const COMMODITY_LOGO_TYPES = {
 const THEMATIC_LOGO_TYPES = {
   CN_HOG: 'hog',
   ESTATE: 'house',
+  VEGA: 'volatility',
   地产: 'house',
 };
 
@@ -198,6 +200,20 @@ function buildCommodityLogoSvg(type) {
 
 function buildThematicLogoSvg(type) {
   const thematicLogos = {
+    volatility: `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="volatility-bg" x1="10" y1="8" x2="54" y2="58">
+            <stop offset="0" stop-color="#312e81"/>
+            <stop offset="0.5" stop-color="#7c3aed"/>
+            <stop offset="1" stop-color="#c026d3"/>
+          </linearGradient>
+        </defs>
+        <rect width="64" height="64" rx="32" fill="url(#volatility-bg)"/>
+        <path d="M10 39c6 0 7-14 13-14s7 20 13 20 7-27 13-27c3 0 5 5 7 10" fill="none" stroke="#f5f3ff" stroke-width="4" stroke-linecap="round"/>
+        <text x="46" y="48" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800" fill="#fdf4ff">ν</text>
+      </svg>
+    `,
     hog: `
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
         <defs>

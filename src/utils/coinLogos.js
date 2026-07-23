@@ -54,6 +54,7 @@ const BACKEND_LOGO_SYMBOLS = new Set([
   'SILVER',
   'SK_HYNIX',
   'SOL',
+  'SPCX',
   'SUI',
   'TRUMP',
   'UNI',

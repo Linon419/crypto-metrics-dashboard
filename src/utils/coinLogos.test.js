@@ -29,7 +29,7 @@ describe('coinLogos', () => {
     expect(getCoinLogoUrl('CN_HOG')).toContain('/api/logos/CN_HOG');
   });
 
-  test.each(['PUMP', 'SUI', 'ETH', 'BTC', 'SOL', 'NASDAQ', 'CIRCLE', 'CN_PCB'])(
+  test.each(['PUMP', 'SUI', 'ETH', 'BTC', 'SOL', 'NASDAQ', 'CIRCLE', 'SPCX', 'CN_PCB'])(
     'keeps authoritative backend resolution for %s',
     symbol => {
       window.runtimeConfig = { BRANDFETCH_CLIENT_ID: 'client-123' };
