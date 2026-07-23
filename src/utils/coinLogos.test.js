@@ -29,6 +29,15 @@ describe('coinLogos', () => {
     expect(getCoinLogoUrl('CN_HOG')).toContain('/api/logos/CN_HOG');
   });
 
+  test.each(['PUMP', 'SUI', 'ETH', 'BTC', 'SOL', 'NASDAQ', 'CIRCLE', 'CN_PCB'])(
+    'keeps authoritative backend resolution for %s',
+    symbol => {
+      window.runtimeConfig = { BRANDFETCH_CLIENT_ID: 'client-123' };
+
+      expect(getCoinLogoUrl(symbol)).toContain(`/api/logos/${symbol}`);
+    }
+  );
+
   test('keeps backend resolution when Brandfetch is unconfigured', () => {
     window.runtimeConfig = {};
 
