@@ -36,8 +36,8 @@ async function run() {
     { date: '2026-04-09', otc_index: 986, explosion_index: 194, entry_exit_type: 'exit' },
   ];
 
-  await assertQuality('2026-04-20', '观察型进场', nearFlatDipMetrics.slice(1));
-  await assertQuality('2026-04-22', '观察型进场', nearFlatDipMetrics);
+  await assertQuality('2026-04-20', '低质量进场', nearFlatDipMetrics.slice(1));
+  await assertQuality('2026-04-22', '低质量进场', nearFlatDipMetrics);
 
   const earlyFirstWeekWeakMomentumMetrics = [
     { date: '2026-04-10', otc_index: 1033, explosion_index: 246, entry_exit_type: 'entry' },
@@ -47,7 +47,7 @@ async function run() {
     { date: '2026-02-26', otc_index: 780, explosion_index: 214, entry_exit_type: 'exit' },
   ];
 
-  await assertQuality('2026-04-10', '观察型进场', earlyFirstWeekWeakMomentumMetrics);
+  await assertQuality('2026-04-10', '高质量进场', earlyFirstWeekWeakMomentumMetrics);
 
   const ordinaryDayRecoveryAfterWeakKeyNodeMetrics = [
     { date: '2026-05-02', otc_index: 1056, explosion_index: 219, entry_exit_type: 'entry', entry_exit_day: 25 },
@@ -76,7 +76,7 @@ async function run() {
     { date: '2026-02-26', otc_index: 780, explosion_index: 214, entry_exit_type: 'exit' },
   ];
 
-  await assertQuality('2026-04-15', '低质量进场（需调仓）', completedFirstWeekWeakMomentumMetrics);
+  await assertQuality('2026-04-15', '低质量进场', completedFirstWeekWeakMomentumMetrics);
 
   const recoveryAfterWeakDipMetrics = [
     { date: '2026-03-10', otc_index: 1131, explosion_index: 253, entry_exit_type: 'entry' },
@@ -108,9 +108,9 @@ async function run() {
     { date: '2026-01-16', otc_index: 1300, explosion_index: 218, entry_exit_type: 'entry' },
   ];
 
-  await assertQuality('2026-03-11', '修复型进场', recoveryWithPreviousCycleMetrics.slice(1));
-  await assertQuality('2026-03-13', '修复型进场', recoveryWithPreviousCycleMetrics.slice(1));
-  await assertQuality('2026-03-14', '高质量进场', recoveryWithPreviousCycleMetrics.slice(4));
+  await assertQuality('2026-03-11', '低质量进场', recoveryWithPreviousCycleMetrics.slice(1));
+  await assertQuality('2026-03-13', '低质量进场', recoveryWithPreviousCycleMetrics.slice(1));
+  await assertQuality('2026-03-14', '低质量进场', recoveryWithPreviousCycleMetrics.slice(4));
   await assertQuality('2026-03-19', '低质量进场', recoveryWithPreviousCycleMetrics);
 
   const weakRecoveryMetrics = [
@@ -127,6 +127,22 @@ async function run() {
   ];
 
   await assertQuality('2026-05-15', '低质量进场', weakRecoveryMetrics.slice(1));
+
+  const steadyExitMetrics = [
+    { date: '2026-06-10', otc_index: 700, explosion_index: 2, entry_exit_type: 'exit' },
+    { date: '2026-06-09', otc_index: 720, explosion_index: -5, entry_exit_type: 'exit' },
+    { date: '2026-06-05', otc_index: 800, explosion_index: -10, entry_exit_type: 'exit' },
+    { date: '2026-06-03', otc_index: 900, explosion_index: 1, entry_exit_type: 'entry' },
+    { date: '2026-06-02', otc_index: 920, explosion_index: -5, entry_exit_type: 'entry' },
+  ];
+
+  await assertQuality('2026-06-10', '高质量退场', steadyExitMetrics);
+
+  const reversedExitMetrics = steadyExitMetrics.map((metric) => (
+    metric.date === '2026-06-05' ? { ...metric, otc_index: 950 } : metric
+  ));
+
+  await assertQuality('2026-06-10', '低质量退场', reversedExitMetrics);
 
   console.log('periodQualityRules.test.js passed');
 }

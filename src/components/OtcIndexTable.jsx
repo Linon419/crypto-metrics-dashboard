@@ -420,7 +420,7 @@ function OtcIndexTable({
     if (!quality) return <Tag>未知</Tag>;
 
     const meta = getPeriodQualityMeta(quality);
-    const tag = <Tag color={meta.tagColor} className={isMobile ? "text-xs" : ""}>{quality}</Tag>;
+    const tag = <Tag color={meta.tagColor} className={isMobile ? "text-xs" : ""}>{meta.displayLabel}</Tag>;
     return isMobile ? (
       <Tooltip title={meta.description}>{tag}</Tooltip>
     ) : (

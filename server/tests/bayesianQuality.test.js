@@ -4,7 +4,7 @@ const dataRouter = require('../routes/data');
 
 const {
   buildKeyNodeComparisons,
-  scoreBayesianPeriodQuality,
+  classifyPeriodQuality,
   QUALITY_LOOKBACK_DAYS
 } = dataRouter.__qualityTestUtils || {};
 
@@ -15,9 +15,9 @@ function run() {
     'buildKeyNodeComparisons should be exported for tests'
   );
   assert.strictEqual(
-    typeof scoreBayesianPeriodQuality,
+    typeof classifyPeriodQuality,
     'function',
-    'scoreBayesianPeriodQuality should be exported for tests'
+    'classifyPeriodQuality should be exported for tests'
   );
   assert.strictEqual(
     QUALITY_LOOKBACK_DAYS,
@@ -46,14 +46,15 @@ function run() {
     '3→4 should capture the OTC recovery after entry start'
   );
 
-  const repairedEntry = scoreBayesianPeriodQuality({
+  const reversedEntry = classifyPeriodQuality({
     phase: 'entry',
     comparisons: entryComparisons
   });
-  assert.strictEqual(repairedEntry.label, '修复型进场');
-  assert.ok(repairedEntry.probability >= 0.55 && repairedEntry.probability < 0.75);
+  assert.strictEqual(reversedEntry.label, '低质量进场');
+  assert.strictEqual(reversedEntry.pattern, 'reversal');
+  assert.strictEqual(reversedEntry.evidenceCount, 2);
 
-  const strongEntry = scoreBayesianPeriodQuality({
+  const strongEntry = classifyPeriodQuality({
     phase: 'entry',
     comparisons: [
       { changePercent: 21.7 },
@@ -61,17 +62,19 @@ function run() {
     ]
   });
   assert.strictEqual(strongEntry.label, '高质量进场');
+  assert.strictEqual(strongEntry.pattern, 'steady');
 
-  const weakExit = scoreBayesianPeriodQuality({
+  const weakExit = classifyPeriodQuality({
     phase: 'exit',
     comparisons: [
       { changePercent: 52.5 },
       { changePercent: -17.3 }
     ]
   });
-  assert.strictEqual(weakExit.label, '修复型退场');
+  assert.strictEqual(weakExit.label, '低质量退场');
+  assert.strictEqual(weakExit.pattern, 'reversal');
 
-  const confirmedExit = scoreBayesianPeriodQuality({
+  const confirmedExit = classifyPeriodQuality({
     phase: 'exit',
     comparisons: [
       { changePercent: -28.9 },
@@ -79,6 +82,17 @@ function run() {
     ]
   });
   assert.strictEqual(confirmedExit.label, '高质量退场');
+
+  const flatExit = classifyPeriodQuality({
+    phase: 'exit',
+    comparisons: [{ changePercent: 0 }]
+  });
+  assert.strictEqual(flatExit.label, '低质量退场');
+  assert.strictEqual(flatExit.pattern, 'flat');
+
+  const insufficient = classifyPeriodQuality({ phase: 'entry', comparisons: [] });
+  assert.strictEqual(insufficient.label, '数据不足');
+  assert.strictEqual(insufficient.pattern, 'insufficient');
 
   console.log('bayesianQuality.test.js passed');
 }

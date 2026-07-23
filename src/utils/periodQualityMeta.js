@@ -1,9 +1,10 @@
 export const PERIOD_QUALITY_METHOD = {
-  title: '关键节点贝叶斯识别',
-  intro: '系统只比较关键节点的场外指数。进场期先看 2→3，再用 3→4、4→5 继续更新；退场期用同样方式判断场外指数是否稳步下行。',
+  title: '关键节点趋势识别',
+  intro: '系统只比较关键节点的场外指数，并通过相邻节点是否持续同向变化判断周期质量。',
   rules: [
-    '进场期重点看相邻关键节点是否持续抬升。',
-    '退场期重点看相邻关键节点是否持续下行。',
+    '进场期相邻关键节点持续抬升为高质量，出现持平、下降或反复为低质量。',
+    '退场期相邻关键节点持续下行为高质量，出现持平、上升或反复为低质量。',
+    '缺少可比较的关键节点时保持待观察。',
     '进场首日爆破高于 200 作为短线偏热提示，不直接改变周期质量。',
     '进场满一周后，若首周未跌回 200 且爆破均值走弱，系统直接下调为低质量进场。',
   ],
@@ -14,27 +15,33 @@ export const PERIOD_QUALITY_GUIDE = [
     key: 'high',
     color: 'success',
     label: '高质量',
-    description: '关键节点连续同向强化，波动展开更充分。',
-  },
-  {
-    key: 'repair',
-    color: 'orange',
-    label: '修复型',
-    description: '首段承压，后续关键节点完成修复，适合轻仓跟踪。',
-  },
-  {
-    key: 'observe',
-    color: 'processing',
-    label: '观察型',
-    description: '关键节点开始改善，力度仍在确认，仓位以试探为主。',
+    description: '进场节点持续上升或退场节点持续下降，周期方向明确。',
   },
   {
     key: 'low',
     color: 'error',
     label: '低质量',
-    description: '关键节点缺少连续强化，周期更容易缩短。',
+    description: '关键节点出现持平、反向或反复，周期更容易缩短。',
+  },
+  {
+    key: 'pending',
+    color: 'warning',
+    label: '待观察',
+    description: '当前缺少可比较的关键节点，后续节点形成后继续判断。',
   },
 ];
+
+const LEGACY_QUALITY_ALIASES = {
+  修复型进场: '低质量进场',
+  观察型进场: '低质量进场',
+  修复型退场: '低质量退场',
+  观察型退场: '低质量退场',
+  '低质量进场（需调仓）': '低质量进场',
+};
+
+export function normalizePeriodQualityLabel(quality) {
+  return LEGACY_QUALITY_ALIASES[quality] || quality;
+}
 
 const META = {
   高质量进场: {
@@ -43,29 +50,11 @@ const META = {
     shortText: '高进',
     description: '2→3 与后续关键节点持续抬升，主力加仓连续，进场期更容易充分展开。',
   },
-  修复型进场: {
-    tagColor: 'orange',
-    ribbonColor: '#fa8c16',
-    shortText: '修进',
-    description: '2→3 先承压，3→4 开始修复并重新放量，适合轻仓跟踪后续确认。',
-  },
-  观察型进场: {
-    tagColor: 'processing',
-    ribbonColor: '#1677ff',
-    shortText: '观进',
-    description: '关键节点已经改善，展开力度仍在确认，仓位适合试探和跟踪。',
-  },
   低质量进场: {
     tagColor: 'error',
     ribbonColor: '#ff4d4f',
     shortText: '低进',
     description: '关键节点缺少持续抬升，拉盘动力偏弱，进场期更容易缩短。',
-  },
-  '低质量进场（需调仓）': {
-    tagColor: 'error',
-    ribbonColor: '#ff4d4f',
-    shortText: '调仓',
-    description: '进场满一周后，首周未跌回 200 且爆破均值走弱，本轮动能收敛更快，仓位需要收缩。',
   },
   '进场期 (待观察)': {
     tagColor: 'warning',
@@ -78,18 +67,6 @@ const META = {
     ribbonColor: 'green',
     shortText: '高退',
     description: '2→3 与后续关键节点持续下行，主力撤离明确，退场质量更高。',
-  },
-  修复型退场: {
-    tagColor: 'orange',
-    ribbonColor: '#fa8c16',
-    shortText: '修退',
-    description: '早段出现反抽，后续关键节点重新转弱，适合继续跟踪退场确认。',
-  },
-  观察型退场: {
-    tagColor: 'processing',
-    ribbonColor: '#1677ff',
-    shortText: '观退',
-    description: '关键节点开始走弱，退场力度仍在确认，持仓节奏以防守为主。',
   },
   低质量退场: {
     tagColor: 'error',
@@ -133,11 +110,17 @@ export function getPeriodQualityMeta(quality) {
     };
   }
 
-  return META[quality] || {
+  const normalizedQuality = normalizePeriodQualityLabel(quality);
+  const meta = META[normalizedQuality] || {
     tagColor: 'default',
     ribbonColor: 'default',
-    shortText: quality,
+    shortText: normalizedQuality,
     description: '当前标签已生成，说明文案稍后补充。',
+  };
+
+  return {
+    ...meta,
+    displayLabel: normalizedQuality,
   };
 }
 

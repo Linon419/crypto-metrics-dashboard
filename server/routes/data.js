@@ -9,7 +9,7 @@ const openaiService = require('../services/openaiService');
 const {
   QUALITY_LOOKBACK_DAYS,
   buildKeyNodeComparisons,
-  scoreBayesianPeriodQuality,
+  classifyPeriodQuality,
 } = require('../utils/periodQuality');
 const { buildPeriodRiskNotes } = require('../utils/periodRiskNotes');
 const { parseFlexibleDateTime, parseWallClockInOffset, validateTimePrecision } = require('../utils/timeParser');
@@ -710,104 +710,9 @@ router.get('/latest', async (req, res) => {
 });
 
 
-function formatProbability(probability) {
-  return `${(probability * 100).toFixed(1)}%`;
-}
-
-const ENTRY_DIP_WEAKENING_THRESHOLD_PERCENT = -5;
-const ENTRY_RECOVERY_NEAR_START_THRESHOLD_PERCENT = -2;
-const ENTRY_HIGH_QUALITY_KEY_NODE_MIN_CHANGE_PERCENT = 5;
-
 function hasIncompleteEntryStart(metric) {
   const entryExitDay = Number(metric?.entry_exit_day);
   return Number.isFinite(entryExitDay) && entryExitDay > 1;
-}
-
-function isMetricAfterNode(metric, nodeDate) {
-  if (!metric?.date || !nodeDate) {
-    return false;
-  }
-
-  return new Date(metric.date) > new Date(nodeDate);
-}
-
-function findConfirmedRecoveryDipComparisons(comparisons, weakDipComparison, targetMetric) {
-  if (!weakDipComparison || !targetMetric?.date) {
-    return [];
-  }
-
-  const weakDipDate = new Date(weakDipComparison.toDate);
-  const targetDate = new Date(targetMetric.date);
-
-  return comparisons.filter((comparison) =>
-    comparison.fromRole === 'after'
-    && comparison.toRole === 'after'
-    && new Date(comparison.fromDate) >= weakDipDate
-    && new Date(comparison.toDate) <= targetDate
-  );
-}
-
-function hasConfirmedHighQualityRecovery(comparisons, weakDipComparison, targetMetric, entryStartOtcIndex) {
-  const recoveryDipComparisons = findConfirmedRecoveryDipComparisons(comparisons, weakDipComparison, targetMetric);
-
-  return recoveryDipComparisons.length >= 2
-    && recoveryDipComparisons.every((comparison) =>
-      Number.isFinite(comparison.changePercent)
-      && comparison.changePercent >= ENTRY_HIGH_QUALITY_KEY_NODE_MIN_CHANGE_PERCENT
-      && Number(comparison.toOtcIndex) >= entryStartOtcIndex
-    );
-}
-
-function hasWeakRecoveryKeyNode(comparisons, weakDipComparison, targetMetric) {
-  const recoveryDipComparisons = findConfirmedRecoveryDipComparisons(comparisons, weakDipComparison, targetMetric);
-
-  return recoveryDipComparisons.some((comparison) =>
-    Number.isFinite(comparison.changePercent)
-    && comparison.changePercent < ENTRY_HIGH_QUALITY_KEY_NODE_MIN_CHANGE_PERCENT
-  );
-}
-
-function classifyEntryRecoveryAfterWeakDip(targetMetric, latestDipComparison, entryStartOtcIndex, comparisons = []) {
-  if (
-    !targetMetric
-    || !latestDipComparison
-    || !Number.isFinite(latestDipComparison.changePercent)
-    || latestDipComparison.changePercent > ENTRY_DIP_WEAKENING_THRESHOLD_PERCENT
-    || !isMetricAfterNode(targetMetric, latestDipComparison.toDate)
-  ) {
-    return null;
-  }
-
-  const targetOtcIndex = Number(targetMetric.otc_index);
-  const recoveredFromDipNode = targetOtcIndex >= Number(latestDipComparison.toOtcIndex);
-  const changeFromEntryStart = calculateChangePercent(targetOtcIndex, entryStartOtcIndex);
-  const recoveredNearEntryStart = Number.isFinite(changeFromEntryStart)
-    && changeFromEntryStart >= ENTRY_RECOVERY_NEAR_START_THRESHOLD_PERCENT;
-
-  if (!recoveredFromDipNode || !recoveredNearEntryStart) {
-    return '低质量进场';
-  }
-
-  if (hasWeakRecoveryKeyNode(comparisons, latestDipComparison, targetMetric)) {
-    return '低质量进场';
-  }
-
-  if (targetOtcIndex >= entryStartOtcIndex
-    && hasConfirmedHighQualityRecovery(comparisons, latestDipComparison, targetMetric, entryStartOtcIndex)
-  ) {
-    return '高质量进场';
-  }
-
-  return '修复型进场';
-}
-
-function findLatestWeakEntryDipComparison(comparisons, targetMetric) {
-  return [...comparisons].reverse().find(comparison =>
-    comparison.toRole === 'after'
-    && Number.isFinite(comparison.changePercent)
-    && comparison.changePercent <= ENTRY_DIP_WEAKENING_THRESHOLD_PERCENT
-    && isMetricAfterNode(targetMetric, comparison.toDate)
-  );
 }
 
 function detectWeakEntryWithinFirstWeek(historicalMetrics, entryStartDateMetric, targetMetric) {
@@ -876,22 +781,6 @@ function getEntryComparisonsUpToTarget(comparisons, targetMetric) {
   );
 }
 
-function getLatestEntryKeyMetric(comparisons, targetMetric) {
-  const latestAfterComparison = [...comparisons].reverse().find((comparison) =>
-    comparison.toRole === 'after'
-  );
-
-  if (!latestAfterComparison) {
-    return targetMetric;
-  }
-
-  return {
-    ...targetMetric,
-    date: latestAfterComparison.toDate,
-    otc_index: latestAfterComparison.toOtcIndex,
-  };
-}
-
 function getEntryQualityComparisons(comparisons, targetMetric, incompleteEntryStart) {
   const comparisonsUpToTarget = getEntryComparisonsUpToTarget(comparisons, targetMetric);
 
@@ -943,9 +832,9 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
   if (firstWeekRisk.triggered) {
     console.log(
       `[QualityCheck] CoinID ${coinId}: 首周爆破均值走弱，前半段均值=${firstWeekRisk.earlyAverage.toFixed(2)}, ` +
-      `后半段均值=${firstWeekRisk.lateAverage.toFixed(2)} -> 低质量进场（需调仓）`
+      `后半段均值=${firstWeekRisk.lateAverage.toFixed(2)} -> 低质量进场（建议调仓）`
     );
-    return '低质量进场（需调仓）';
+    return '低质量进场';
   }
 
   // 构建关键节点序列 (bodong 文档 - 第五章)
@@ -1007,47 +896,19 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
     return '进场期 (待观察)';
   }
 
-  const effectiveTargetMetric = getLatestEntryKeyMetric(comparisonsForTarget, targetMetric);
-
   logKeyNodeComparisons(coinId, comparisonsForTarget);
 
-  const weakDipComparison = findLatestWeakEntryDipComparison(comparisonsForTarget, effectiveTargetMetric);
-  const weakDipRecoveryQuality = classifyEntryRecoveryAfterWeakDip(effectiveTargetMetric, weakDipComparison, entryStartOtcIndex, comparisonsForTarget);
-  if (weakDipRecoveryQuality) {
-    if (weakDipRecoveryQuality !== '低质量进场') {
-      console.log(
-        `[QualityCheck] CoinID ${coinId}: Entry recovered after weak dip, target=${effectiveTargetMetric.date}` +
-        `(${effectiveTargetMetric.otc_index}/${effectiveTargetMetric.explosion_index}) -> ${weakDipRecoveryQuality}`
-      );
-    }
-    return weakDipRecoveryQuality;
-  }
-
-  const latestDipComparison = [...comparisonsForTarget].reverse().find(comparison => comparison.toRole === 'after');
-  if (
-    latestDipComparison
-    && Number.isFinite(latestDipComparison.changePercent)
-    && latestDipComparison.changePercent <= ENTRY_DIP_WEAKENING_THRESHOLD_PERCENT
-  ) {
-    console.log(
-      `[QualityCheck] CoinID ${coinId}: Latest entry dip node weakened, ` +
-      `${latestDipComparison.fromDate}(${latestDipComparison.fromOtcIndex}) -> ` +
-      `${latestDipComparison.toDate}(${latestDipComparison.toOtcIndex}) -> 低质量进场`
-    );
-    return '低质量进场';
-  }
-
-  const bayesianQuality = scoreBayesianPeriodQuality({
+  const quality = classifyPeriodQuality({
     phase: 'entry',
     comparisons: comparisonsForTarget,
   });
 
   console.log(
-    `[QualityCheck] CoinID ${coinId}: Entry Bayesian quality=${bayesianQuality.label}, ` +
-    `probability=${formatProbability(bayesianQuality.probability)}`
+    `[QualityCheck] CoinID ${coinId}: Entry quality=${quality.label}, ` +
+    `evidence=${quality.evidenceCount}, confidence=${quality.confidence}, reason=${quality.reason}`
   );
 
-  return bayesianQuality.label;
+  return quality.label;
 }
 
 /**
@@ -1128,17 +989,17 @@ function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitS
 
   logKeyNodeComparisons(coinId, comparisons);
 
-  const bayesianQuality = scoreBayesianPeriodQuality({
+  const quality = classifyPeriodQuality({
     phase: 'exit',
     comparisons,
   });
 
   console.log(
-    `[QualityCheck] CoinID ${coinId}: Exit Bayesian quality=${bayesianQuality.label}, ` +
-    `probability=${formatProbability(bayesianQuality.probability)}`
+    `[QualityCheck] CoinID ${coinId}: Exit quality=${quality.label}, ` +
+    `evidence=${quality.evidenceCount}, confidence=${quality.confidence}, reason=${quality.reason}`
   );
 
-  return bayesianQuality.label;
+  return quality.label;
 }
 
 /**
@@ -1919,7 +1780,7 @@ router.calculatePeriodQuality = calculatePeriodQuality;
 router.__qualityTestUtils = {
   QUALITY_LOOKBACK_DAYS,
   buildKeyNodeComparisons,
-  scoreBayesianPeriodQuality,
+  classifyPeriodQuality,
   calculatePeriodQualityForDate,
   normalizeMomentumIndicators,
   serializeMomentumIndicators,

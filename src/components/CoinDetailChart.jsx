@@ -203,7 +203,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
     return (
       <AntTooltip title={meta.description}>
         <Tag color={meta.tagColor} className="text-sm">
-          周期质量: {coin.period_quality}
+          周期质量: {meta.displayLabel}
         </Tag>
       </AntTooltip>
     );
