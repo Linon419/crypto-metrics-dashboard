@@ -3,25 +3,23 @@ import {
   Alert,
   Button,
   Card,
-  Input,
   Popconfirm,
-  Radio,
   Space,
-  Tag,
   Typography,
   message,
 } from 'antd';
 import {
-  DeleteOutlined,
   ReloadOutlined,
   RollbackOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
 import {
+  fetchAvailableAIModels,
   fetchOpenAIModelSettings,
   resetOpenAIModelSettings,
   updateOpenAIModelSettings,
 } from '../services/api';
+import AIModelConfigurationFields from './AIModelConfigurationFields';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -36,28 +34,19 @@ const PROVIDER_PRESETS = {
   },
 };
 
-const SOURCE_LABELS = {
-  database: { color: 'green', label: 'Admin 数据库' },
-  env: { color: 'blue', label: 'Docker 环境变量' },
-  default: { color: 'default', label: '项目默认值' },
-};
-
-function SourceTag({ value }) {
-  const source = SOURCE_LABELS[value] || { color: 'default', label: value || '未配置' };
-  return <Tag color={source.color}>{source.label}</Tag>;
-}
-
 function AIModelSettings() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [clearingKey, setClearingKey] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
   const [provider, setProvider] = useState('openai');
   const [baseURL, setBaseURL] = useState('');
   const [model, setModel] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [sources, setSources] = useState({});
+  const [availableModels, setAvailableModels] = useState([]);
 
   const applySettings = useCallback((settings = {}) => {
     setProvider(settings.provider || 'openai');
@@ -66,6 +55,7 @@ function AIModelSettings() {
     setApiKey('');
     setApiKeyConfigured(Boolean(settings.apiKeyConfigured));
     setSources(settings.sources || {});
+    setAvailableModels([]);
   }, []);
 
   const loadSettings = useCallback(async () => {
@@ -92,9 +82,10 @@ function AIModelSettings() {
       setBaseURL(preset.baseURL);
       setModel(preset.model);
     }
+    setAvailableModels([]);
   }, []);
 
-  const validateForm = useCallback(() => {
+  const validateConnection = useCallback(() => {
     if (!baseURL.trim()) {
       message.error('Base URL 不能为空');
       return false;
@@ -106,12 +97,17 @@ function AIModelSettings() {
       message.error('Base URL 需要使用有效的 HTTP 或 HTTPS 地址');
       return false;
     }
+    return true;
+  }, [baseURL]);
+
+  const validateForm = useCallback(() => {
+    if (!validateConnection()) return false;
     if (!model.trim()) {
       message.error('模型名称不能为空');
       return false;
     }
     return true;
-  }, [baseURL, model]);
+  }, [model, validateConnection]);
 
   const buildPayload = useCallback(() => {
     const payload = {
@@ -136,6 +132,31 @@ function AIModelSettings() {
       setSaving(false);
     }
   }, [applySettings, buildPayload, validateForm]);
+
+  const handleLoadModels = useCallback(async () => {
+    if (!validateConnection()) return;
+    if (!apiKeyConfigured && !apiKey.trim()) {
+      message.error('请先输入 API Key，再同步模型列表');
+      return;
+    }
+
+    setLoadingModels(true);
+    try {
+      const payload = {
+        provider,
+        baseURL: baseURL.trim(),
+      };
+      if (apiKey.trim()) payload.apiKey = apiKey.trim();
+      const response = await fetchAvailableAIModels(payload);
+      const models = Array.isArray(response.models) ? response.models : [];
+      setAvailableModels(models);
+      message.success(`已同步 ${models.length} 个可用模型`);
+    } catch (error) {
+      message.error(`同步失败：${error.displayMessage || error.message}`);
+    } finally {
+      setLoadingModels(false);
+    }
+  }, [apiKey, apiKeyConfigured, baseURL, provider, validateConnection]);
 
   const handleClearApiKey = useCallback(async () => {
     if (!validateForm()) return;
@@ -213,79 +234,23 @@ function AIModelSettings() {
             message="Admin 数据库配置优先于 Docker 环境变量。API Key 由服务端保存，管理接口仅返回配置状态。"
           />
 
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <Space>
-              <Text strong>供应商</Text>
-              <SourceTag value={sources.provider} />
-            </Space>
-            <Radio.Group value={provider} onChange={handleProviderChange} optionType="button">
-              <Radio.Button value="openai">OpenAI</Radio.Button>
-              <Radio.Button value="deepseek">DeepSeek</Radio.Button>
-              <Radio.Button value="custom">OpenAI 兼容接口</Radio.Button>
-            </Radio.Group>
-          </Space>
-
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <Space>
-              <Text strong>Base URL</Text>
-              <SourceTag value={sources.baseURL} />
-            </Space>
-            <Input
-              aria-label="Base URL"
-              value={baseURL}
-              onChange={event => setBaseURL(event.target.value)}
-              placeholder="https://api.openai.com/v1"
-            />
-          </Space>
-
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <Space>
-              <Text strong>模型名称</Text>
-              <SourceTag value={sources.model} />
-            </Space>
-            <Input
-              aria-label="模型名称"
-              value={model}
-              onChange={event => setModel(event.target.value)}
-              placeholder={provider === 'deepseek' ? 'deepseek-v4-flash' : 'gpt-4o'}
-            />
-            {provider === 'deepseek' && (
-              <Text type="secondary">DeepSeek 可用预设：deepseek-v4-flash、deepseek-v4-pro</Text>
-            )}
-          </Space>
-
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <Space>
-              <Text strong>API Key</Text>
-              <SourceTag value={sources.apiKey} />
-              <Tag color={apiKeyConfigured ? 'success' : 'warning'}>
-                {apiKeyConfigured ? '已配置' : '待配置'}
-              </Tag>
-            </Space>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input.Password
-                aria-label="API Key"
-                value={apiKey}
-                onChange={event => setApiKey(event.target.value)}
-                placeholder={apiKeyConfigured ? '留空会保留当前有效密钥' : '输入供应商 API Key'}
-                autoComplete="new-password"
-              />
-              {sources.apiKey === 'database' && (
-                <Popconfirm
-                  title="清除数据库 API Key？"
-                  description="清除后会读取对应供应商的 Docker 环境变量。"
-                  okText="清除"
-                  cancelText="取消"
-                  onConfirm={handleClearApiKey}
-                >
-                  <Button danger icon={<DeleteOutlined />} loading={clearingKey}>
-                    清除密钥
-                  </Button>
-                </Popconfirm>
-              )}
-            </Space.Compact>
-            <Text type="secondary">输入新密钥会覆盖数据库中的旧值，页面不会读取或展示密钥内容。</Text>
-          </Space>
+          <AIModelConfigurationFields
+            apiKey={apiKey}
+            apiKeyConfigured={apiKeyConfigured}
+            availableModels={availableModels}
+            baseURL={baseURL}
+            clearingKey={clearingKey}
+            loadingModels={loadingModels}
+            model={model}
+            onApiKeyChange={setApiKey}
+            onBaseURLChange={setBaseURL}
+            onClearApiKey={handleClearApiKey}
+            onLoadModels={handleLoadModels}
+            onModelChange={setModel}
+            onProviderChange={handleProviderChange}
+            provider={provider}
+            sources={sources}
+          />
         </Space>
       </Card>
     </div>

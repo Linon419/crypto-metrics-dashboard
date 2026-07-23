@@ -29,8 +29,11 @@ const {
 const {
   getOpenAIModelSettingsResponse,
   resetOpenAIModelSettings,
+  resolveOpenAIModelSettings,
   updateOpenAIModelSettings,
+  validateOpenAIModelSettings,
 } = require('../utils/openaiModelSettings');
+const { listAvailableAIModels } = require('../services/aiModelCatalogService');
 const {
   __testUtils: {
     DEFAULT_SYSTEM_PROMPT,
@@ -107,6 +110,22 @@ async function buildOpenAIModelSettingsResponse({
   env = process.env,
 } = {}) {
   return getOpenAIModelSettingsResponse({ AppSettingModel, env });
+}
+
+async function buildOpenAIModelCatalogResponse({
+  AppSettingModel = AppSetting,
+  env = process.env,
+  listModels = listAvailableAIModels,
+} = {}, payload = {}) {
+  const currentSettings = await resolveOpenAIModelSettings({ AppSettingModel, env });
+  const overrides = validateOpenAIModelSettings(payload);
+  const models = await listModels({
+    provider: overrides.provider || currentSettings.provider,
+    baseURL: overrides.baseURL || currentSettings.baseURL,
+    apiKey: overrides.apiKey || currentSettings.apiKey,
+  });
+
+  return { models };
 }
 
 function parseOptionalDate(value, boundary) {
@@ -1427,6 +1446,20 @@ router.get('/openai-model-settings', async (req, res) => {
   }
 });
 
+router.post('/openai-model-settings/models', async (req, res) => {
+  try {
+    await AppSetting?.sync?.();
+    const result = await buildOpenAIModelCatalogResponse({}, req.body || {});
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('同步AI模型列表失败:', error);
+    res.status(error.statusCode || 502).json({
+      success: false,
+      error: error.message || '同步AI模型列表失败',
+    });
+  }
+});
+
 router.put('/openai-model-settings', async (req, res) => {
   try {
     await AppSetting?.sync?.();
@@ -1507,6 +1540,7 @@ router.post('/openai-prompt-settings/reset', async (req, res) => {
 });
 
 router.__test = {
+  buildOpenAIModelCatalogResponse,
   buildOpenAIModelSettingsResponse,
   buildOpenAIPromptSettingsResponse,
   buildCoinMetricStatusById,

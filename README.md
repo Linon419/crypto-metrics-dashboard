@@ -177,7 +177,7 @@ When `ADMIN_PASSWORD` is absent, the server generates a strong password and writ
 | `OPENAI_SYSTEM_PROMPT` | Optional | System prompt override | Built-in prompt |
 | `OPENAI_PROMPT` | Optional | User prompt template containing `{{processedText}}` | Built-in template |
 
-Provider, Base URL, model, and API credentials can be maintained from **Admin → AI Model**. Admin values are applied immediately and take precedence over the Docker environment; clearing them restores the environment fallback. API credentials saved from Admin are encrypted in SQLite and never returned by the settings API. Prompt rules remain available under **Admin → AI Parsing Prompt**.
+Provider, Base URL, model, and API credentials can be maintained from **Admin → AI Model**. The page can query the provider's `/models` endpoint and offers the returned model IDs as searchable choices while preserving manual model entry. Admin values are applied immediately and take precedence over the Docker environment; clearing them restores the environment fallback. API credentials saved from Admin are encrypted in SQLite and never returned by the settings API. Prompt rules remain available under **Admin → AI Parsing Prompt**.
 
 ### Optional integrations
 

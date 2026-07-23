@@ -1394,6 +1394,16 @@ export const fetchOpenAIModelSettings = async () => {
   }
 };
 
+export const fetchAvailableAIModels = async (payload) => {
+  try {
+    const response = await callApiWithRetry(() => api.post('/admin/openai-model-settings/models', payload));
+    return response.data;
+  } catch (error) {
+    console.error('[fetchAvailableAIModels] 同步AI模型列表失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
 export const updateOpenAIModelSettings = async (payload) => {
   try {
     const response = await callApiWithRetry(() => api.put('/admin/openai-model-settings', payload));

@@ -3,12 +3,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import AIModelSettings from '../AIModelSettings';
 import {
+  fetchAvailableAIModels,
   fetchOpenAIModelSettings,
   resetOpenAIModelSettings,
   updateOpenAIModelSettings,
 } from '../../services/api';
 
 jest.mock('../../services/api', () => ({
+  fetchAvailableAIModels: jest.fn(),
   fetchOpenAIModelSettings: jest.fn(),
   resetOpenAIModelSettings: jest.fn(),
   updateOpenAIModelSettings: jest.fn(),
@@ -30,6 +32,9 @@ describe('AIModelSettings', () => {
           apiKey: 'env',
         },
       },
+    });
+    fetchAvailableAIModels.mockResolvedValue({
+      models: ['gpt-4o', 'gpt-4o-mini'],
     });
     updateOpenAIModelSettings.mockImplementation(async payload => ({
       settings: {
@@ -69,5 +74,29 @@ describe('AIModelSettings', () => {
         apiKey: 'sk-deepseek-secret',
       });
     });
+  });
+
+  test('loads available models with the current provider settings', async () => {
+    render(<AIModelSettings />);
+
+    expect(await screen.findByDisplayValue('gpt-4o')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '同步模型列表' }));
+
+    await waitFor(() => {
+      expect(fetchAvailableAIModels).toHaveBeenCalledWith({
+        provider: 'openai',
+        baseURL: 'https://api.openai.com/v1',
+      });
+    });
+    expect(await screen.findByText('已加载 2 个可用模型')).toBeInTheDocument();
+
+    const modelInput = screen.getByLabelText('模型名称');
+    fireEvent.change(modelInput, { target: { value: 'gpt-4o-m' } });
+    const modelOptions = await screen.findAllByText('gpt-4o-mini');
+    const visibleOption = modelOptions.find(element => (
+      element.classList.contains('ant-select-item-option-content')
+    ));
+    fireEvent.click(visibleOption);
+    await waitFor(() => expect(modelInput).toHaveValue('gpt-4o-mini'));
   });
 });
