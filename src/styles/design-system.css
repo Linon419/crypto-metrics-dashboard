@@ -459,7 +459,6 @@ body {
   border-top-style: dashed;
 }
 
-.tv-cycle-chart__legend-line--ema,
 .tv-cycle-chart__legend-line--otc {
   border-color: #2563eb;
 }

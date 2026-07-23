@@ -669,19 +669,6 @@ function buildAlignedMetricSeries(rows, metricEvents, valueKey) {
   ));
 }
 
-function buildEma(rows, period = 10) {
-  const alpha = 2 / (period + 1);
-  let previous = null;
-
-  return rows.map((row) => {
-    previous = previous === null ? row.close : row.close * alpha + previous * (1 - alpha);
-    return {
-      time: row.time,
-      value: previous,
-    };
-  });
-}
-
 function buildBollingerBands(rows, period = 20, multiplier = 2) {
   const upper = [];
   const middle = [];
@@ -716,7 +703,6 @@ export function buildTradingViewCycleModel({ klines = [], metrics = [] }) {
     timeline,
     metricEvents,
     candles: buildTimelineCandles(rows),
-    ema10: buildEma(rows, 10),
     boll,
     otcIndex: buildAlignedMetricSeries(rows, latestEvents, 'otcIndex'),
     explosionIndex: buildAlignedMetricSeries(rows, latestEvents, 'explosionIndex'),
@@ -1191,14 +1177,6 @@ function OtcCycleChart({
       createSeriesMarkers(candleSeries, model.markers, { zOrder: 'top' });
     }
 
-    const emaSeries = priceChart.addSeries(LineSeries, {
-      color: BLUE,
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    emaSeries.setData(model.ema10);
-
     const bollUpperSeries = priceChart.addSeries(LineSeries, {
       color: '#64748b',
       lineWidth: 1,
@@ -1558,7 +1536,6 @@ function OtcCycleChart({
             <span>{symbol} K线</span>
             <b>Close {formatPrice(latest?.close)}</b>
             <b><i className="tv-cycle-chart__legend-line tv-cycle-chart__legend-line--boll" />BOLL(20,2)</b>
-            <b><i className="tv-cycle-chart__legend-line tv-cycle-chart__legend-line--ema" />EMA10</b>
             <b><i className="tv-cycle-chart__legend-line tv-cycle-chart__legend-line--otc" />场外 {formatMetric(latest?.otcIndex)}</b>
             <b><i className="tv-cycle-chart__legend-line tv-cycle-chart__legend-line--explosion" />爆破 {formatMetric(latest?.explosionIndex)}</b>
             <b>最近 {visibleBars || 0} 根</b>

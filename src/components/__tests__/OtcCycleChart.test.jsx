@@ -103,10 +103,9 @@ test('renders BTC cycle chart with TradingView-style panels', async () => {
   await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledWith('BTC', expect.objectContaining({ interval: '4h' })));
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('BTC K线');
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('BOLL(20,2)');
-  expect(screen.getByTestId('cycle-chart')).toHaveTextContent('EMA10');
+  expect(screen.getByTestId('cycle-chart')).not.toHaveTextContent('EMA10');
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('场外指数');
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('爆破指数');
-  expect(screen.queryByText('Price / BOLL / EMA10')).not.toBeInTheDocument();
   expect(screen.getByText('场外指数 / 1000')).toBeInTheDocument();
   expect(screen.getByText('爆破指数 / 200 / 0')).toBeInTheDocument();
   await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
@@ -455,7 +454,7 @@ test('builds TradingView model with signal markers and quant panels', () => {
   const model = buildTradingViewCycleModel({ klines, metrics, symbol: 'BTC' });
 
   expect(model.candles).toHaveLength(3);
-  expect(model.ema10).toHaveLength(3);
+  expect(model).not.toHaveProperty('ema10');
   expect(model.otcIndex.map(point => point.value)).toEqual([900, 1200, 800]);
   expect(model.explosionIndex.map(point => point.value)).toEqual([-10, 220, 150]);
   expect(model.phaseRanges.length).toBeGreaterThan(0);
