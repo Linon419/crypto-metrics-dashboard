@@ -7,11 +7,9 @@ const { spawn } = require('child_process');
 // 确保环境变量从根目录加载
 require('dotenv').config();
 
-// 检查关键环境变量
-if (!process.env.OPENAI_API_KEY) {
-  console.error('❌ OPENAI_API_KEY 环境变量未设置！');
-  console.log('请检查根目录的 .env 文件是否包含正确的 API key');
-  process.exit(1);
+// 环境变量可以作为 AI 配置回退；服务启动后也可在 Admin 中保存配置。
+if (!process.env.OPENAI_API_KEY && !process.env.DEEPSEEK_API_KEY) {
+  console.warn('⚠️ 环境变量中尚未配置 AI API Key，可在 Admin → AI模型 中完成配置');
 }
 
 console.log('✅ 环境变量加载成功');

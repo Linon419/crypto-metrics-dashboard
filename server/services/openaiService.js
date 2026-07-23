@@ -6,28 +6,30 @@ const {
   getOpenAIPromptSettings,
   renderPromptTemplate,
 } = require('../utils/openaiPromptSettings');
+const { resolveOpenAIModelSettings } = require('../utils/openaiModelSettings');
 
-// 延迟初始化OpenAI客户端
-let openai = null;
+// 按实际生效配置复用客户端；Admin 配置更新后会自动创建新客户端。
+let openaiClientCache = null;
 
 const MOMENTUM_INDICATORS = ['$', '*', '※', '‼', '↑', 'w'];
 const DEFAULT_SYSTEM_PROMPT = '你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。';
 
-function getOpenAIClient() {
-  if (!openai) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    const baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'; // 默认使用官方API
-
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY environment variable is not set. Please check your .env file.');
-    }
-
-    openai = new OpenAI({
-      apiKey: apiKey,
-      baseURL: baseURL
-    });
+function getOpenAIClient(settings) {
+  if (!settings.apiKey) {
+    throw new Error(`请在 Admin AI模型设置或环境变量中配置 ${settings.provider} API Key`);
   }
-  return openai;
+
+  const signature = `${settings.baseURL}\u0000${settings.apiKey}`;
+  if (openaiClientCache?.signature !== signature) {
+    openaiClientCache = {
+      signature,
+      client: new OpenAI({
+        apiKey: settings.apiKey,
+        baseURL: settings.baseURL,
+      }),
+    };
+  }
+  return openaiClientCache.client;
 }
 
 function escapeRegExp(value) {
@@ -377,22 +379,23 @@ async function processRawData(rawText, customModel = null) {
     const processedText = preprocessDateFormat(rawText);
 
     const { prompt, systemPrompt, source: promptSource } = await resolvePromptConfig(processedText);
+    const modelSettings = await resolveOpenAIModelSettings();
 
     console.log('============ API请求开始 ============');
     const apiStartTime = Date.now();
 
     // 调用OpenAI API
-    const openaiClient = getOpenAIClient();
-    // 优先使用传入的模型，其次使用环境变量，最后使用默认值
-    const model = customModel || process.env.OPENAI_MODEL || "gpt-4o";
+    const openaiClient = getOpenAIClient(modelSettings);
+    const model = customModel || modelSettings.model;
+    console.log('使用的供应商:', modelSettings.provider);
+    console.log('使用的 Base URL:', modelSettings.baseURL);
     console.log('使用的模型:', model);
     if (customModel) {
       console.log('模型来源: 用户选择');
-    } else if (process.env.OPENAI_MODEL) {
-      console.log('模型来源: 环境变量');
     } else {
-      console.log('模型来源: 默认配置');
+      console.log('模型来源:', modelSettings.sources.model);
     }
+    console.log('模型配置来源:', modelSettings.sources);
     console.log('Prompt来源:', promptSource);
     console.log('数据大小:', rawText.length, '字符');
 
@@ -622,8 +625,10 @@ module.exports = {
     getCoinEvidenceBlock,
     getDefaultPrompt,
     getDefaultPromptTemplate,
+    getOpenAIClient,
     hasIndicatorSource,
     normalizeMomentumIndicators,
+    resolveOpenAIModelSettings,
     resolvePromptConfig,
     validateAndFixDate,
   },

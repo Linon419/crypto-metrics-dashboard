@@ -131,7 +131,7 @@ npm --prefix server install
 cp .env.example .env
 ```
 
-在 `.env` 中填写可用的 `OPENAI_API_KEY`。`npm run server` 会在后端启动前检查该变量。
+可在 `.env` 中填写 AI API Key，也可以先启动后端，再通过 **管理后台 → AI 模型** 完成配置。
 
 ```bash
 npm run dev
@@ -168,13 +168,16 @@ npm run dev
 
 | 变量 | 必需条件 | 用途 | 默认值 |
 | --- | --- | --- | --- |
+| `OPENAI_PROVIDER` | 可选 | 回退供应商：`openai`、`deepseek` 或 `custom` | 根据 Base URL 推断，随后使用 `openai` |
 | `OPENAI_API_KEY` | 使用 AI 录入时 | API 凭证 | — |
+| `DEEPSEEK_API_KEY` | 可选 | DeepSeek 凭证，可回退使用 `OPENAI_API_KEY` | — |
 | `OPENAI_BASE_URL` | 可选 | OpenAI 兼容 API Base URL | `https://api.openai.com/v1` |
 | `OPENAI_MODEL` | 可选 | 解析模型 | `gpt-4o` |
+| `AI_SETTINGS_ENCRYPTION_KEY` | 可选 | 加密 Admin 保存的 API Key，需长期保持稳定 | `JWT_SECRET` |
 | `OPENAI_SYSTEM_PROMPT` | 可选 | 覆盖系统 Prompt | 内置 Prompt |
 | `OPENAI_PROMPT` | 可选 | 包含 `{{processedText}}` 的用户 Prompt 模板 | 内置模板 |
 
-解析规则也可通过 **管理后台 → AI 解析 Prompt** 维护。服务商端点与模型名称通过上表中的环境变量配置。
+供应商、Base URL、模型和 API 凭证可通过 **管理后台 → AI 模型** 维护。Admin 配置保存后立即生效，并优先于 Docker 环境变量；清除后会恢复环境变量回退。Admin 保存的 API 凭证会加密写入 SQLite，设置接口仅返回配置状态。解析规则继续通过 **管理后台 → AI 解析 Prompt** 维护。
 
 ### 可选集成配置
 

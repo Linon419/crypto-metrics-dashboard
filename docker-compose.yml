@@ -10,7 +10,12 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - OPENAI_MODEL=gpt-5-mini
+      - OPENAI_PROVIDER=${OPENAI_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5-mini}
+      - AI_SETTINGS_ENCRYPTION_KEY=${AI_SETTINGS_ENCRYPTION_KEY:-}
       - DB_STORAGE=/data/db/database.sqlite
       - JWT_SECRET=${JWT_SECRET}
       - API_PUBLIC_HOST=http://168.138.207.11:3080

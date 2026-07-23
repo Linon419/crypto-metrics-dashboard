@@ -2,11 +2,13 @@ import React from 'react';
 import { Tabs, Typography } from 'antd';
 import {
   BarChartOutlined,
+  ApiOutlined,
   DatabaseOutlined,
   DeleteOutlined,
   FileTextOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
+import AIModelSettings from './AIModelSettings';
 import CoinManagement from './CoinManagement';
 import KlineCleanupSettings from './KlineCleanupSettings';
 import KlineMappingSettings from './KlineMappingSettings';
@@ -57,6 +59,16 @@ function AdminSettings() {
               </span>
             ),
             children: <KlineCleanupSettings />,
+          },
+          {
+            key: 'ai-model-settings',
+            label: (
+              <span>
+                <ApiOutlined />
+                AI模型
+              </span>
+            ),
+            children: <AIModelSettings />,
           },
           {
             key: 'prompt-settings',

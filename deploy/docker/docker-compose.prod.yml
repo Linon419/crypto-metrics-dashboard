@@ -11,9 +11,12 @@ services:
       - NODE_ENV=production
       - PORT=3001
       # OpenAI Configuration
+      - OPENAI_PROVIDER=${OPENAI_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}  # 从环境变量获取，不要在此处硬编码
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - AI_SETTINGS_ENCRYPTION_KEY=${AI_SETTINGS_ENCRYPTION_KEY:-}
       - OPENAI_SYSTEM_PROMPT=${OPENAI_SYSTEM_PROMPT:-你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。}
       # Custom prompt (optional)
       # - OPENAI_PROMPT=...{{processedText}}...

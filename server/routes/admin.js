@@ -27,6 +27,11 @@ const {
   updateOpenAIPromptSettings,
 } = require('../utils/openaiPromptSettings');
 const {
+  getOpenAIModelSettingsResponse,
+  resetOpenAIModelSettings,
+  updateOpenAIModelSettings,
+} = require('../utils/openaiModelSettings');
+const {
   __testUtils: {
     DEFAULT_SYSTEM_PROMPT,
     getDefaultPromptTemplate,
@@ -95,6 +100,13 @@ async function buildOpenAIPromptSettingsResponse({
       userPromptTemplate: savedSettings.userPromptTemplate ? 'database' : (envUserPromptTemplate ? 'env' : 'default'),
     },
   };
+}
+
+async function buildOpenAIModelSettingsResponse({
+  AppSettingModel = AppSetting,
+  env = process.env,
+} = {}) {
+  return getOpenAIModelSettingsResponse({ AppSettingModel, env });
 }
 
 function parseOptionalDate(value, boundary) {
@@ -1401,6 +1413,58 @@ router.get('/openai-prompt-settings', async (req, res) => {
   }
 });
 
+router.get('/openai-model-settings', async (req, res) => {
+  try {
+    await AppSetting?.sync?.();
+    const settings = await buildOpenAIModelSettingsResponse();
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error('获取AI模型设置失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '获取AI模型设置失败',
+    });
+  }
+});
+
+router.put('/openai-model-settings', async (req, res) => {
+  try {
+    await AppSetting?.sync?.();
+    await updateOpenAIModelSettings({ AppSettingModel: AppSetting }, req.body || {});
+    const settings = await buildOpenAIModelSettingsResponse();
+    res.json({
+      success: true,
+      message: 'AI模型设置已保存',
+      settings,
+    });
+  } catch (error) {
+    console.error('保存AI模型设置失败:', error);
+    res.status(error.statusCode || 400).json({
+      success: false,
+      error: error.message || '保存AI模型设置失败',
+    });
+  }
+});
+
+router.post('/openai-model-settings/reset', async (req, res) => {
+  try {
+    await AppSetting?.sync?.();
+    await resetOpenAIModelSettings({ AppSettingModel: AppSetting });
+    const settings = await buildOpenAIModelSettingsResponse();
+    res.json({
+      success: true,
+      message: 'AI模型设置已恢复环境配置',
+      settings,
+    });
+  } catch (error) {
+    console.error('恢复AI模型设置失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '恢复AI模型设置失败',
+    });
+  }
+});
+
 router.put('/openai-prompt-settings', async (req, res) => {
   try {
     await AppSetting?.sync?.();
@@ -1443,6 +1507,7 @@ router.post('/openai-prompt-settings/reset', async (req, res) => {
 });
 
 router.__test = {
+  buildOpenAIModelSettingsResponse,
   buildOpenAIPromptSettingsResponse,
   buildCoinMetricStatusById,
   createAdminCoin,

@@ -1384,6 +1384,36 @@ export const fetchOpenAIPromptSettings = async () => {
   }
 };
 
+export const fetchOpenAIModelSettings = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/admin/openai-model-settings'));
+    return response.data;
+  } catch (error) {
+    console.error('[fetchOpenAIModelSettings] 获取AI模型设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const updateOpenAIModelSettings = async (payload) => {
+  try {
+    const response = await callApiWithRetry(() => api.put('/admin/openai-model-settings', payload));
+    return response.data;
+  } catch (error) {
+    console.error('[updateOpenAIModelSettings] 保存AI模型设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const resetOpenAIModelSettings = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.post('/admin/openai-model-settings/reset'));
+    return response.data;
+  } catch (error) {
+    console.error('[resetOpenAIModelSettings] 恢复AI模型设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
 export const updateOpenAIPromptSettings = async (payload) => {
   try {
     const response = await callApiWithRetry(() => api.put('/admin/openai-prompt-settings', payload));

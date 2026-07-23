@@ -131,7 +131,7 @@ npm --prefix server install
 cp .env.example .env
 ```
 
-Set a usable `OPENAI_API_KEY` in `.env`. The `npm run server` preflight checks this value before starting the backend.
+Set an AI API key in `.env`, or start the backend and configure it from **Admin → AI Model**.
 
 ```bash
 npm run dev
@@ -168,13 +168,16 @@ When `ADMIN_PASSWORD` is absent, the server generates a strong password and writ
 
 | Variable | Required | Purpose | Default |
 | --- | --- | --- | --- |
+| `OPENAI_PROVIDER` | Optional | Fallback provider: `openai`, `deepseek`, or `custom` | Inferred from the base URL, then `openai` |
 | `OPENAI_API_KEY` | For AI ingestion | API credential | — |
+| `DEEPSEEK_API_KEY` | Optional | DeepSeek credential; falls back to `OPENAI_API_KEY` | — |
 | `OPENAI_BASE_URL` | Optional | OpenAI-compatible API base URL | `https://api.openai.com/v1` |
 | `OPENAI_MODEL` | Optional | Parsing model | `gpt-4o` |
+| `AI_SETTINGS_ENCRYPTION_KEY` | Optional | Stable encryption root for API keys saved from Admin | `JWT_SECRET` |
 | `OPENAI_SYSTEM_PROMPT` | Optional | System prompt override | Built-in prompt |
 | `OPENAI_PROMPT` | Optional | User prompt template containing `{{processedText}}` | Built-in template |
 
-Prompt rules can also be maintained from **Admin → AI Parsing Prompt**. Provider endpoints and model names are configured through the environment variables above.
+Provider, Base URL, model, and API credentials can be maintained from **Admin → AI Model**. Admin values are applied immediately and take precedence over the Docker environment; clearing them restores the environment fallback. API credentials saved from Admin are encrypted in SQLite and never returned by the settings API. Prompt rules remain available under **Admin → AI Parsing Prompt**.
 
 ### Optional integrations
 
