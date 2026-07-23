@@ -174,7 +174,7 @@ npm run dev
 | `OPENAI_SYSTEM_PROMPT` | 可选 | 覆盖系统 Prompt | 内置 Prompt |
 | `OPENAI_PROMPT` | 可选 | 包含 `{{processedText}}` 的用户 Prompt 模板 | 内置模板 |
 
-解析规则也可通过 **管理后台 → AI 解析 Prompt** 维护。服务商配置示例见 [OpenAI 配置说明](docs/deployment/openai-config.md)。
+解析规则也可通过 **管理后台 → AI 解析 Prompt** 维护。服务商端点与模型名称通过上表中的环境变量配置。
 
 ### 可选集成配置
 
@@ -262,7 +262,7 @@ POST /default/crypto/mcp
 Authorization: Bearer <MCP_GATEWAY_TOKEN>
 ```
 
-可选的 `Mcp-Session-Id` 请求头会保留 30 分钟后端 JWT 会话。Gateway 清单与设计文档位于 [`deploy/mcp/`](deploy/mcp/) 和 [MCP Gateway 设计](docs/plans/2026-01-14-mcp-gateway-design.md)。
+可选的 `Mcp-Session-Id` 请求头会保留 30 分钟后端 JWT 会话。Gateway 清单位于 [`deploy/mcp/`](deploy/mcp/)。
 
 ## Docker 部署
 
@@ -283,7 +283,7 @@ docker compose \
   up -d
 ```
 
-模板默认通过 `3080` 端口提供服务，并将容器内 SQLite 持久化到 `/data/db`。运维说明见[服务器部署文档](docs/deployment/server-deployment.md)。
+模板默认通过 `3080` 端口提供服务，并将容器内 SQLite 持久化到 `/data/db`。
 
 ## 项目结构
 
@@ -305,7 +305,6 @@ docker compose \
 ├── launchers/               # Windows 与 macOS 启动器
 ├── scripts/                 # 构建与本地分发脚本
 ├── deploy/                  # Docker 与 MCP 部署清单
-├── docs/                    # 部署、设计与维护文档
 ├── Dockerfile
 └── docker-compose.yml
 ```

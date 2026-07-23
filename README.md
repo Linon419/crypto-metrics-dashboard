@@ -174,7 +174,7 @@ When `ADMIN_PASSWORD` is absent, the server generates a strong password and writ
 | `OPENAI_SYSTEM_PROMPT` | Optional | System prompt override | Built-in prompt |
 | `OPENAI_PROMPT` | Optional | User prompt template containing `{{processedText}}` | Built-in template |
 
-Prompt rules can also be maintained from **Admin → AI Parsing Prompt**. See [OpenAI configuration](docs/deployment/openai-config.md) for provider examples.
+Prompt rules can also be maintained from **Admin → AI Parsing Prompt**. Provider endpoints and model names are configured through the environment variables above.
 
 ### Optional integrations
 
@@ -262,7 +262,7 @@ Every gateway request requires:
 Authorization: Bearer <MCP_GATEWAY_TOKEN>
 ```
 
-Optional `Mcp-Session-Id` headers preserve the backend JWT session for 30 minutes. Gateway manifests and the design note are available under [`deploy/mcp/`](deploy/mcp/) and [MCP gateway design](docs/plans/2026-01-14-mcp-gateway-design.md).
+Optional `Mcp-Session-Id` headers preserve the backend JWT session for 30 minutes. Gateway manifests are available under [`deploy/mcp/`](deploy/mcp/).
 
 ## Docker deployment
 
@@ -283,7 +283,7 @@ docker compose \
   up -d
 ```
 
-The included template exposes the application on port `3080` and persists SQLite under `/data/db` inside the container. See [Server deployment](docs/deployment/server-deployment.md) for operational notes.
+The included template exposes the application on port `3080` and persists SQLite under `/data/db` inside the container.
 
 ## Project structure
 
@@ -305,7 +305,6 @@ The included template exposes the application on port `3080` and persists SQLite
 ├── launchers/               # Windows and macOS launchers
 ├── scripts/                 # Build and local distribution scripts
 ├── deploy/                  # Docker and MCP deployment manifests
-├── docs/                    # Deployment, design, and maintenance docs
 ├── Dockerfile
 └── docker-compose.yml
 ```
