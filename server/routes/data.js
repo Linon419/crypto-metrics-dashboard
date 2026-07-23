@@ -231,21 +231,18 @@ function attachStrategySignal(metric, history = []) {
 
 // --- 路由：处理原始数据输入并存储 ---
 router.post('/input', async (req, res) => {
-  const { rawData, model, clientTimezoneOffsetMinutes } = req.body;
+  const { rawData, clientTimezoneOffsetMinutes } = req.body;
   if (!rawData || typeof rawData !== 'string' || rawData.trim() === '') {
     return res.status(400).json({ success: false, error: 'Raw data is required and must be a non-empty string' });
   }
 
   console.log(`[DATA_INPUT] Received raw data input request, length: ${rawData.length}`);
-  if (model) {
-    console.log(`[DATA_INPUT] Using specified AI model: ${model}`);
-  }
   const requestStartTime = Date.now();
 
   try {
     console.log('[DATA_INPUT] Calling OpenAI to process data...');
     const openaiStartTime = Date.now();
-    const processedData = await openaiService.processRawData(rawData, model);
+    const processedData = await openaiService.processRawData(rawData);
     const openaiEndTime = Date.now();
     console.log(`[DATA_INPUT] ⏱️ OpenAI处理总耗时: ${((openaiEndTime - openaiStartTime) / 1000).toFixed(2)} 秒`);
     console.log('[DATA_INPUT] OpenAI processing complete. Validating data structure...');

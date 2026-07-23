@@ -1,5 +1,6 @@
 import React from 'react';
 import { Tabs, Typography } from 'antd';
+import { useSearchParams } from 'react-router-dom';
 import {
   BarChartOutlined,
   ApiOutlined,
@@ -7,16 +8,29 @@ import {
   DeleteOutlined,
   FileTextOutlined,
   SettingOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import AIModelSettings from './AIModelSettings';
 import CoinManagement from './CoinManagement';
 import KlineCleanupSettings from './KlineCleanupSettings';
 import KlineMappingSettings from './KlineMappingSettings';
 import PromptSettings from './PromptSettings';
+import UserManagement from './UserManagement';
 
 const { Title, Text } = Typography;
 
 function AdminSettings() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  const activeTab = [
+    'coins',
+    'users',
+    'kline-mappings',
+    'kline-cleanup',
+    'ai-model-settings',
+    'prompt-settings',
+  ].includes(requestedTab) ? requestedTab : 'coins';
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -28,7 +42,8 @@ function AdminSettings() {
       </div>
 
       <Tabs
-        defaultActiveKey="coins"
+        activeKey={activeTab}
+        onChange={tab => setSearchParams(tab === 'coins' ? {} : { tab })}
         items={[
           {
             key: 'coins',
@@ -39,6 +54,16 @@ function AdminSettings() {
               </span>
             ),
             children: <CoinManagement />,
+          },
+          {
+            key: 'users',
+            label: (
+              <span>
+                <UserOutlined />
+                用户管理
+              </span>
+            ),
+            children: <UserManagement />,
           },
           {
             key: 'kline-mappings',

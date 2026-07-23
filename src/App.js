@@ -11,7 +11,6 @@ import Register from './components/Register';
 import OptionsPage from './components/OptionsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
-import UserManagement from './components/UserManagement';
 import AdminSettings from './components/AdminSettings';
 import { useAutoHideOnScroll } from './hooks/useAutoHideOnScroll';
 import { useSelector } from 'react-redux';
@@ -34,9 +33,7 @@ const NavigationMenu = () => {
 
   const activeKey = location.pathname.startsWith('/input')
     ? '2'
-    : location.pathname.startsWith('/users')
-    ? '3'
-    : location.pathname.startsWith('/admin/settings') || location.pathname.startsWith('/settings/kline-mappings')
+    : location.pathname.startsWith('/admin/settings') || location.pathname.startsWith('/users') || location.pathname.startsWith('/settings/kline-mappings')
     ? '6'
     : location.pathname.startsWith('/options')
     ? '5'
@@ -61,11 +58,6 @@ const NavigationMenu = () => {
         {user?.role === 'admin' && (
           <Menu.Item key="2">
             <Link to="/input">数据输入</Link>
-          </Menu.Item>
-        )}
-        {user?.role === 'admin' && (
-          <Menu.Item key="3">
-            <Link to="/users">用户管理</Link>
           </Menu.Item>
         )}
         {user?.role === 'admin' && (
@@ -118,7 +110,7 @@ const AppContent = () => {
             <Route path="/users" element={
               <ProtectedRoute>
                 <AdminRoute>
-                  <UserManagement />
+                  <Navigate to="/admin/settings?tab=users" replace />
                 </AdminRoute>
               </ProtectedRoute>
             } />

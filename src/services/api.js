@@ -305,7 +305,7 @@ async function callApiWithRetry(apiCall, maxRetries = 3, initialRetryDelay = 200
 
 
 // --- 6. 数据提交和获取 API 调用 ---
-export const submitRawData = async (rawData, model = null) => {
+export const submitRawData = async (rawData) => {
   if (!rawData || typeof rawData !== 'string') {
     // 这种客户端验证错误不应该重试
     throw new Error('原始数据必须是字符串且不能为空');
@@ -318,10 +318,6 @@ export const submitRawData = async (rawData, model = null) => {
       rawData,
       clientTimezoneOffsetMinutes: getRawDataTimezoneOffset(rawData),
     };
-    if (model) {
-      requestBody.model = model;
-      console.log('[API] 使用指定的AI模型:', model);
-    }
     const response = await callApiWithRetry(
       () => api.post('/data/input', requestBody, { timeout: 420000 }), // 7分钟超时，处理大量数据（留出比服务器更多的缓冲时间）
       3,

@@ -177,7 +177,7 @@ npm run dev
 | `OPENAI_SYSTEM_PROMPT` | 可选 | 覆盖系统 Prompt | 内置 Prompt |
 | `OPENAI_PROMPT` | 可选 | 包含 `{{processedText}}` 的用户 Prompt 模板 | 内置模板 |
 
-供应商、Base URL、模型和 API 凭证可通过 **管理后台 → AI 模型** 维护。页面可以调用供应商的 `/models` 接口，并将返回的模型 ID 作为可搜索选项，同时保留手动输入。Admin 配置保存后立即生效，并优先于 Docker 环境变量；清除后会恢复环境变量回退。Admin 保存的 API 凭证会加密写入 SQLite，设置接口仅返回配置状态。解析规则继续通过 **管理后台 → AI 解析 Prompt** 维护。
+供应商、Base URL、模型和 API 凭证可通过 **管理后台 → AI 模型** 维护。页面可以调用供应商的 `/models` 接口，并将返回的模型 ID 作为可搜索选项，同时保留手动输入。数据录入统一使用该页面展示的服务端生效配置。Admin 配置保存后立即生效，并优先于 Docker 环境变量；清除后会恢复环境变量回退。Admin 保存的 API 凭证会加密写入 SQLite，设置接口仅返回配置状态。解析规则通过 **管理后台 → AI 解析 Prompt** 维护，用户管理集中在 **管理后台 → 用户管理**。
 
 ### 可选集成配置
 

@@ -1,6 +1,6 @@
 // src/components/DataInputForm.jsx - 修复数据库导入功能
-import React, { useState, useRef } from 'react';
-import { Form, Input, Button, message, Card, Alert, Typography, DatePicker, Modal, Space, Divider, Dropdown, Spin, Select, TimePicker, Checkbox } from 'antd';
+import React, { useEffect, useState, useRef } from 'react';
+import { Form, Input, Button, message, Card, Alert, Typography, DatePicker, Modal, Space, Divider, Dropdown, Spin, Select, Tag, TimePicker, Checkbox } from 'antd';
 import {
   CalendarOutlined,
   InfoCircleOutlined,
@@ -14,7 +14,7 @@ import {
   CaretDownOutlined,
   ClockCircleOutlined
 } from '@ant-design/icons';
-import { submitRawData, exportAllData, importDatabaseDump } from '../services/api';
+import { submitRawData, exportAllData, fetchOpenAIModelSettings, importDatabaseDump } from '../services/api';
 import { formatDateForDisplay, preprocessRawDataForSubmit } from '../utils/inputPreprocess';
 import DateDataManagement from './DateDataManagement';
 import dayjs from 'dayjs';
@@ -33,7 +33,8 @@ function DataInputForm({ onSuccess }) {
   const [selectedTime, setSelectedTime] = useState(null);
   const [timePrecision, setTimePrecision] = useState('day');
   const [overrideTextTime, setOverrideTextTime] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gpt-5-chat-latest'); // 默认使用gpt-5-chat-latest
+  const [aiModelSettings, setAIModelSettings] = useState(null);
+  const [aiModelLoading, setAIModelLoading] = useState(true);
   const [jsonPreview, setJsonPreview] = useState(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const fileInputRef = useRef(null);
@@ -43,6 +44,24 @@ function DataInputForm({ onSuccess }) {
   const [jsonDataForBatchImport, setJsonDataForBatchImport] = useState(null);
   const [batchImportLoading, setBatchImportLoading] = useState(false);
   const [importProgress, setImportProgress] = useState(''); // 增加进度信息状态
+
+  useEffect(() => {
+    let active = true;
+    fetchOpenAIModelSettings()
+      .then(response => {
+        if (active) setAIModelSettings(response.settings || null);
+      })
+      .catch(error => {
+        console.error('读取AI模型配置失败:', error);
+      })
+      .finally(() => {
+        if (active) setAIModelLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // 将ISO格式转换为用户友好的显示格式
   const formatISOToUserFriendly = (isoString) => {
@@ -90,8 +109,7 @@ function DataInputForm({ onSuccess }) {
       const processedData = preprocessData(values.rawData);
       setDebugInfo('数据预处理完成，准备提交...');
       console.log('提交数据 (单个表单):', processedData);
-      console.log('使用AI模型:', selectedModel);
-      const result = await submitRawData(processedData, selectedModel);
+      const result = await submitRawData(processedData);
       setDebugInfo('提交成功，结果: ' + JSON.stringify(result).substring(0, 100) + '...');
       message.success('数据处理成功!');
       form.resetFields();
@@ -156,8 +174,7 @@ function DataInputForm({ onSuccess }) {
     setLoading(true);
     try {
       const processedData = preprocessData(rawData);
-      console.log('使用AI模型:', selectedModel);
-      const result = await submitRawData(processedData, selectedModel);
+      const result = await submitRawData(processedData);
       setDebugInfo('直接提交成功，结果: ' + JSON.stringify(result).substring(0, 100) + '...');
       message.success('数据处理成功!');
       if (onSuccess) onSuccess();
@@ -634,47 +651,30 @@ if (jsonData.metadata && (jsonData.allCoinsInfo || jsonData.coins) && (jsonData.
       </div>
 
       <div className="mb-6">
-        <Title level={5}><InfoCircleOutlined className="mr-2" />选择AI解析模型</Title>
-
-        <div className="mb-3">
-          <Text strong className="mr-2">解析模型:</Text>
-          <Select
-            value={selectedModel}
-            onChange={setSelectedModel}
-            style={{ width: 200 }}
-            size="small"
-          >
-            <Option value="gpt-5-nano">GPT-5 Nano</Option>
-            <Option value="gpt-5-mini">GPT-5 Mini</Option>
-            <Option value="gpt-5-chat-latest">GPT-5 Chat Latest</Option>
-            <Option value="gpt-4o-mini">GPT-4o Mini</Option>
-            <Option value="gpt-4o">GPT-4o</Option>
-            <Option value="gpt-4.1-mini">GPT-4.1 Mini</Option>
-            <Option value="o1-mini">O1 Mini</Option>
-            <Option value="o3-mini">O3 Mini</Option>
-            <Option value="o4-mini">O4 Mini</Option>
-          </Select>
-          <Text type="secondary" className="ml-2">
-            选择用于解析数据的AI模型
-          </Text>
-        </div>
-
+        <Title level={5}><InfoCircleOutlined className="mr-2" />AI解析配置</Title>
         <Alert
-          message={
-            <div>
-              <InfoCircleOutlined className="mr-1" />
-              当前选择: <Text strong>{selectedModel}</Text>
-            </div>
-          }
+          message="解析模型由 Admin 设置统一管理"
+          description={aiModelLoading ? (
+            <Space><Spin size="small" /><Text type="secondary">正在读取当前配置</Text></Space>
+          ) : aiModelSettings ? (
+            <Space wrap>
+              <Tag color={aiModelSettings.provider === 'deepseek' ? 'blue' : 'green'}>
+                {aiModelSettings.provider === 'deepseek'
+                  ? 'DeepSeek'
+                  : aiModelSettings.provider === 'openai' ? 'OpenAI' : 'OpenAI 兼容接口'}
+              </Tag>
+              <Text code>{aiModelSettings.model}</Text>
+              <Text type="secondary">
+                来源：{aiModelSettings.sources?.model === 'database' ? 'Admin 数据库' : aiModelSettings.sources?.model === 'env' ? 'Docker 环境变量' : '项目默认值'}
+              </Text>
+            </Space>
+          ) : (
+            <Text type="secondary">当前配置读取失败，提交时由服务端解析有效配置。</Text>
+          )}
+          action={<Button size="small" href="/admin/settings?tab=ai-model-settings">管理AI模型</Button>}
           type="info"
           showIcon
-          className="mb-2"
         />
-
-        <Text type="secondary" className="mt-2 block">
-          <InfoCircleOutlined className="mr-1" />
-          不同的模型有不同的性能和准确度。默认使用GPT-5 Mini，也可根据需要选择其他模型。
-        </Text>
       </div>
 
       <Form form={form} onFinish={handleSubmit} layout="vertical">

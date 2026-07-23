@@ -14,7 +14,6 @@ import {
   Switch,
   Typography,
   Card,
-  Divider,
   Alert,
   Tooltip
 } from 'antd';
@@ -23,11 +22,7 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  StopOutlined,
-  CheckCircleOutlined,
   WarningOutlined,
-  SettingOutlined,
-  UserAddOutlined,
   LockOutlined,
   UnlockOutlined
 } from '@ant-design/icons';
@@ -282,9 +277,10 @@ function UserManagement() {
   ];
 
   return (
-    <div className="p-6">
-      <Title level={2}>
-        <SettingOutlined className="mr-2" />
+    <div className="user-management">
+      <Text type="secondary">ACCESS CONTROL</Text>
+      <Title level={3}>
+        <UserOutlined className="mr-2" />
         用户管理
       </Title>
 
