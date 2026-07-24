@@ -112,24 +112,25 @@ function classifyPeriodQuality({ phase, comparisons = [] }) {
     };
   }
 
-  const changes = usableComparisons.map(getComparisonChange);
+  const latestComparison = usableComparisons[usableComparisons.length - 1];
+  const latestChange = getComparisonChange(latestComparison);
   const expectedDirection = phase === 'entry' ? 1 : -1;
   const isExpectedDirection = (change) => Math.sign(change) === expectedDirection;
-  const isSteady = changes.every(isExpectedDirection);
-  const hasReversal = changes.some((change) => change !== 0 && !isExpectedDirection(change));
-  const pattern = isSteady ? 'steady' : (hasReversal ? 'reversal' : 'flat');
+  // 进退场质量都由最近一组相邻关键节点反映当前状态。
+  const isExpectedQuality = isExpectedDirection(latestChange);
+  const pattern = isExpectedQuality ? 'steady' : (latestChange === 0 ? 'flat' : 'reversal');
   const directionText = phase === 'entry' ? '上升' : '下降';
-  const reverseText = phase === 'entry' ? '下降或反复' : '上升或反复';
+  const reverseText = phase === 'entry' ? '下降' : '上升';
 
   return {
     phase,
-    label: isSteady ? labels.high : labels.low,
+    label: isExpectedQuality ? labels.high : labels.low,
     pattern,
     confidence: usableComparisons.length >= 2 ? 'high' : 'medium',
     evidenceCount: usableComparisons.length,
-    reason: isSteady
-      ? `关键节点场外指数持续${directionText}`
-      : `关键节点场外指数出现${pattern === 'flat' ? '持平' : reverseText}`,
+    reason: isExpectedQuality
+      ? `最近相邻关键节点场外指数${directionText}`
+      : `最近相邻关键节点场外指数${pattern === 'flat' ? '持平' : reverseText}`,
     comparisons: usableComparisons,
   };
 }

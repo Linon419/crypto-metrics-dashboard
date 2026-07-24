@@ -14,11 +14,26 @@ function run() {
   assert.strictEqual(classify('entry', [15, 20, 5]).label, '高质量进场');
   assert.strictEqual(classify('entry', [15, 0]).label, '低质量进场');
   assert.strictEqual(classify('entry', [15, -0.1]).label, '低质量进场');
+  assert.strictEqual(
+    classify('entry', [-41.82, 9.66, 20.4]).label,
+    '高质量进场',
+    'latest BTC key-node comparison should determine current entry quality'
+  );
+  assert.strictEqual(
+    classify('entry', [15, -5, 3]).label,
+    '高质量进场',
+    'a recovered latest comparison should update current entry quality'
+  );
 
   assert.strictEqual(classify('exit', [-0.1]).label, '高质量退场');
   assert.strictEqual(classify('exit', [-15, -20, -5]).label, '高质量退场');
   assert.strictEqual(classify('exit', [-15, 0]).label, '低质量退场');
   assert.strictEqual(classify('exit', [-15, 0.1]).label, '低质量退场');
+  assert.strictEqual(
+    classify('exit', [15, -3]).label,
+    '高质量退场',
+    'a recovered latest comparison should update current exit quality'
+  );
 
   assert.strictEqual(classify('entry', []).label, '数据不足');
   assert.strictEqual(classify('unknown', [10]).label, '数据不足');

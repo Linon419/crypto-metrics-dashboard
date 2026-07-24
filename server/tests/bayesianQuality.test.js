@@ -46,13 +46,13 @@ function run() {
     '3→4 should capture the OTC recovery after entry start'
   );
 
-  const reversedEntry = classifyPeriodQuality({
+  const recoveredEntry = classifyPeriodQuality({
     phase: 'entry',
     comparisons: entryComparisons
   });
-  assert.strictEqual(reversedEntry.label, '低质量进场');
-  assert.strictEqual(reversedEntry.pattern, 'reversal');
-  assert.strictEqual(reversedEntry.evidenceCount, 2);
+  assert.strictEqual(recoveredEntry.label, '高质量进场');
+  assert.strictEqual(recoveredEntry.pattern, 'steady');
+  assert.strictEqual(recoveredEntry.evidenceCount, 2);
 
   const strongEntry = classifyPeriodQuality({
     phase: 'entry',
@@ -64,15 +64,15 @@ function run() {
   assert.strictEqual(strongEntry.label, '高质量进场');
   assert.strictEqual(strongEntry.pattern, 'steady');
 
-  const weakExit = classifyPeriodQuality({
+  const recoveredExit = classifyPeriodQuality({
     phase: 'exit',
     comparisons: [
       { changePercent: 52.5 },
       { changePercent: -17.3 }
     ]
   });
-  assert.strictEqual(weakExit.label, '低质量退场');
-  assert.strictEqual(weakExit.pattern, 'reversal');
+  assert.strictEqual(recoveredExit.label, '高质量退场');
+  assert.strictEqual(recoveredExit.pattern, 'steady');
 
   const confirmedExit = classifyPeriodQuality({
     phase: 'exit',

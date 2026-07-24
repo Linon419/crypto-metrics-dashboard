@@ -108,10 +108,23 @@ async function run() {
     { date: '2026-01-16', otc_index: 1300, explosion_index: 218, entry_exit_type: 'entry' },
   ];
 
-  await assertQuality('2026-03-11', '低质量进场', recoveryWithPreviousCycleMetrics.slice(1));
-  await assertQuality('2026-03-13', '低质量进场', recoveryWithPreviousCycleMetrics.slice(1));
-  await assertQuality('2026-03-14', '低质量进场', recoveryWithPreviousCycleMetrics.slice(4));
-  await assertQuality('2026-03-19', '低质量进场', recoveryWithPreviousCycleMetrics);
+  await assertQuality('2026-03-11', '高质量进场', recoveryWithPreviousCycleMetrics.slice(1));
+  await assertQuality('2026-03-13', '高质量进场', recoveryWithPreviousCycleMetrics.slice(1));
+  await assertQuality('2026-03-14', '高质量进场', recoveryWithPreviousCycleMetrics.slice(4));
+  await assertQuality('2026-03-19', '高质量进场', recoveryWithPreviousCycleMetrics);
+
+  const latestBtcMetrics = [
+    { date: '2026-07-24', otc_index: 1080, explosion_index: 144, entry_exit_type: 'entry', entry_exit_day: 14 },
+    { date: '2026-07-23', otc_index: 1181, explosion_index: 231, entry_exit_type: 'entry', entry_exit_day: 13 },
+    { date: '2026-07-17', otc_index: 897, explosion_index: 185, entry_exit_type: 'entry', entry_exit_day: 7 },
+    { date: '2026-07-16', otc_index: 934, explosion_index: 224, entry_exit_type: 'entry', entry_exit_day: 6 },
+    { date: '2026-07-11', otc_index: 818, explosion_index: 196, entry_exit_type: 'entry', entry_exit_day: 1 },
+    { date: '2026-07-10', otc_index: 798, explosion_index: 139, entry_exit_type: 'exit', entry_exit_day: 47 },
+    { date: '2026-05-12', otc_index: 1406, explosion_index: 176, entry_exit_type: 'entry', entry_exit_day: 30 },
+    { date: '2026-05-11', otc_index: 1424, explosion_index: 204, entry_exit_type: 'entry', entry_exit_day: 29 },
+  ];
+
+  await assertQuality('2026-07-24', '高质量进场', latestBtcMetrics);
 
   const weakRecoveryMetrics = [
     { date: '2026-05-18', otc_index: 964, explosion_index: 11, entry_exit_type: 'entry' },
@@ -138,11 +151,17 @@ async function run() {
 
   await assertQuality('2026-06-10', '高质量退场', steadyExitMetrics);
 
-  const reversedExitMetrics = steadyExitMetrics.map((metric) => (
+  const recoveredExitMetrics = steadyExitMetrics.map((metric) => (
     metric.date === '2026-06-05' ? { ...metric, otc_index: 950 } : metric
   ));
 
-  await assertQuality('2026-06-10', '低质量退场', reversedExitMetrics);
+  await assertQuality('2026-06-10', '高质量退场', recoveredExitMetrics);
+
+  const weakLatestExitMetrics = steadyExitMetrics.map((metric) => (
+    metric.date === '2026-06-10' ? { ...metric, otc_index: 850 } : metric
+  ));
+
+  await assertQuality('2026-06-10', '低质量退场', weakLatestExitMetrics);
 
   console.log('periodQualityRules.test.js passed');
 }
