@@ -163,6 +163,19 @@ async function run() {
 
   await assertQuality('2026-06-10', '低质量退场', weakLatestExitMetrics);
 
+  // 历史回看不得使用目标日期之后的节点（防未来信息泄漏）：
+  // 6-10 之后又出现一次负转正且场外大跌（600），若泄漏进比较，
+  // 6-10 当天的标签会从「低质量退场」被未来数据翻成「高质量退场」
+  const futureNodeExitMetrics = [
+    { date: '2026-06-14', otc_index: 600, explosion_index: 3, entry_exit_type: 'exit' },
+    { date: '2026-06-13', otc_index: 640, explosion_index: -8, entry_exit_type: 'exit' },
+    ...weakLatestExitMetrics,
+  ];
+
+  await assertQuality('2026-06-10', '低质量退场', futureNodeExitMetrics);
+  // 而站在 6-14 当天，未来节点已成过去，应按最新相邻节点判为高质量
+  await assertQuality('2026-06-14', '高质量退场', futureNodeExitMetrics);
+
   console.log('periodQualityRules.test.js passed');
 }
 

@@ -77,7 +77,9 @@ function logKeyNodeComparisons(coinId, comparisons) {
   });
 }
 
-function getEntryComparisonsUpToTarget(comparisons, targetMetric) {
+// 历史回看时只保留目标日期之前（含当日）的节点比较，进退场共用：
+// 该日的质量标签必须是「当时能得出的结论」，不能用未来节点
+function getComparisonsUpToTarget(comparisons, targetMetric) {
   if (!targetMetric?.date) {
     return comparisons;
   }
@@ -89,7 +91,7 @@ function getEntryComparisonsUpToTarget(comparisons, targetMetric) {
 }
 
 function getEntryQualityComparisons(comparisons, targetMetric, incompleteEntryStart) {
-  const comparisonsUpToTarget = getEntryComparisonsUpToTarget(comparisons, targetMetric);
+  const comparisonsUpToTarget = getComparisonsUpToTarget(comparisons, targetMetric);
 
   if (!incompleteEntryStart) {
     return comparisonsUpToTarget;
@@ -226,7 +228,7 @@ function evaluateEntryQualityBodong(historicalMetrics, entryStartDateMetric, ent
  * @param {number} coinId - 币种ID
  * @returns {string} - 退场期质量评估结果
  */
-function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId) {
+function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId, targetMetric = exitStartDateMetric) {
   // 找到所有"爆破指数由负转正"的节点
   // 注意：historicalMetrics是按日期降序排列的，所以i=0是最新的数据
   let turnPositiveNodes = [];
@@ -294,11 +296,18 @@ function evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitS
     return '退场期 (待观察)';
   }
 
-  logKeyNodeComparisons(coinId, comparisons);
+  // 与进场路径对称：历史回看时不得使用目标日期之后的负转正节点
+  const comparisonsForTarget = getComparisonsUpToTarget(comparisons, targetMetric);
+  if (comparisonsForTarget.length === 0) {
+    console.log(`[QualityCheck] CoinID ${coinId}: No target key-node comparison available. Returning '退场期 (待观察)'.`);
+    return '退场期 (待观察)';
+  }
+
+  logKeyNodeComparisons(coinId, comparisonsForTarget);
 
   const quality = classifyPeriodQuality({
     phase: 'exit',
-    comparisons,
+    comparisons: comparisonsForTarget,
   });
 
   console.log(
@@ -426,7 +435,7 @@ async function calculatePeriodQualityForDate(coinId, targetDate, historicalMetri
       if (!exitStartOtcIndex) return '数据不足';
 
       // 使用完整的退场期质量评估算法
-      return evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId);
+      return evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId, targetMetric);
     }
 
     console.log(`[QualityCheck-Historical] CoinID ${coinId}: Not in entry/exit period on ${targetDate}. Returning '观望'.`);
