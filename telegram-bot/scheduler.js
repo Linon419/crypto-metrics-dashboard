@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const axios = require('axios');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3001/api';
@@ -146,6 +147,57 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;');
 }
 
+function telegramHtmlToText(message) {
+    return String(message || '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<a\s+[^>]*>(.*?)<\/a>/gis, '$1')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+function inferWebNotificationCategory(text) {
+    if (/动能|撤出信号|油门期/.test(text)) return 'momentum';
+    if (/策略|做多|做空|三连升|三连降/.test(text)) return 'strategy';
+    if (/收藏/.test(text)) return 'favorite';
+    if (/质量|进场期|退场期/.test(text)) return 'quality';
+    if (/系统|服务/.test(text)) return 'system';
+    return 'market';
+}
+
+function buildWebNotificationPayload(message, now = new Date()) {
+    const rawMessage = String(message || '');
+    const content = telegramHtmlToText(rawMessage);
+    const titleMatch = rawMessage.match(/^\s*<b>(.*?)<\/b>/is);
+    const title = telegramHtmlToText(titleMatch?.[1] || content.split('\n')[0] || '市场通知');
+    const coinMatch = rawMessage.match(/<b>([A-Z0-9][A-Z0-9._:-]{0,19})<\/b>\s*·/);
+    const notificationDate = now.toISOString().slice(0, 10);
+    const digest = crypto
+        .createHash('sha256')
+        .update(`${notificationDate}\n${rawMessage}`)
+        .digest('hex');
+    const priority = /⚠️|‼|撤出|跌破|退场|高质量/.test(content) ? 'high' : 'normal';
+
+    return {
+        externalId: `telegram:${digest}`,
+        source: 'telegram',
+        title: title.slice(0, 160),
+        content: content.slice(0, 12000),
+        category: inferWebNotificationCategory(content),
+        priority,
+        coinSymbol: coinMatch?.[1] || null,
+        notificationDate,
+        metadata: {
+            telegramHtml: rawMessage.slice(0, 12000)
+        }
+    };
+}
+
 function formatNumber(value) {
     return value === null || value === undefined ? 'N/A' : String(value);
 }
@@ -213,7 +265,16 @@ function getTelegramMessageOptions() {
 }
 
 async function sendTelegramNotification(chatId, message) {
-    return bot.sendMessage(chatId, message, getTelegramMessageOptions());
+    const webPayload = buildWebNotificationPayload(message);
+    const telegramResult = await bot.sendMessage(chatId, message, getTelegramMessageOptions());
+
+    try {
+        await UserAuth.makeUserAuthenticatedRequest(chatId, 'post', '/notifications', webPayload);
+    } catch (error) {
+        console.error(`Failed to sync web notification for ${chatId}:`, error.message);
+    }
+
+    return telegramResult;
 }
 
 function formatCoinHeader(coin) {
@@ -1194,6 +1255,7 @@ module.exports = {
         analyzeQualityOpportunities,
         analyzeStrategySignals,
         analyzeMomentumIndicators,
+        buildWebNotificationPayload,
         checkUserFavoriteAlerts,
         formatComprehensiveNotification,
         formatMomentumNotification,

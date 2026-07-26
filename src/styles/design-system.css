@@ -112,6 +112,246 @@ body {
   background: rgba(214, 161, 58, 0.18);
 }
 
+.global-nav__notifications {
+  display: flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.notification-center__trigger.ant-btn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(251, 247, 237, 0.16);
+  border-radius: 50%;
+  color: #fbf7ed;
+  background: rgba(255, 255, 255, 0.05);
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.notification-center__trigger.ant-btn:hover,
+.notification-center__trigger.ant-btn:focus-visible {
+  border-color: #d6a13a;
+  color: #fff7e5;
+  background: rgba(214, 161, 58, 0.18);
+  transform: translateY(-1px);
+}
+
+.notification-drawer .ant-drawer-header {
+  min-height: 92px;
+  padding: 20px 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(135deg, rgba(214, 161, 58, 0.13), transparent 48%),
+    #20231f;
+}
+
+.notification-drawer .ant-drawer-title,
+.notification-drawer .ant-drawer-close {
+  color: #fbf7ed;
+}
+
+.notification-drawer .ant-drawer-body {
+  padding: 0;
+  background:
+    repeating-linear-gradient(0deg, rgba(32, 35, 31, 0.025) 0, rgba(32, 35, 31, 0.025) 1px, transparent 1px, transparent 28px),
+    #f5efe4;
+}
+
+.notification-drawer__heading {
+  display: grid;
+  gap: 5px;
+  font-family: "DIN Alternate", "Avenir Next", sans-serif;
+  font-size: 22px;
+}
+
+.notification-drawer__eyebrow {
+  color: #d6a13a;
+  font-family: "Avenir Next", sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.notification-drawer__status {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(69, 60, 46, 0.12);
+  background: rgba(245, 239, 228, 0.94);
+  backdrop-filter: blur(14px);
+}
+
+.notification-drawer__status > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-drawer__status .ant-typography {
+  color: #575044;
+  font-size: 12px;
+}
+
+.notification-drawer__pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d6a13a;
+  box-shadow: 0 0 0 4px rgba(214, 161, 58, 0.14);
+}
+
+.notification-drawer__actions {
+  white-space: nowrap;
+}
+
+.notification-drawer__actions .ant-btn {
+  color: #4d463c;
+  font-size: 12px;
+}
+
+.notification-drawer__error {
+  margin: 12px 16px 0;
+  padding: 9px 11px;
+  border-left: 3px solid #b34c36;
+  background: rgba(179, 76, 54, 0.08);
+  color: #8b3627;
+  font-size: 12px;
+}
+
+.notification-drawer__loading,
+.notification-drawer__empty {
+  display: flex;
+  min-height: 320px;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification-drawer__empty .ant-empty-image {
+  height: auto;
+  color: rgba(69, 60, 46, 0.34);
+  font-size: 44px;
+}
+
+.notification-ledger {
+  position: relative;
+  padding: 14px 14px 28px;
+}
+
+.notification-ledger__item {
+  --notification-accent: #a89a84;
+  position: relative;
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr) 8px;
+  gap: 12px;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(69, 60, 46, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.86);
+  color: #252923;
+  text-align: left;
+  box-shadow: 0 8px 22px rgba(64, 54, 39, 0.055);
+  cursor: default;
+  animation: notification-entry 260ms both;
+  animation-delay: calc(var(--notification-index) * 35ms);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.notification-ledger__item.is-unread {
+  --notification-accent: #d6a13a;
+  background: #fffdf8;
+  cursor: pointer;
+}
+
+.notification-ledger__item.is-high {
+  --notification-accent: #b34c36;
+}
+
+.notification-ledger__item.is-unread:hover,
+.notification-ledger__item.is-unread:focus-visible {
+  border-color: rgba(214, 161, 58, 0.46);
+  outline: none;
+  box-shadow: 0 12px 26px rgba(64, 54, 39, 0.1);
+  transform: translateY(-1px);
+}
+
+.notification-ledger__rail {
+  min-height: 100%;
+  background: var(--notification-accent);
+}
+
+.notification-ledger__content {
+  display: grid;
+  gap: 8px;
+  padding: 14px 0;
+}
+
+.notification-ledger__content strong {
+  color: #262923;
+  font-family: "DIN Alternate", "Avenir Next", sans-serif;
+  font-size: 16px;
+}
+
+.notification-ledger__meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #7a7164;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.notification-ledger__meta .ant-tag {
+  margin: 0;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 18px;
+}
+
+.notification-ledger__meta time {
+  margin-left: auto;
+  padding-right: 2px;
+}
+
+.notification-ledger__body {
+  padding-right: 4px;
+  color: #5d564b;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
+.notification-ledger__unread {
+  width: 7px;
+  height: 7px;
+  align-self: start;
+  margin-top: 18px;
+  border-radius: 50%;
+  background: #d6a13a;
+  box-shadow: 0 0 0 4px rgba(214, 161, 58, 0.12);
+}
+
+@keyframes notification-entry {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .dashboard-shell {
   min-height: calc(100vh - 56px);
   background:

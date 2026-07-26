@@ -12,6 +12,7 @@ import OptionsPage from './components/OptionsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import AdminSettings from './components/AdminSettings';
+import NotificationCenter from './components/NotificationCenter';
 import { useAutoHideOnScroll } from './hooks/useAutoHideOnScroll';
 import { useSelector } from 'react-redux';
 import './styles/mobile.css';
@@ -66,6 +67,9 @@ const NavigationMenu = () => {
           </Menu.Item>
         )}
       </Menu>
+      <div className="global-nav__notifications">
+        <NotificationCenter />
+      </div>
     </Header>
   );
 };

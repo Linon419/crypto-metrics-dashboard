@@ -6,6 +6,7 @@ const {
   analyzeDataChanges,
   analyzeQualityOpportunities,
   analyzeStrategySignals,
+  buildWebNotificationPayload,
   formatComprehensiveNotification,
   isExplosionDropBelow200,
   isExplosionTurnPositive,
@@ -16,7 +17,25 @@ async function run() {
   assert.strictEqual(typeof analyzeDataChanges, 'function');
   assert.strictEqual(typeof analyzeQualityOpportunities, 'function');
   assert.strictEqual(typeof analyzeStrategySignals, 'function');
+  assert.strictEqual(typeof buildWebNotificationPayload, 'function');
   assert.strictEqual(typeof formatComprehensiveNotification, 'function');
+
+  const notificationTime = new Date('2026-07-26T08:30:00.000Z');
+  const webNotification = buildWebNotificationPayload(
+    '<b>高质量进场期初期</b>\n\n<b>BTC</b> · Bitcoin\n场外：<b>1080</b>\n质量：高质量进场',
+    notificationTime
+  );
+  assert.strictEqual(webNotification.title, '高质量进场期初期');
+  assert.ok(webNotification.content.includes('BTC · Bitcoin'));
+  assert.ok(webNotification.content.includes('场外：1080'));
+  assert.strictEqual(webNotification.category, 'quality');
+  assert.strictEqual(webNotification.priority, 'high');
+  assert.match(webNotification.externalId, /^telegram:[a-f0-9]{64}$/);
+  assert.strictEqual(
+    buildWebNotificationPayload('<b>高质量进场期初期</b>\nBTC', notificationTime).externalId,
+    buildWebNotificationPayload('<b>高质量进场期初期</b>\nBTC', notificationTime).externalId,
+    'same Telegram content should produce a stable idempotency key'
+  );
 
   const percentOnlyMove = {
     coin: { symbol: 'BTC', name: 'Bitcoin' },

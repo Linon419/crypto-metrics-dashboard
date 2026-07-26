@@ -263,6 +263,38 @@ export const verifyToken = async () => {
   }
 };
 
+export const fetchNotifications = async ({ limit = 30, unreadOnly = false } = {}) => {
+  try {
+    const response = await api.get('/notifications', {
+      params: { limit, unreadOnly: unreadOnly ? 'true' : undefined },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('[fetchNotifications] 获取站内通知失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const markNotificationRead = async (notificationId) => {
+  try {
+    const response = await api.patch(`/notifications/${notificationId}/read`);
+    return response.data;
+  } catch (error) {
+    console.error('[markNotificationRead] 更新通知状态失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const markAllNotificationsRead = async () => {
+  try {
+    const response = await api.post('/notifications/read-all');
+    return response.data;
+  } catch (error) {
+    console.error('[markAllNotificationsRead] 批量更新通知状态失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
 export const changePassword = async (passwordData) => {
   try {
     const response = await api.put('/auth/change-password', passwordData);
