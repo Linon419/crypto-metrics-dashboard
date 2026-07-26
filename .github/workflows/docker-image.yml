@@ -7,6 +7,11 @@ on:
   pull_request:
     branches: [ main, master ]
 
+# 多架构构建单次 20+ 分钟，连续 push 时只保留最新一次，取消过时构建
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
