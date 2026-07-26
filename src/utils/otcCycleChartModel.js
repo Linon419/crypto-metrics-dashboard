@@ -156,6 +156,34 @@ export function formatChartAxisTime(value) {
   return `${year}-${month}-${day} ${hour}:${minute}`;
 }
 
+/**
+ * X 轴刻度按浏览器本地时区格式化。
+ *
+ * lightweight-charts 默认按 UTC 渲染刻度标签，而十字线悬浮
+ * （localization.timeFormatter → formatChartAxisTime）是本地时区，
+ * 1h/4h 图上两者会相差整个时区偏移。
+ * tickMarkType（未导入枚举，避免测试 mock 缺符号）：
+ * 0=年 1=月 2=日 3=时分 4=时分秒
+ */
+export function formatChartTickMark(time, tickMarkType) {
+  const timestamp = typeof time === 'number'
+    ? time * 1000
+    : time?.timestamp
+      ? time.timestamp * 1000
+      : time?.year
+        ? Date.UTC(time.year, (time.month || 1) - 1, time.day || 1)
+        : null;
+  const date = timestamp ? new Date(timestamp) : null;
+  if (!date || Number.isNaN(date.getTime())) return '';
+
+  if (tickMarkType === 0) return String(date.getFullYear());
+  if (tickMarkType === 1) return `${date.getMonth() + 1}月`;
+  if (tickMarkType === 2) return String(date.getDate());
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${hour}:${minute}`;
+}
+
 function getMetricPublishedAt(metric) {
   const timestamp = metric?.timestamp || metric?.timeStamp;
   const parsedTimestamp = timestamp ? new Date(timestamp) : null;
@@ -763,6 +791,8 @@ function createBaseChart(container, height, showTimeScale = false, showAttributi
       borderColor: '#d1d5db',
       timeVisible: true,
       secondsVisible: false,
+      // 刻度默认按 UTC 渲染，与十字线的本地时间不一致，按浏览器时区重写
+      tickMarkFormatter: formatChartTickMark,
       rightOffset: 2,
       minBarSpacing: 3,
       lockVisibleTimeRangeOnResize: true,

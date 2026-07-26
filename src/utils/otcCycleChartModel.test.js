@@ -5,7 +5,12 @@ jest.mock('lightweight-charts', () => ({
   createChart: jest.fn(),
 }));
 
-import { resolveIsYahooFinanceSource, shouldUseYahooFinanceKlines } from './otcCycleChartModel';
+import {
+  formatChartAxisTime,
+  formatChartTickMark,
+  resolveIsYahooFinanceSource,
+  shouldUseYahooFinanceKlines,
+} from './otcCycleChartModel';
 
 describe('resolveIsYahooFinanceSource', () => {
   test('falls back to the static symbol set before klines arrive', () => {
@@ -28,5 +33,30 @@ describe('resolveIsYahooFinanceSource', () => {
   test('skips rows without market info when probing', () => {
     const rows = [{ close: 1 }, { market: 'binance_usdm_perpetual', close: 2 }];
     expect(resolveIsYahooFinanceSource('TSLA', rows)).toBe(false);
+  });
+});
+
+describe('formatChartTickMark', () => {
+  // 用本地 Date 计算期望值，使断言与运行时区无关：
+  // 核心要求是刻度与十字线（formatChartAxisTime）同一时区
+  const unixTime = Math.floor(Date.UTC(2026, 6, 26, 2, 30) / 1000);
+  const local = new Date(unixTime * 1000);
+
+  test('formats intraday ticks in the browser local timezone', () => {
+    const expected = `${String(local.getHours()).padStart(2, '0')}:30`;
+    expect(formatChartTickMark(unixTime, 3)).toBe(expected);
+    // 与十字线悬浮时间同时区：悬浮串应以刻度的 HH:mm 结尾
+    expect(formatChartAxisTime(unixTime).endsWith(expected)).toBe(true);
+  });
+
+  test('formats year/month/day ticks from the local calendar', () => {
+    expect(formatChartTickMark(unixTime, 0)).toBe(String(local.getFullYear()));
+    expect(formatChartTickMark(unixTime, 1)).toBe(`${local.getMonth() + 1}月`);
+    expect(formatChartTickMark(unixTime, 2)).toBe(String(local.getDate()));
+  });
+
+  test('returns empty string for invalid input', () => {
+    expect(formatChartTickMark(null, 3)).toBe('');
+    expect(formatChartTickMark({ }, 3)).toBe('');
   });
 });
