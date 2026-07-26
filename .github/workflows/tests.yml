@@ -46,6 +46,10 @@ jobs:
   client:
     name: Frontend tests
     runs-on: ubuntu-latest
+    env:
+      # timeDisplay / inputPreprocess 等用例断言悉尼时区行为（与 TG bot 的
+      # Australia/Sydney cron 一致），UTC runner 上会挂，需固定时区
+      TZ: Australia/Sydney
 
     steps:
       - name: Checkout repository
