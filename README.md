@@ -112,6 +112,11 @@ Initial password: 123456
 After the first login, the dashboard opens the password dialog and asks for a unique
 password of at least 15 characters. `ADMIN_PASSWORD` can override the initial password.
 
+The launcher runs in local mode (`DASHBOARD_LOCAL_MODE=1`): the server binds to `127.0.0.1` only,
+weak bundled secrets are reported as warnings instead of blocking startup, and the password
+dialog stays dismissible. None of these conveniences apply to Docker or any other deployment —
+see [Configuration](#configuration).
+
 AI parsing becomes available after `OPENAI_API_KEY` is configured; dashboards and local data management remain available through the launcher with an empty key.
 
 Platform launchers are also available:
@@ -156,14 +161,26 @@ Copy `.env.example` to `.env` for local operation. Production templates live und
 | `PORT` | Optional | API listening port | `3001` |
 | `API_PUBLIC_HOST` | Yes | Public origin used to generate the frontend runtime API URL; omit the `/api` suffix | `https://metrics.example.com` |
 | `DB_STORAGE` | Optional | SQLite database path | `./database.sqlite` |
-| `JWT_SECRET` | Yes in production | JWT signing secret; production startup requires at least 32 characters | Random 32+ character value |
+| `JWT_SECRET` | Yes in production | JWT signing secret; at least 32 characters. Template placeholder values are rejected at startup | Random 32+ character value |
 | `ADMIN_USERNAME` | First run | Initial administrator username | `admin` |
 | `ADMIN_EMAIL` | First run | Initial administrator email | `admin@example.com` |
-| `ADMIN_PASSWORD` | First run | Initial administrator password | `123456`, change after first login |
+| `ADMIN_PASSWORD` | First run | Initial administrator password. Required for non-local deployments; must satisfy the 15-character policy | Random passphrase |
 | `REGISTRATION_ENABLED` | Optional | Initial registration fallback before Admin saves a setting | `false` in production |
+| `DASHBOARD_LOCAL_MODE` | Local launcher | Set to `1` by `scripts/start-local-dashboard.js`. Binds to `127.0.0.1`, downgrades secret errors to warnings, keeps the simple initial password | `1` |
 | `DEV_AUTH_BYPASS` | Development only | Explicit local authentication bypass | `true` |
 
-When `ADMIN_PASSWORD` is absent, the first administrator uses `123456`; the dashboard prompts for a password change after login.
+Secret handling depends on the deployment mode:
+
+- **Local launcher** (`DASHBOARD_LOCAL_MODE=1`): the first administrator falls back to `123456`
+  and the dashboard shows a dismissible password prompt. The service listens on the loopback
+  interface only and must not be exposed directly.
+- **Every other deployment** (Docker, VPS, LAN): startup fails when `JWT_SECRET`,
+  `AI_SETTINGS_ENCRYPTION_KEY` or `MCP_GATEWAY_TOKEN` still holds a template placeholder value.
+  The first administrator is never created from a default password — `ADMIN_PASSWORD` must be set
+  explicitly and satisfy the password policy, otherwise the API answers
+  `503 ADMIN_BOOTSTRAP_BLOCKED`. Accounts that log in with a password shorter than 15 characters
+  receive `403 PASSWORD_CHANGE_REQUIRED` on every endpoint except `/api/auth` until the password
+  is replaced.
 
 ### AI parsing
 
@@ -229,10 +246,10 @@ Interactive HTML documentation is served from `/api/docs/html`; the JSON definit
 | Public | `GET` | `/api/public/bottom-otc-crypto` | Latest bottom OTC assets |
 | Public | `GET` | `/api/logos/:symbol` | Cached or generated asset logo |
 | Authentication | `POST` | `/api/auth/login` | Obtain a JWT |
-| Authenticated | `POST` | `/api/data/input` | Parse and persist source text |
+| Admin | `POST` | `/api/data/input` | Parse and persist source text |
 | Authenticated | `GET` | `/api/data/latest` | Read the latest structured metrics |
-| Authenticated | `GET` | `/api/data/export-all` | Export a JSON snapshot |
-| Authenticated | `POST` | `/api/data/import-database` | Import a JSON snapshot |
+| Admin | `GET` | `/api/data/export-all` | Export a JSON snapshot |
+| Admin | `POST` | `/api/data/import-database` | Import a JSON snapshot |
 | Authenticated | `GET` | `/api/volatility/btc` | BTC realized/implied volatility snapshot |
 | Authenticated | `GET` | `/api/options/btc/chain` | BTC option chain |
 | WebSocket | — | `/ws/klines?symbol=BTC&interval=1d` | Live K-line updates |
@@ -324,16 +341,23 @@ The included template exposes the application on port `3080` and persists SQLite
 | `npm run dev` | Start the frontend and API together |
 | `npm run dev-full` | Start the frontend, API, and Telegram bot |
 | `npm run build` | Create a production frontend build |
-| `npm test` | Run the React test suite |
+| `npm test` | Run the React test suite in watch mode |
+| `npm run test:client` | Run the React test suite once (serial; required — parallel runs are flaky) |
+| `npm run test:server` | Run every backend test in `server/tests/` |
 | `npm run build:launchers` | Build local launcher packages |
 | `npm run build:launchers:with-data` | Build launcher packages with `database.sqlite` |
 
 The backend also contains focused Node test scripts under `server/tests/`. Run a specific test directly, for example:
 
 ```bash
-node server/tests/optionsPayoff.test.js
-node server/tests/klineWebSocket.test.js
+npm run test:server                  # every backend test file
+npm run test:server authSecurity     # only files matching the keyword
+node server/tests/optionsPayoff.test.js   # a single file directly
 ```
+
+The runner points `DB_STORAGE` at a temporary directory, so tests never touch the
+repository database. Both suites run on every push and pull request through
+[`.github/workflows/tests.yml`](.github/workflows/tests.yml).
 
 ### Launcher packages
 

@@ -112,6 +112,9 @@ node scripts/start-local-dashboard.js
 首次登录后，看板会自动打开修改密码窗口，并提示设置至少 15 个字符的独立口令。
 `ADMIN_PASSWORD` 可以覆盖初始密码。
 
+启动器以本地模式运行（`DASHBOARD_LOCAL_MODE=1`）：服务只监听 `127.0.0.1`，内置的弱密钥只告警不阻断启动，
+修改密码窗口保持可关闭。以上便利仅限本地模式，不适用于 Docker 等其他部署方式，详见[配置](#配置)。
+
 配置 `OPENAI_API_KEY` 后即可使用 AI 解析；密钥为空时，本地启动器仍可用于看板浏览与本地数据管理。
 
 项目还提供平台启动入口：
@@ -156,14 +159,23 @@ npm run dev
 | `PORT` | 可选 | API 监听端口 | `3001` |
 | `API_PUBLIC_HOST` | 必需 | 生成前端运行时 API 地址的公开 Origin，请省略 `/api` 后缀 | `https://metrics.example.com` |
 | `DB_STORAGE` | 可选 | SQLite 数据库路径 | `./database.sqlite` |
-| `JWT_SECRET` | 生产环境必需 | JWT 签名密钥，生产启动要求至少 32 个字符 | 32 位以上随机值 |
+| `JWT_SECRET` | 生产环境必需 | JWT 签名密钥，至少 32 个字符；仍是模板占位值时启动会被拒绝 | 32 位以上随机值 |
 | `ADMIN_USERNAME` | 首次运行 | 初始管理员用户名 | `admin` |
 | `ADMIN_EMAIL` | 首次运行 | 初始管理员邮箱 | `admin@example.com` |
-| `ADMIN_PASSWORD` | 首次运行 | 初始管理员密码 | `123456`，首次登录后修改 |
+| `ADMIN_PASSWORD` | 首次运行 | 初始管理员密码。对外部署必填，且需满足 15 字符口令策略 | 随机长口令 |
 | `REGISTRATION_ENABLED` | 可选 | Admin 保存设置前的注册功能初始回退值 | 生产环境为 `false` |
+| `DASHBOARD_LOCAL_MODE` | 本地启动器 | 由 `scripts/start-local-dashboard.js` 自动设为 `1`。只监听 `127.0.0.1`，密钥问题降级为告警，保留简易初始密码 | `1` |
 | `DEV_AUTH_BYPASS` | 仅开发环境 | 显式开启本地鉴权绕过 | `true` |
 
-未配置 `ADMIN_PASSWORD` 时，首次管理员使用 `123456`，登录后看板会提示修改密码。
+密钥策略按部署方式区分：
+
+- **本地启动器**（`DASHBOARD_LOCAL_MODE=1`）：首个管理员回退为 `123456`，看板弹出可关闭的改密提示。
+  服务仅监听回环地址，请勿直接对外暴露。
+- **其他所有部署**（Docker、VPS、局域网）：`JWT_SECRET`、`AI_SETTINGS_ENCRYPTION_KEY`、
+  `MCP_GATEWAY_TOKEN` 中任意一项仍是模板占位值都会导致启动失败；首个管理员不再回退到默认密码，
+  必须显式配置满足口令策略的 `ADMIN_PASSWORD`，否则接口返回 `503 ADMIN_BOOTSTRAP_BLOCKED`；
+  使用不足 15 个字符的密码登录的账号，在完成改密前除 `/api/auth` 外的所有接口都会返回
+  `403 PASSWORD_CHANGE_REQUIRED`。
 
 ### AI 解析配置
 
@@ -229,10 +241,10 @@ npm run dev
 | 公开 | `GET` | `/api/public/bottom-otc-crypto` | 最新场外指数末位标的 |
 | 公开 | `GET` | `/api/logos/:symbol` | 缓存或自动生成的标的 Logo |
 | 鉴权 | `POST` | `/api/auth/login` | 获取 JWT |
-| 已鉴权 | `POST` | `/api/data/input` | 解析并保存原文 |
+| 管理员 | `POST` | `/api/data/input` | 解析并保存原文 |
 | 已鉴权 | `GET` | `/api/data/latest` | 获取最新结构化指标 |
-| 已鉴权 | `GET` | `/api/data/export-all` | 导出 JSON 快照 |
-| 已鉴权 | `POST` | `/api/data/import-database` | 导入 JSON 快照 |
+| 管理员 | `GET` | `/api/data/export-all` | 导出 JSON 快照 |
+| 管理员 | `POST` | `/api/data/import-database` | 导入 JSON 快照 |
 | 已鉴权 | `GET` | `/api/volatility/btc` | BTC 实现/隐含波动率快照 |
 | 已鉴权 | `GET` | `/api/options/btc/chain` | BTC 期权链 |
 | WebSocket | — | `/ws/klines?symbol=BTC&interval=1d` | 实时 K 线更新 |
@@ -324,16 +336,23 @@ docker compose \
 | `npm run dev` | 同时启动前端与 API |
 | `npm run dev-full` | 同时启动前端、API 与 Telegram Bot |
 | `npm run build` | 创建前端生产构建 |
-| `npm test` | 运行 React 测试 |
+| `npm test` | 以监听模式运行 React 测试 |
+| `npm run test:client` | 单次运行 React 测试（必须串行，并行会随机超时）|
+| `npm run test:server` | 运行 `server/tests/` 下的全部后端测试 |
 | `npm run build:launchers` | 构建本地启动器分发包 |
 | `npm run build:launchers:with-data` | 构建包含 `database.sqlite` 的分发包 |
 
 后端的聚焦型 Node 测试位于 `server/tests/`。可直接执行单个测试，例如：
 
 ```bash
-node server/tests/optionsPayoff.test.js
-node server/tests/klineWebSocket.test.js
+npm run test:server                  # 全部后端测试
+npm run test:server authSecurity     # 只跑文件名匹配关键字的用例
+node server/tests/optionsPayoff.test.js   # 直接运行单个文件
 ```
+
+运行器会把 `DB_STORAGE` 指向临时目录，测试不会连上仓库里的数据库。
+两套测试都会在 push 与 pull request 时通过
+[`.github/workflows/tests.yml`](.github/workflows/tests.yml) 自动运行。
 
 ### 启动器分发包
 

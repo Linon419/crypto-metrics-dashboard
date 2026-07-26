@@ -48,6 +48,8 @@
     "build:launchers": "node scripts/build-launcher-packages.js",
     "build:launchers:with-data": "node scripts/build-launcher-packages.js --include-db",
     "test": "react-scripts test",
+    "test:client": "react-scripts test --watchAll=false --runInBand",
+    "test:server": "node server/tests/run-all.js",
     "eject": "react-scripts eject",
     "server": "node start-server.js",
     "bot": "node start-bot.js",
