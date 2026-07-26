@@ -28,7 +28,6 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - API_BASE_URL=http://localhost:3001/api
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
-      - MCP_GATEWAY_TOKEN=${MCP_GATEWAY_TOKEN}
       - TZ=Asia/Shanghai
     volumes:
       - /root/crypto-dashboard/data:/data/db

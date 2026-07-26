@@ -28,7 +28,6 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - API_BASE_URL=http://crypto-dashboard:3001/api
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
-      - MCP_GATEWAY_TOKEN=${MCP_GATEWAY_TOKEN}
       - DB_PATH=/app/telegram-bot/data/bot_data.db
       - TZ=Asia/Shanghai
     volumes:

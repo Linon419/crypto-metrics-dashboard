@@ -27,7 +27,7 @@ function run() {
   // 仓库模板里实际出现过的占位值必须被识别
   assert.strictEqual(isPlaceholderSecret('please_generate_a_strong_secret_at_least_32_chars'), true);
   assert.strictEqual(isPlaceholderSecret('please_generate_another_stable_secret'), true);
-  assert.strictEqual(isPlaceholderSecret('please_set_a_strong_gateway_token'), true);
+  assert.strictEqual(isPlaceholderSecret('please_set_a_strong_token'), true);
   assert.strictEqual(isPlaceholderSecret('your_openai_api_key_here'), true);
   assert.strictEqual(isPlaceholderSecret('local-one-click-dashboard-secret-change-me-2026'), true);
   // 历史硬编码值
@@ -45,15 +45,14 @@ function run() {
   assert.strictEqual(placeholderProblems[0].name, 'JWT_SECRET');
   assert.strictEqual(placeholderProblems[0].level, 'fatal');
 
-  // 三个密钥同时是占位值时应全部报告
+  // 多个密钥同时是占位值时应全部报告
   const allPlaceholder = collectSecretProblems({
     JWT_SECRET: 'please_generate_a_strong_secret_at_least_32_chars',
     AI_SETTINGS_ENCRYPTION_KEY: 'please_generate_another_stable_secret',
-    MCP_GATEWAY_TOKEN: 'please_set_a_strong_gateway_token',
   });
   assert.deepStrictEqual(
     allPlaceholder.map(problem => problem.name).sort(),
-    ['AI_SETTINGS_ENCRYPTION_KEY', 'JWT_SECRET', 'MCP_GATEWAY_TOKEN']
+    ['AI_SETTINGS_ENCRYPTION_KEY', 'JWT_SECRET']
   );
   assert.ok(allPlaceholder.every(problem => problem.level === 'fatal'));
 
@@ -63,7 +62,7 @@ function run() {
   // 可选密钥过短只告警，不阻断
   const shortOptional = collectSecretProblems({
     JWT_SECRET: STRONG_SECRET,
-    MCP_GATEWAY_TOKEN: 'short-token',
+    AI_SETTINGS_ENCRYPTION_KEY: 'short-key',
   });
   assert.strictEqual(shortOptional.length, 1);
   assert.strictEqual(shortOptional[0].level, 'warn');

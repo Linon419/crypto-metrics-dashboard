@@ -2,7 +2,7 @@
  * 生产部署密钥校验：
  * - 拒绝仍是模板占位值的密钥（deploy/docker/.env.example 里的 please_generate_* 等）
  * - 拒绝历史版本硬编码过的弱密钥
- * - 校验范围覆盖 JWT_SECRET、AI_SETTINGS_ENCRYPTION_KEY 与 MCP_GATEWAY_TOKEN
+ * - 校验范围覆盖 JWT_SECRET 与 AI_SETTINGS_ENCRYPTION_KEY
  *
  * 本地一键启动器（DASHBOARD_LOCAL_MODE=1）只告警不中断，
  * 因为它同样以 NODE_ENV=production 运行，但仅监听回环地址。
@@ -91,12 +91,6 @@ function collectSecretProblems(env = process.env) {
       value: env.AI_SETTINGS_ENCRYPTION_KEY,
       required: false,
       hint: '该值用于加密数据库中保存的 AI API Key，更换后需要在「管理后台 → AI 模型」重新填写 API Key。',
-    },
-    {
-      name: 'MCP_GATEWAY_TOKEN',
-      value: env.MCP_GATEWAY_TOKEN,
-      required: false,
-      hint: '更换后需同步更新 MCP 客户端配置。',
     },
   ];
 

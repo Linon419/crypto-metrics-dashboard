@@ -16,7 +16,7 @@
 
 Crypto Metrics Dashboard combines a React interface, an Express API, SQLite persistence, and an OpenAI-compatible parsing service. It turns unstructured daily market text into queryable metrics and provides dashboards for OTC signals, liquidity, market phases, volatility, K-line data, and BTC options.
 
-The project supports local-first operation, development workflows, Docker deployment, Windows/macOS launchers, Telegram notifications, and an HTTP MCP gateway.
+The project supports local-first operation, development workflows, Docker deployment, Windows/macOS launchers, and Telegram notifications.
 
 > [!IMPORTANT]
 > This project is designed for research and operational monitoring. Independently verify all data and analysis before making investment decisions.
@@ -46,7 +46,7 @@ The project supports local-first operation, development workflows, Docker deploy
 - **K-line pipeline** — Configure symbol mappings, backfill and clean candles, stream Binance updates over WebSocket, and render historical charts.
 - **Operations console** — Manage users, tracked assets, timestamps, parsing prompts, database patches, and application settings.
 - **Portable data** — Export and import JSON snapshots, back up SQLite directly, or create launcher bundles with a database included.
-- **Integration endpoints** — Connect through the Telegram bot or the authenticated HTTP MCP gateway.
+- **Integration endpoints** — Receive notifications and alerts through the Telegram bot.
 - **Automatic asset logos** — Resolve, cache, and serve logos with provider-backed and generated fallbacks.
 
 ## Architecture
@@ -59,7 +59,7 @@ flowchart LR
     API <--> DB[(SQLite)]
     API <--> Market["Binance / Deribit / logo sources"]
     DB --> Views["Dashboard / K-line / options views"]
-    API --> Integrations["Telegram bot / MCP gateway"]
+    API --> Integrations["Telegram bot"]
 ```
 
 | Layer | Implementation | Responsibility |
@@ -68,7 +68,7 @@ flowchart LR
 | API | Express, JWT, Sequelize | Authentication, parsing, validation, persistence, data management |
 | Storage | SQLite | Users, assets, metrics, liquidity, options tuning, K-line data, settings |
 | Market adapters | Binance, Deribit, configurable logo providers | Candles, live streams, BTC volatility, option-chain enrichment, logos |
-| Integrations | Telegram Bot, HTTP JSON-RPC MCP gateway | Notifications and programmatic access |
+| Integrations | Telegram Bot | Notifications and alerts |
 | Distribution | Docker, Windows/macOS launchers | Self-hosting and local one-click operation |
 
 ## Technology stack
@@ -177,7 +177,7 @@ Secret handling depends on the deployment mode:
   and the dashboard shows a dismissible password prompt. The service listens on the loopback
   interface only and must not be exposed directly.
 - **Every other deployment** (Docker, VPS, LAN): startup fails when `JWT_SECRET`,
-  `AI_SETTINGS_ENCRYPTION_KEY` or `MCP_GATEWAY_TOKEN` still holds a template placeholder value.
+  `AI_SETTINGS_ENCRYPTION_KEY` still holds a template placeholder value.
   The first administrator is never created from a default password — `ADMIN_PASSWORD` must be set
   explicitly and satisfy the password policy, otherwise the API answers
   `503 ADMIN_BOOTSTRAP_BLOCKED`. Accounts that log in with a password shorter than 15 characters
@@ -208,10 +208,6 @@ Provider, Base URL, model, and API credentials can be maintained from **Admin �
 | `TELEGRAM_BOT_TOKEN` | Telegram | Bot token |
 | `API_BASE_URL` | Telegram | Dashboard API base URL |
 | `ADMIN_CHAT_IDS` | Telegram | Comma-separated administrator chat IDs |
-| `MCP_GATEWAY_TOKEN` | MCP | Bearer token protecting the gateway |
-| `CRYPTO_API_BASE_URL` | MCP | Internal dashboard API URL |
-| `CRYPTO_DEFAULT_USERNAME` | MCP | Optional automatic backend login |
-| `CRYPTO_DEFAULT_PASSWORD` | MCP | Optional automatic backend login |
 | `TZ` | Server and bot | Runtime timezone |
 
 ## Data and backups
@@ -273,22 +269,6 @@ npm run bot
 
 Configure `TELEGRAM_BOT_TOKEN`, `API_BASE_URL`, and `ADMIN_CHAT_IDS`. The complete template is available at [`telegram-bot/.env.example`](telegram-bot/.env.example).
 
-### MCP gateway
-
-The HTTP JSON-RPC gateway is mounted at:
-
-```text
-POST /default/crypto/mcp
-```
-
-Every gateway request requires:
-
-```http
-Authorization: Bearer <MCP_GATEWAY_TOKEN>
-```
-
-Optional `Mcp-Session-Id` headers preserve the backend JWT session for 30 minutes. Gateway manifests are available under [`deploy/mcp/`](deploy/mcp/).
-
 ## Docker deployment
 
 The repository publishes `linux/amd64` and `linux/arm64` images to GitHub Container Registry through GitHub Actions.
@@ -323,13 +303,13 @@ The included template exposes the application on port `3080` and persists SQLite
 ├── server/                  # Express API
 │   ├── middleware/          # Authentication and first-run setup
 │   ├── models/              # Sequelize models
-│   ├── routes/              # REST API and MCP gateway
+│   ├── routes/              # REST API
 │   ├── services/            # AI and WebSocket services
 │   └── utils/               # Market adapters and domain logic
 ├── telegram-bot/            # Telegram notification bot
 ├── launchers/               # Windows and macOS launchers
 ├── scripts/                 # Build and local distribution scripts
-├── deploy/                  # Docker and MCP deployment manifests
+├── deploy/                  # Docker deployment manifests
 ├── Dockerfile
 └── docker-compose.yml
 ```
@@ -374,7 +354,7 @@ Artifacts are written to `local-artifacts/launchers/` as folders and ZIP archive
 
 ## Security
 
-- Generate unique values for `JWT_SECRET`, `ADMIN_PASSWORD`, and `MCP_GATEWAY_TOKEN` in every deployment.
+- Generate unique values for `JWT_SECRET` and `ADMIN_PASSWORD` in every deployment.
 - Store API keys in `.env` files or a secret manager. The repository ignores environment files and runtime databases.
 - Use HTTPS through a reverse proxy for internet-facing deployments.
 - Restrict file permissions for the SQLite database, backups, logs, and logo cache.

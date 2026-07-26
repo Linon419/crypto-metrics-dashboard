@@ -7,7 +7,6 @@ const morgan = require('morgan');
 const path = require('path');
 require('dotenv').config();
 const checkFirstRun = require('./middleware/checkFirstRun');
-const mcpGatewayRouter = require('./routes/mcpGateway');
 const { attachKlineWebSocketServer } = require('./services/klineWebSocketServer');
 const { buildRuntimeConfigScript } = require('./utils/runtimeConfig');
 const { assertProductionSecrets, isLocalMode } = require('./utils/productionSecrets');
@@ -89,9 +88,6 @@ app.get('/api/test', (req, res) => {
 app.use('/api/public', require('./routes/public'));
 app.use('/api/docs', require('./routes/docs'));
 app.use('/api/logos', require('./routes/logos'));
-
-// MCP Gateway（对外暴露 MCP tools/list 与 tools/call）
-app.use('/default/crypto', mcpGatewayRouter);
 
 // 路由加载函数 - 带错误处理
 function safelyLoadRoutes(routePath, mountPath) {

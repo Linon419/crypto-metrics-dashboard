@@ -16,7 +16,7 @@
 
 Crypto Metrics Dashboard 由 React 界面、Express API、SQLite 持久化与 OpenAI 兼容解析服务组成。系统将非结构化的日更市场原文转换为可查询指标，并提供场外信号、流动性、市场阶段、波动率、K 线和 BTC 期权分析看板。
 
-项目支持本地优先运行、开发调试、Docker 部署、Windows/macOS 启动器、Telegram 通知和 HTTP MCP Gateway。
+项目支持本地优先运行、开发调试、Docker 部署、Windows/macOS 启动器和 Telegram 通知。
 
 > [!IMPORTANT]
 > 本项目用于研究与运营监控。任何投资决策都应建立在独立数据核验与风险评估之上。
@@ -46,7 +46,7 @@ Crypto Metrics Dashboard 由 React 界面、Express API、SQLite 持久化与 Op
 - **K 线管线**：配置标的映射、回补与清理数据，通过 WebSocket 接收 Binance 更新并展示历史图表。
 - **运营管理台**：管理用户、标的、时间记录、解析 Prompt、数据库补丁与应用设置。
 - **便携数据管理**：导出和导入 JSON 快照、直接备份 SQLite，或生成携带数据库的启动器分发包。
-- **集成接口**：通过 Telegram Bot 或带鉴权的 HTTP MCP Gateway 接入。
+- **集成接口**：通过 Telegram Bot 接收通知与告警。
 - **自动标的 Logo**：从外部来源解析并缓存 Logo，同时提供自动生成的回退图标。
 
 ## 系统架构
@@ -59,7 +59,7 @@ flowchart LR
     API <--> DB[(SQLite)]
     API <--> Market["Binance / Deribit / Logo 数据源"]
     DB --> Views["指标看板 / K 线 / 期权视图"]
-    API --> Integrations["Telegram Bot / MCP Gateway"]
+    API --> Integrations["Telegram Bot"]
 ```
 
 | 层级 | 实现 | 职责 |
@@ -68,7 +68,7 @@ flowchart LR
 | API | Express、JWT、Sequelize | 鉴权、解析、校验、持久化、数据管理 |
 | 存储 | SQLite | 用户、标的、指标、流动性、期权调参、K 线、应用设置 |
 | 市场适配器 | Binance、Deribit、可配置 Logo 来源 | K 线、实时流、BTC 波动率、期权链增强、Logo |
-| 集成 | Telegram Bot、HTTP JSON-RPC MCP Gateway | 消息通知与程序化访问 |
+| 集成 | Telegram Bot | 消息通知与告警 |
 | 分发 | Docker、Windows/macOS 启动器 | 自托管与本地一键运行 |
 
 ## 技术栈
@@ -173,8 +173,8 @@ npm run dev
 
 - **本地启动器**（`DASHBOARD_LOCAL_MODE=1`）：首个管理员回退为 `123456`，看板弹出可关闭的改密提示。
   服务仅监听回环地址，请勿直接对外暴露。
-- **其他所有部署**（Docker、VPS、局域网）：`JWT_SECRET`、`AI_SETTINGS_ENCRYPTION_KEY`、
-  `MCP_GATEWAY_TOKEN` 中任意一项仍是模板占位值都会导致启动失败；首个管理员不再回退到默认密码，
+- **其他所有部署**（Docker、VPS、局域网）：`JWT_SECRET` 或 `AI_SETTINGS_ENCRYPTION_KEY`
+  仍是模板占位值会导致启动失败；首个管理员不再回退到默认密码，
   必须显式配置满足口令策略的 `ADMIN_PASSWORD`，否则接口返回 `503 ADMIN_BOOTSTRAP_BLOCKED`；
   使用不足 15 个字符的密码登录的账号，在完成改密前除 `/api/auth` 外的所有接口都会返回
   `403 PASSWORD_CHANGE_REQUIRED`。
@@ -203,10 +203,6 @@ npm run dev
 | `TELEGRAM_BOT_TOKEN` | Telegram | Bot Token |
 | `API_BASE_URL` | Telegram | Dashboard API Base URL |
 | `ADMIN_CHAT_IDS` | Telegram | 逗号分隔的管理员 Chat ID |
-| `MCP_GATEWAY_TOKEN` | MCP | 保护 Gateway 的 Bearer Token |
-| `CRYPTO_API_BASE_URL` | MCP | Dashboard 内部 API 地址 |
-| `CRYPTO_DEFAULT_USERNAME` | MCP | 可选的后端自动登录账号 |
-| `CRYPTO_DEFAULT_PASSWORD` | MCP | 可选的后端自动登录密码 |
 | `TZ` | 服务端与 Bot | 运行时区 |
 
 ## 数据与备份
@@ -268,22 +264,6 @@ npm run bot
 
 配置 `TELEGRAM_BOT_TOKEN`、`API_BASE_URL` 和 `ADMIN_CHAT_IDS`。完整模板位于 [`telegram-bot/.env.example`](telegram-bot/.env.example)。
 
-### MCP Gateway
-
-HTTP JSON-RPC Gateway 挂载在：
-
-```text
-POST /default/crypto/mcp
-```
-
-每个 Gateway 请求都需要：
-
-```http
-Authorization: Bearer <MCP_GATEWAY_TOKEN>
-```
-
-可选的 `Mcp-Session-Id` 请求头会保留 30 分钟后端 JWT 会话。Gateway 清单位于 [`deploy/mcp/`](deploy/mcp/)。
-
 ## Docker 部署
 
 项目通过 GitHub Actions 向 GitHub Container Registry 发布 `linux/amd64` 与 `linux/arm64` 镜像。
@@ -318,13 +298,13 @@ docker compose \
 ├── server/                  # Express API
 │   ├── middleware/          # 鉴权与首次运行初始化
 │   ├── models/              # Sequelize 模型
-│   ├── routes/              # REST API 与 MCP Gateway
+│   ├── routes/              # REST API
 │   ├── services/            # AI 与 WebSocket 服务
 │   └── utils/               # 市场适配器与领域逻辑
 ├── telegram-bot/            # Telegram 通知 Bot
 ├── launchers/               # Windows 与 macOS 启动器
 ├── scripts/                 # 构建与本地分发脚本
-├── deploy/                  # Docker 与 MCP 部署清单
+├── deploy/                  # Docker 部署清单
 ├── Dockerfile
 └── docker-compose.yml
 ```
@@ -369,7 +349,7 @@ npm run build:launchers:with-data
 
 ## 安全建议
 
-- 每套部署都应生成独立的 `JWT_SECRET`、`ADMIN_PASSWORD` 与 `MCP_GATEWAY_TOKEN`。
+- 每套部署都应生成独立的 `JWT_SECRET` 与 `ADMIN_PASSWORD`。
 - API Key 应保存在 `.env` 或密钥管理系统中。仓库已忽略环境文件和运行时数据库。
 - 公网部署应通过反向代理启用 HTTPS。
 - 限制 SQLite 数据库、备份、日志和 Logo 缓存的文件权限。
