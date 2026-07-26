@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
 const { DailyMetric, Coin } = require('../models');
+const { requireAdmin } = require('../middleware/auth');
 
 // 获取所有指标数据
 router.get('/', async (req, res) => {
@@ -31,7 +32,7 @@ router.get('/', async (req, res) => {
 });
 
 // 添加新的指标数据
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   try {
     const { 
       coin_id, 
@@ -97,7 +98,7 @@ router.post('/', async (req, res) => {
 });
 
 // 更新指标数据
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { 
@@ -132,7 +133,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // 删除指标数据
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     

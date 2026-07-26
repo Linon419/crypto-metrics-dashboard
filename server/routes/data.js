@@ -14,6 +14,7 @@ const {
 const { buildPeriodRiskNotes } = require('../utils/periodRiskNotes');
 const { parseFlexibleDateTime, parseWallClockInOffset, validateTimePrecision } = require('../utils/timeParser');
 const { evaluateStrategySignal } = require('../utils/strategySignals');
+const { requireAdmin } = require('../middleware/auth');
 
 // --- 辅助函数：计算百分比变化 ---
 function calculateChangePercent(current, previous) {
@@ -230,7 +231,7 @@ function attachStrategySignal(metric, history = []) {
 }
 
 // --- 路由：处理原始数据输入并存储 ---
-router.post('/input', async (req, res) => {
+router.post('/input', requireAdmin, async (req, res) => {
   const { rawData, clientTimezoneOffsetMinutes } = req.body;
   if (!rawData || typeof rawData !== 'string' || rawData.trim() === '') {
     return res.status(400).json({ success: false, error: 'Raw data is required and must be a non-empty string' });
@@ -1230,7 +1231,7 @@ async function calculatePeriodQuality(coinId) {
 
 
 // --- 路由：导出所有数据 ---
-router.get('/export-all', async (req, res) => {
+router.get('/export-all', requireAdmin, async (req, res) => {
   try {
     console.log('[EXPORT_DB] Request received to export all database data.');
     res.setTimeout(300000); // 5分钟超时，以防数据量过大
@@ -1332,7 +1333,7 @@ router.get('/export-all', async (req, res) => {
 
 
 // --- 路由：批量导入数据库备份数据 ---
-router.post('/import-database', async (req, res) => {
+router.post('/import-database', requireAdmin, async (req, res) => {
   const dumpData = req.body;
   if (!dumpData || typeof dumpData !== 'object' || !dumpData.metadata || !Array.isArray(dumpData.allCoinsInfo) || !Array.isArray(dumpData.allHistoricalMetricsRaw)) {
     console.error('[IMPORT_DB] Invalid database dump format. Missing required root fields or arrays.');
@@ -1752,7 +1753,7 @@ router.get('/debug/date-range', async (req, res) => {
   }
 });
 
-router.post('/debug/add-test-data', async (req, res) => {
+router.post('/debug/add-test-data', requireAdmin, async (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     return res.status(403).json({ success: false, error: 'This endpoint is disabled in production' });
   }

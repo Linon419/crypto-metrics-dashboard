@@ -22,6 +22,7 @@ const {
   YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
 } = require('../utils/coinKlines');
 const { resolveEffectiveKlineMapping } = require('../utils/coinKlineMappings');
+const { requireAdmin } = require('../middleware/auth');
 
 const KLINE_BACKFILL_DEFAULT_INTERVAL = '4h';
 const KLINE_BACKFILL_DEFAULT_INTERVALS = ['15m', '1h', '4h', '1d'];
@@ -424,7 +425,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/klines/backfill', async (req, res) => {
+router.post('/klines/backfill', requireAdmin, async (req, res) => {
   try {
     if (activeKlineBackfillJob && activeKlineBackfillJob.status === 'running') {
       return res.status(202).json({
@@ -676,7 +677,7 @@ router.get('/:symbol/klines', async (req, res) => {
 });
 
 // 创建新币种
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   try {
     const { symbol, name, current_price, logo_url } = req.body;
     
@@ -710,7 +711,7 @@ router.post('/', async (req, res) => {
 });
 
 // 更新币种信息
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, current_price, logo_url } = req.body;
@@ -735,7 +736,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // 删除币种
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     

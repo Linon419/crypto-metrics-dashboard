@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
 const { LiquidityOverview } = require('../models');
+const { requireAdmin } = require('../middleware/auth');
 
 // 获取所有流动性概况数据
 router.get('/', async (req, res) => {
@@ -49,7 +50,7 @@ router.get('/:date', async (req, res) => {
 });
 
 // 添加或更新流动性概况
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   try {
     const {
       date,
@@ -99,7 +100,7 @@ router.post('/', async (req, res) => {
 });
 
 // 删除流动性概况
-router.delete('/:date', async (req, res) => {
+router.delete('/:date', requireAdmin, async (req, res) => {
   try {
     const { date } = req.params;
     

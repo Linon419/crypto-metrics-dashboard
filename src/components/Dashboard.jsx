@@ -178,6 +178,8 @@ function Dashboard() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { user } = useSelector(state => state.auth);
+  // 写接口已在后端收敛为管理员专属，非管理员不展示对应入口
+  const isAdmin = user?.role === 'admin';
 
   const showStrategyNotification = useCallback((coins, liquidity, date) => {
     if (!date || !Array.isArray(coins) || coins.length === 0) return;
@@ -718,7 +720,8 @@ function Dashboard() {
       label: '收藏调试',
       onClick: () => setDebugModalVisible(true)
     }] : []),
-    {
+    // K线回补会写库并拉取外部数据，后端已限制为管理员专属
+    ...(isAdmin ? [{
       key: 'kline-backfill',
       icon: <CloudDownloadOutlined />,
       label: klineBackfillRunning ? 'K线回补运行中' : '一键回补全部周期',
@@ -731,8 +734,8 @@ function Dashboard() {
       label: klineBackfillRunning ? 'K线任务运行中' : '重刷Yahoo盘前盘后',
       onClick: handleStartYahooPrePostRefresh,
       disabled: klineBackfillRunning,
-    },
-    ...(user?.role === 'admin' ? [{
+    }] : []),
+    ...(isAdmin ? [{
       key: 'admin-settings',
       icon: <SettingOutlined />,
       label: 'Admin设置',
@@ -768,23 +771,27 @@ function Dashboard() {
       >
         修改密码
       </Menu.Item>
-      <Menu.Item
-        key="kline-backfill"
-        onClick={handleStartKlineBackfill}
-        icon={<CloudDownloadOutlined />}
-        disabled={klineBackfillRunning}
-      >
-        {klineBackfillRunning ? 'K线回补运行中' : '一键回补全部周期'}
-      </Menu.Item>
-      <Menu.Item
-        key="yahoo-prepost-refresh"
-        onClick={handleStartYahooPrePostRefresh}
-        icon={<CloudDownloadOutlined />}
-        disabled={klineBackfillRunning}
-      >
-        {klineBackfillRunning ? 'K线任务运行中' : '重刷Yahoo盘前盘后'}
-      </Menu.Item>
-      {user?.role === 'admin' && (
+      {isAdmin && (
+        <Menu.Item
+          key="kline-backfill"
+          onClick={handleStartKlineBackfill}
+          icon={<CloudDownloadOutlined />}
+          disabled={klineBackfillRunning}
+        >
+          {klineBackfillRunning ? 'K线回补运行中' : '一键回补全部周期'}
+        </Menu.Item>
+      )}
+      {isAdmin && (
+        <Menu.Item
+          key="yahoo-prepost-refresh"
+          onClick={handleStartYahooPrePostRefresh}
+          icon={<CloudDownloadOutlined />}
+          disabled={klineBackfillRunning}
+        >
+          {klineBackfillRunning ? 'K线任务运行中' : '重刷Yahoo盘前盘后'}
+        </Menu.Item>
+      )}
+      {isAdmin && (
         <Menu.Item
           key="admin-settings"
           onClick={() => navigate('/admin/settings')}
