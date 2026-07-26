@@ -1018,6 +1018,24 @@ router.post('/kline-mappings/seed-defaults', async (req, res) => {
   }
 });
 
+// 美股映射币安优先：币安 U 本位已有同名永续的 yahoo 映射翻转为 binance
+router.post('/kline-mappings/prefer-binance', async (req, res) => {
+  try {
+    const { preferBinanceUsdmForEquityMappings } = require('../utils/binanceUsdmEquityPreference');
+    const result = await preferBinanceUsdmForEquityMappings();
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('币安优先同步失败:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message || '币安优先同步失败',
+    });
+  }
+});
+
 router.get('/coins', async (req, res) => {
   try {
     const result = await listAdminCoins();

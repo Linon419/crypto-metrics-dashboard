@@ -39,7 +39,7 @@ import {
   mergeMetricsByVersion,
   parseDateBoundaryMs,
   shouldUsePagedDateRangeKlines,
-  shouldUseYahooFinanceKlines,
+  resolveIsYahooFinanceSource,
   syncTimeRange,
   toFiniteCoordinate,
 } from '../utils/otcCycleChartModel';
@@ -96,7 +96,8 @@ function OtcCycleChart({
   const [hasMoreLeft, setHasMoreLeft] = useState(true);
 
   const selectedPeriod = CHART_PERIODS.find(period => period.value === interval) || CHART_PERIODS[0];
-  const isYahooFinanceSource = shouldUseYahooFinanceKlines(normalizedSymbol);
+  // 优先信任已加载 K 线上报的 market：映射可能已切到币安，静态表只是初始猜测
+  const isYahooFinanceSource = resolveIsYahooFinanceSource(normalizedSymbol, klines);
   const includePrePost = includePrePostState.symbol === normalizedSymbol
     ? includePrePostState.value
     : false;

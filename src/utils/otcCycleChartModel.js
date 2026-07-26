@@ -90,6 +90,21 @@ function shouldUseYahooFinanceKlines(symbol) {
   return YAHOO_FINANCE_KLINE_SYMBOLS.has(String(symbol || '').trim().toUpperCase());
 }
 
+/**
+ * 判断当前数据源是否为 Yahoo Finance。
+ *
+ * 优先信任已加载 K 线上报的 market 字段：美股映射可能已被
+ * 「美股优先币安」切到 binance_usdm_perpetual，静态符号表只作为
+ * 数据未到达时的初始猜测。
+ */
+function resolveIsYahooFinanceSource(symbol, klines) {
+  const market = Array.isArray(klines)
+    ? klines.find(kline => kline?.market)?.market
+    : null;
+  if (market) return market === 'yahoo_finance';
+  return shouldUseYahooFinanceKlines(symbol);
+}
+
 function getMetricDate(metric) {
   return metric?.date || formatMetricDateKey(metric?.timestamp);
 }
@@ -927,6 +942,7 @@ export {
   getReviewVisibleBars,
   parseDateBoundaryMs,
   shouldUsePagedDateRangeKlines,
+  resolveIsYahooFinanceSource,
   shouldUseYahooFinanceKlines,
   syncTimeRange,
   toFiniteCoordinate,
