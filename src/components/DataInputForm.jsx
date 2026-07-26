@@ -27,7 +27,6 @@ function DataInputForm({ onSuccess }) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false); // For raw data submission
   const [exportLoading, setExportLoading] = useState(false); // For JSON export
-  const [formValues, setFormValues] = useState({});
   const [debugInfo, setDebugInfo] = useState('');
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
@@ -63,35 +62,6 @@ function DataInputForm({ onSuccess }) {
     };
   }, []);
 
-  // 将ISO格式转换为用户友好的显示格式
-  const formatISOToUserFriendly = (isoString) => {
-    if (!isoString) return '';
-
-    try {
-      // 解析ISO格式的日期字符串
-      let dateObj;
-      if (isoString.includes(' ')) {
-        // 包含时间的格式：2024-05-09 14:30
-        const [datePart, timePart] = isoString.split(' ');
-        const [year, month, day] = datePart.split('-').map(Number);
-        const [hour, minute] = timePart.split(':').map(Number);
-
-        if (minute > 0) {
-          return `${month}.${day} ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-        } else {
-          return `${month}.${day} ${hour}`;
-        }
-      } else {
-        // 只有日期的格式：2024-05-09
-        const [year, month, day] = isoString.split('-').map(Number);
-        return `${month}.${day}`;
-      }
-    } catch (error) {
-      console.warn('无法解析ISO日期格式:', isoString, error);
-      return isoString; // 如果解析失败，返回原始字符串
-    }
-  };
-
   const preprocessData = (rawData) => {
     return preprocessRawDataForSubmit(rawData, {
       selectedDate,
@@ -102,7 +72,6 @@ function DataInputForm({ onSuccess }) {
   };
 
   const handleSubmit = async (values) => {
-    setFormValues(values);
     setDebugInfo('表单验证通过，开始预处理数据...');
     setLoading(true);
     try {

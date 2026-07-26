@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Typography, Space, Divider, Alert } from 'antd';
+import { Card, Button, Typography, Space, Alert } from 'antd';
 import { fetchFavorites, addFavorite, removeFavorite } from '../services/api';
 
 const { Title, Text, Paragraph } = Typography;
@@ -86,6 +86,8 @@ const FavoriteDebug = () => {
   useEffect(() => {
     loadLocalFavorites();
     loadServerFavorites();
+    // 仅在挂载时加载一次（调试面板），两个 load 函数每次渲染都是新引用
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

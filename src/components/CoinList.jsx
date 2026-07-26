@@ -55,6 +55,8 @@ function CoinList({
     setDisplayedCoins(filterCoins());
     // Only reset to first page when viewMode changes, not when favorites change
     // This prevents jumping to first page when toggling favorites
+  // filterCoins 每次渲染都是新引用，加入依赖会让本 effect 每帧执行
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coins, viewMode, favorites, safeCoins]);
 
   // Reset to first page only when viewMode or coins change, not when favorites change

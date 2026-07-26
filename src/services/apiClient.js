@@ -171,8 +171,9 @@ async function callApiWithRetry(apiCall, maxRetries = 3, initialRetryDelay = 200
         throw lastError;
       }
       if (attempt < maxRetries) {
-        console.log(`Retrying in ${retryDelay / 1000} seconds...`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        const currentDelay = retryDelay;
+        console.log(`Retrying in ${currentDelay / 1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, currentDelay));
         retryDelay = Math.min(retryDelay * 1.5, 30000); // 增加延迟，但设置上限
       }
     }

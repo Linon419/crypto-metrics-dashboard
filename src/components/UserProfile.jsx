@@ -1,11 +1,11 @@
 // src/components/UserProfile.jsx
 import React, { useState } from 'react';
-import { Card, Typography, Avatar, Divider, Button, Modal, Form, Input, Alert, Space } from 'antd';
+import { Typography, Avatar, Divider, Button, Modal } from 'antd';
 import { UserOutlined, MailOutlined, LockOutlined } from '@ant-design/icons';
 import { useSelector } from 'react-redux';
 import ChangePassword from './ChangePassword';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 function UserProfile({ visible, onClose }) {
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);

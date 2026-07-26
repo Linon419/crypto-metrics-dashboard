@@ -243,6 +243,8 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
         setDisplayData(updatedMetrics);
       }
     }
+  // 有意仅依赖 coin：displayData/metrics 由本 effect 写入，加入依赖会形成循环
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coin]);
 
   // 处理选中日期变化，过滤显示数据
@@ -278,6 +280,8 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
       console.log('[CoinDetailChart] No selected date or no metrics, showing all data');
       setDisplayData(metrics);
     }
+  // 有意省略 coin?.symbol：symbol 变化时 metrics 必然随之刷新，避免重复触发
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveEndDateStr, metrics]);
 
   // 加载币种历史指标数据
@@ -389,6 +393,8 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
     };
     
     loadMetricsData();
+  // 有意省略 coin/customDateRange 对象引用：以标量字段为准，避免对象身份变化导致的重复加载
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coin?.symbol, timeRange, effectiveStartDateStr, effectiveEndDateStr]); // 在coin.symbol、timeRange或日期范围变化时重新加载
 
   useEffect(() => {
