@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize'); // 添加这一行
 const { Coin, DailyMetric, CoinKline, CoinKlineMapping } = require('../models');
-const dataRouter = require('./data');
+const { calculatePeriodQualityForDate } = require('../utils/periodQualityEvaluation');
 const {
   attachPeriodQualityToMetrics,
   getQualityLookbackStartDate,
@@ -534,7 +534,6 @@ router.get('/:symbol/metrics', async (req, res) => {
       order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']],
       raw: true,
     });
-    const calculatePeriodQualityForDate = dataRouter.__qualityTestUtils?.calculatePeriodQualityForDate;
     const metricsWithQuality = await attachPeriodQualityToMetrics(metrics, {
       coinId: coin.id,
       historicalMetrics,
