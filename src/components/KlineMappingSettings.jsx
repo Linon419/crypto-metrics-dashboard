@@ -19,7 +19,6 @@ import {
 } from '@ant-design/icons';
 import {
   fetchKlineMappings,
-  preferBinanceKlineMappings,
   seedDefaultKlineMappings,
   updateKlineMapping,
 } from '../services/api';
@@ -91,7 +90,6 @@ function KlineMappingSettings() {
   const [savingCoinId, setSavingCoinId] = useState(null);
   const [savingAll, setSavingAll] = useState(false);
   const [seeding, setSeeding] = useState(false);
-  const [preferringBinance, setPreferringBinance] = useState(false);
 
   const loadMappings = useCallback(async () => {
     setLoading(true);
@@ -163,25 +161,6 @@ function KlineMappingSettings() {
       message.error(`补齐失败：${error.message}`);
     } finally {
       setSeeding(false);
-    }
-  }, [loadMappings]);
-
-  const handlePreferBinance = useCallback(async () => {
-    setPreferringBinance(true);
-    try {
-      const response = await preferBinanceKlineMappings();
-      const updatedCount = response.updated?.length || 0;
-      if (updatedCount > 0) {
-        const names = response.updated.map(item => item.coinSymbol).join('、');
-        message.success(`已切换 ${updatedCount} 个标的到币安 U 本位：${names}`);
-      } else {
-        message.info('没有可切换的标的：币安暂无对应美股永续');
-      }
-      await loadMappings();
-    } catch (error) {
-      message.error(`币安优先同步失败：${error.message}`);
-    } finally {
-      setPreferringBinance(false);
     }
   }, [loadMappings]);
 
@@ -312,15 +291,6 @@ function KlineMappingSettings() {
                 loading={seeding}
               >
                 补齐默认映射
-              </Button>
-              <Button
-                aria-label="美股优先币安"
-                icon={<CloudSyncOutlined />}
-                onClick={handlePreferBinance}
-                loading={preferringBinance}
-                title="币安 U 本位已有同名永续的美股映射将切换为币安数据源"
-              >
-                美股优先币安
               </Button>
             </Space>
           </Space>

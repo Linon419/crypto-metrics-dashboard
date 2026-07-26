@@ -93,9 +93,8 @@ function shouldUseYahooFinanceKlines(symbol) {
 /**
  * 判断当前数据源是否为 Yahoo Finance。
  *
- * 优先信任已加载 K 线上报的 market 字段：美股映射可能已被
- * 「美股优先币安」切到 binance_usdm_perpetual，静态符号表只作为
- * 数据未到达时的初始猜测。
+ * 优先信任已加载 K 线上报的 market 字段：管理员可能已手动把
+ * 美股映射切到 Binance，静态符号表只作为数据未到达时的初始猜测。
  */
 function resolveIsYahooFinanceSource(symbol, klines) {
   const market = Array.isArray(klines)

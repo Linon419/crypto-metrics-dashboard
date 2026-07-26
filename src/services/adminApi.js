@@ -134,17 +134,6 @@ export const updateKlineMapping = async (coinId, payload) => {
   }
 };
 
-export const preferBinanceKlineMappings = async () => {
-  try {
-    const response = await callApiWithRetry(() => api.post('/admin/kline-mappings/prefer-binance'));
-    dataCache.coinKlines.clear();
-    return response.data;
-  } catch (error) {
-    console.error('[preferBinanceKlineMappings] 币安优先同步失败:', error.displayMessage || error.message);
-    throw error;
-  }
-};
-
 export const seedDefaultKlineMappings = async () => {
   try {
     const response = await callApiWithRetry(() => api.post('/admin/kline-mappings/seed-defaults'));

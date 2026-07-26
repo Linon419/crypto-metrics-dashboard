@@ -21,7 +21,7 @@ describe('resolveIsYahooFinanceSource', () => {
   });
 
   test('trusts the market reported by loaded klines over the static set', () => {
-    // 美股映射被「美股优先币安」切换后，静态表仍认为 TSLA 是 Yahoo，
+    // 管理员手动把美股映射切到 Binance 后，静态表仍认为 TSLA 是 Yahoo，
     // 必须以数据实际来源为准，否则图表会继续 15 分钟轮询而不开 WebSocket
     const binanceRows = [{ market: 'binance_usdm_perpetual', close: 1 }];
     expect(resolveIsYahooFinanceSource('TSLA', binanceRows)).toBe(false);
