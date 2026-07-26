@@ -79,6 +79,16 @@ function ChangePassword({ visible, onClose }) {
         />
       )}
 
+      {user?.passwordChangeRecommended && (
+        <Alert
+          message="请更换初始密码"
+          description="当前账号正在使用简易初始密码。请设置至少15个字符的独立口令，修改后需要重新登录。"
+          type="warning"
+          showIcon
+          className="mb-4"
+        />
+      )}
+
       <Form form={form} name="changePassword" onFinish={handleSubmit} layout="vertical">
         <Form.Item
           name="currentPassword"

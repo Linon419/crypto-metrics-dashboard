@@ -6,10 +6,11 @@ import { changePassword } from '../../services/api';
 
 const mockDispatch = jest.fn();
 const mockNavigate = jest.fn();
+let mockAuthUser = { id: 7, username: 'member' };
 
 jest.mock('react-redux', () => ({
   useDispatch: () => mockDispatch,
-  useSelector: selector => selector({ auth: { user: { id: 7, username: 'member' } } }),
+  useSelector: selector => selector({ auth: { user: mockAuthUser } }),
 }));
 
 jest.mock('react-router-dom', () => ({
@@ -22,7 +23,17 @@ jest.mock('../../services/api', () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAuthUser = { id: 7, username: 'member' };
   changePassword.mockResolvedValue({ reauthenticationRequired: true });
+});
+
+test('shows a clear warning when the account uses an initial simple password', () => {
+  mockAuthUser = { id: 7, username: 'admin', passwordChangeRecommended: true };
+
+  render(<ChangePassword visible onClose={jest.fn()} />);
+
+  expect(screen.getByText('请更换初始密码')).toBeInTheDocument();
+  expect(screen.getAllByText(/至少15个字符/).length).toBeGreaterThan(0);
 });
 
 test('changes the authenticated user password and requires a new login', async () => {

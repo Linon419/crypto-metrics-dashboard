@@ -4,6 +4,7 @@ const { getJwtSecret } = require('../utils/authConfig');
 const {
   normalizeEmail,
   normalizeUsername,
+  passwordMeetsPolicy,
   serializeAuthUser,
   signAuthToken,
   validatePassword,
@@ -91,9 +92,10 @@ async function authenticateUser({
   limiter?.recordSuccess({ username, ip });
   const lastLogin = now();
   await user.update({ lastLogin });
+  const passwordChangeRecommended = !passwordMeetsPolicy(password);
   return {
-    token: signAuthToken(user, { jwtSecret }),
-    user: serializeAuthUser(user),
+    token: signAuthToken(user, { jwtSecret, passwordChangeRecommended }),
+    user: { ...serializeAuthUser(user), passwordChangeRecommended },
   };
 }
 

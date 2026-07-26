@@ -1,32 +1,33 @@
 /**
  * 首次运行检查中间件：
  * - 若数据库中不存在管理员账号，则创建一个管理员账号
- * - 避免使用弱默认口令：未提供 ADMIN_PASSWORD 时生成随机强口令并输出到日志
+ * - 未提供 ADMIN_PASSWORD 时使用易于首次登录的初始密码，并提示登录后修改
  */
 
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { User } = require('../models');
 const { validatePassword } = require('../utils/authSecurity');
 
 let isFirstRunChecked = false;
+const DEFAULT_INITIAL_ADMIN_PASSWORD = '123456';
 
-function generateStrongPassword() {
-  // base64url：只包含 URL 安全字符，便于复制粘贴
-  return crypto.randomBytes(24).toString('base64url');
+function passwordMeetsCurrentPolicy(password) {
+  try {
+    validatePassword(password);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function resolveInitialAdminPassword(configuredPassword) {
-  if (configuredPassword) {
-    try {
-      validatePassword(configuredPassword);
-      return { password: configuredPassword, source: '环境变量', replacedWeakPassword: false };
-    } catch {
-      return { password: generateStrongPassword(), source: '自动生成', replacedWeakPassword: true };
-    }
-  }
-  return { password: generateStrongPassword(), source: '自动生成', replacedWeakPassword: false };
+  const password = configuredPassword || DEFAULT_INITIAL_ADMIN_PASSWORD;
+  return {
+    password,
+    source: configuredPassword ? '环境变量' : '默认值',
+    passwordChangeRecommended: !passwordMeetsCurrentPolicy(password),
+  };
 }
 
 async function checkFirstRun(req, res, next) {
@@ -51,13 +52,11 @@ async function checkFirstRun(req, res, next) {
     const adminPassword = passwordResolution.password;
     const passwordSource = passwordResolution.source;
 
-    if (passwordResolution.replacedWeakPassword) {
-      console.warn('ADMIN_PASSWORD 未满足强口令规则，已改用自动生成的管理员初始密码');
+    if (passwordSource === '默认值') {
+      console.warn(`首次管理员登录信息：用户名=${adminUsername}，初始密码=${adminPassword}`);
     }
-    if (passwordSource === '自动生成') {
-      console.warn(
-        `管理员随机初始密码（请立即保存并尽快修改）：${adminPassword}`
-      );
+    if (passwordResolution.passwordChangeRecommended) {
+      console.warn('当前管理员初始密码较简单，登录后系统会提示修改为至少15个字符的独立口令');
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -101,6 +100,6 @@ async function checkFirstRun(req, res, next) {
 
 module.exports = checkFirstRun;
 module.exports.__testUtils = {
-  generateStrongPassword,
+  DEFAULT_INITIAL_ADMIN_PASSWORD,
   resolveInitialAdminPassword,
 };

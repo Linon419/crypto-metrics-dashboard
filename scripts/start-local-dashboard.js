@@ -223,7 +223,7 @@ async function main() {
   }
 
   log(`Local dashboard is ready: ${getAppUrl()}`);
-  log('For a new database, read the generated first-admin password from the initialization log above.');
+  log('First admin on a new database: admin / 123456. Replace the password after login.');
   openBrowser(getAppUrl());
 
   if (process.env.LOCAL_LAUNCHER_EXIT_AFTER_READY === '1') {

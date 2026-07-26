@@ -57,7 +57,10 @@ function createAuthMiddleware({
         return sendUnauthorized(res, 'Session has expired');
       }
 
-      req.user = serializeAuthUser(user);
+      req.user = {
+        ...serializeAuthUser(user),
+        passwordChangeRecommended: decoded.passwordChangeRecommended === true,
+      };
       req.auth = { claims: decoded, token };
       return next();
     } catch (error) {

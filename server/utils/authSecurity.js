@@ -62,6 +62,15 @@ function validatePassword(value) {
   return value;
 }
 
+function passwordMeetsPolicy(value) {
+  try {
+    validatePassword(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getPlainUser(user) {
   return typeof user?.get === 'function' ? user.get({ plain: true }) : user;
 }
@@ -97,6 +106,7 @@ function serializeAuthUser(user) {
 function signAuthToken(user, {
   jwtSecret = getJwtSecret(),
   expiresIn = '7d',
+  passwordChangeRecommended = false,
 } = {}) {
   const safeUser = serializeAuthUser(user);
   return jwt.sign({
@@ -104,6 +114,7 @@ function signAuthToken(user, {
     username: safeUser.username,
     role: safeUser.role,
     authVersion: createAuthVersion(user, jwtSecret),
+    passwordChangeRecommended: passwordChangeRecommended === true,
   }, jwtSecret, { expiresIn });
 }
 
@@ -115,6 +126,7 @@ module.exports = {
   createAuthVersion,
   normalizeEmail,
   normalizeUsername,
+  passwordMeetsPolicy,
   serializeAuthUser,
   signAuthToken,
   validatePassword,

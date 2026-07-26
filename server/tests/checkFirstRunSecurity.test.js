@@ -1,7 +1,6 @@
 const assert = require('assert');
 
 const checkFirstRun = require('../middleware/checkFirstRun');
-const { validatePassword } = require('../utils/authSecurity');
 
 async function run() {
   const { resolveInitialAdminPassword } = checkFirstRun.__testUtils;
@@ -9,18 +8,17 @@ async function run() {
   const configured = resolveInitialAdminPassword('correct horse battery staple');
   assert.strictEqual(configured.password, 'correct horse battery staple');
   assert.strictEqual(configured.source, '环境变量');
-  assert.strictEqual(configured.replacedWeakPassword, false);
+  assert.strictEqual(configured.passwordChangeRecommended, false);
 
-  const replaced = resolveInitialAdminPassword('123456');
-  assert.notStrictEqual(replaced.password, '123456');
-  assert.strictEqual(replaced.source, '自动生成');
-  assert.strictEqual(replaced.replacedWeakPassword, true);
-  assert.doesNotThrow(() => validatePassword(replaced.password));
+  const configuredInitial = resolveInitialAdminPassword('123456');
+  assert.strictEqual(configuredInitial.password, '123456');
+  assert.strictEqual(configuredInitial.source, '环境变量');
+  assert.strictEqual(configuredInitial.passwordChangeRecommended, true);
 
-  const generated = resolveInitialAdminPassword('');
-  assert.strictEqual(generated.source, '自动生成');
-  assert.strictEqual(generated.replacedWeakPassword, false);
-  assert.doesNotThrow(() => validatePassword(generated.password));
+  const defaultInitial = resolveInitialAdminPassword('');
+  assert.strictEqual(defaultInitial.password, '123456');
+  assert.strictEqual(defaultInitial.source, '默认值');
+  assert.strictEqual(defaultInitial.passwordChangeRecommended, true);
 
   console.log('checkFirstRunSecurity.test.js passed');
 }

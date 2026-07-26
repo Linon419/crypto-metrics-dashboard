@@ -102,12 +102,15 @@ node scripts/start-local-dashboard.js
 
 Open <http://localhost:3001>. The launcher also opens this address automatically.
 
-For a new local database created from `.env.example`, the username is `admin`. When
-`ADMIN_PASSWORD` is empty, the server generates a strong password and prints it in the
-initialization log.
+For a new local database created from `.env.example`, use:
 
-Set a unique password of at least 15 characters through `ADMIN_PASSWORD`, or save the
-generated password before the log is rotated.
+```text
+Username: admin
+Initial password: 123456
+```
+
+After the first login, the dashboard opens the password dialog and asks for a unique
+password of at least 15 characters. `ADMIN_PASSWORD` can override the initial password.
 
 AI parsing becomes available after `OPENAI_API_KEY` is configured; dashboards and local data management remain available through the launcher with an empty key.
 
@@ -156,11 +159,11 @@ Copy `.env.example` to `.env` for local operation. Production templates live und
 | `JWT_SECRET` | Yes in production | JWT signing secret; production startup requires at least 32 characters | Random 32+ character value |
 | `ADMIN_USERNAME` | First run | Initial administrator username | `admin` |
 | `ADMIN_EMAIL` | First run | Initial administrator email | `admin@example.com` |
-| `ADMIN_PASSWORD` | First run | Initial administrator password | Strong unique password |
+| `ADMIN_PASSWORD` | First run | Initial administrator password | `123456`, change after first login |
 | `REGISTRATION_ENABLED` | Optional | Initial registration fallback before Admin saves a setting | `false` in production |
 | `DEV_AUTH_BYPASS` | Development only | Explicit local authentication bypass | `true` |
 
-When `ADMIN_PASSWORD` is absent, the server generates a strong password and writes it once to the startup log. Save it before the log is rotated.
+When `ADMIN_PASSWORD` is absent, the first administrator uses `123456`; the dashboard prompts for a password change after login.
 
 ### AI parsing
 
@@ -349,7 +352,7 @@ Artifacts are written to `local-artifacts/launchers/` as folders and ZIP archive
 - Restrict file permissions for the SQLite database, backups, logs, and logo cache.
 - Keep `DEV_AUTH_BYPASS` scoped to local development.
 - Review public registration and administrator settings before exposing the service.
-- Rotate the generated or configured initial administrator password during the first session.
+- Replace the initial administrator password during the first session.
 
 Please report security-sensitive findings privately to the repository owner through their [GitHub profile](https://github.com/Linon419).
 

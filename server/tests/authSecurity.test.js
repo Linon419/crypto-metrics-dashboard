@@ -105,6 +105,7 @@ async function run() {
   assert.ok(loginResult.token);
   assert.ok(currentUser.lastLogin instanceof Date);
   assert.strictEqual(loginResult.user.status, 'active');
+  assert.strictEqual(loginResult.user.passwordChangeRecommended, false);
 
   currentUser.status = 'inactive';
   await assert.rejects(
@@ -184,6 +185,19 @@ async function run() {
   boundedLimiter.recordFailure({ username: 'two', ip: '192.0.2.2' });
   boundedLimiter.recordFailure({ username: 'three', ip: '192.0.2.3' });
   assert.deepStrictEqual(boundedLimiter.getTrackedEntryCounts(), { accounts: 2, ips: 2 });
+
+  currentUser = createUser({
+    password: bcrypt.hashSync('123456', 10),
+  });
+  const initialPasswordLogin = await authenticateUser({ UserModel, jwtSecret }, {
+    username: 'admin',
+    password: '123456',
+    ip: '127.0.0.1',
+  });
+  assert.strictEqual(initialPasswordLogin.user.passwordChangeRecommended, true);
+  const initialPasswordSession = await invokeMiddleware(middleware, initialPasswordLogin.token);
+  assert.strictEqual(initialPasswordSession.nextCalled, true);
+  assert.strictEqual(initialPasswordSession.req.user.passwordChangeRecommended, true);
 
   console.log('authSecurity.test.js passed');
 }

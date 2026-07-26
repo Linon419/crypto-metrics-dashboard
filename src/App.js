@@ -13,6 +13,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import AdminSettings from './components/AdminSettings';
 import NotificationCenter from './components/NotificationCenter';
+import PasswordChangePrompt from './components/PasswordChangePrompt';
 import { useAutoHideOnScroll } from './hooks/useAutoHideOnScroll';
 import { useSelector } from 'react-redux';
 import './styles/mobile.css';
@@ -89,6 +90,7 @@ const AppContent = () => {
     <Router>
       <Layout className="min-h-screen">
         <NavigationMenu />
+        <PasswordChangePrompt />
         
         <Content className="app-route-content">
           <Routes>
