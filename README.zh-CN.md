@@ -164,6 +164,7 @@ npm run dev
 | `ADMIN_EMAIL` | 首次运行 | 初始管理员邮箱 | `admin@example.com` |
 | `ADMIN_PASSWORD` | 首次运行 | 初始管理员密码。对外部署必填，且需满足 15 字符口令策略 | 随机长口令 |
 | `REGISTRATION_ENABLED` | 可选 | Admin 保存设置前的注册功能初始回退值 | 生产环境为 `false` |
+| `SQLITE_BUSY_TIMEOUT_MS` | 可选 | SQLite 连接遇锁时的等待毫秒数，超时才报错 | `5000` |
 | `DASHBOARD_LOCAL_MODE` | 本地启动器 | 由 `scripts/start-local-dashboard.js` 自动设为 `1`。只监听 `127.0.0.1`，密钥问题降级为告警，保留简易初始密码 | `1` |
 | `DEV_AUTH_BYPASS` | 仅开发环境 | 显式开启本地鉴权绕过 | `true` |
 
@@ -223,7 +224,9 @@ npm run dev
 备份方式：
 
 1. 从管理界面或 `GET /api/data/export-all` 导出 JSON 快照。
-2. 服务停止期间复制 `DB_STORAGE` 指向的 SQLite 文件，或采用 SQLite 安全备份流程。
+2. 服务停止期间复制 `DB_STORAGE` 指向的 SQLite 文件。数据库运行在 WAL 模式下，
+   需连同 `-wal` 与 `-shm` 文件一起复制，或先执行 `PRAGMA wal_checkpoint(TRUNCATE);`
+   让主文件自包含。
 3. 执行 `npm run build:launchers:with-data`，生成包含根目录 `database.sqlite` 的本地分发包。
 
 通过管理界面或 `POST /api/data/import-database` 恢复 JSON 快照。生产恢复前应在独立环境中验证备份。

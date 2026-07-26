@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const Sequelize = require('sequelize');
 const process = require('process'); // 确保 process 被正确引用
+const { installSqlitePragmas } = require('../utils/sqlitePragmas');
 const basename = path.basename(__filename);
 const env = process.env.NODE_ENV || 'development';
 let config = require(__dirname + '/../config/config.json')[env]; // 使用 let 允许修改
@@ -31,6 +32,12 @@ if (config.use_env_variable) {
 } else {
   // 对于 SQLite, config.storage 是最重要的
   sequelize = new Sequelize(config.database, config.username, config.password, config);
+}
+
+// SQLite 默认的 delete 日志模式下读写互斥，K线实时写入会阻塞图表查询。
+// 改用 WAL 让读写并发，并给每条连接设置 busy_timeout。
+if (config.dialect === 'sqlite') {
+  installSqlitePragmas(sequelize, { storage: config.storage });
 }
 
 fs

@@ -166,6 +166,7 @@ Copy `.env.example` to `.env` for local operation. Production templates live und
 | `ADMIN_EMAIL` | First run | Initial administrator email | `admin@example.com` |
 | `ADMIN_PASSWORD` | First run | Initial administrator password. Required for non-local deployments; must satisfy the 15-character policy | Random passphrase |
 | `REGISTRATION_ENABLED` | Optional | Initial registration fallback before Admin saves a setting | `false` in production |
+| `SQLITE_BUSY_TIMEOUT_MS` | Optional | How long a blocked SQLite connection waits before failing | `5000` |
 | `DASHBOARD_LOCAL_MODE` | Local launcher | Set to `1` by `scripts/start-local-dashboard.js`. Binds to `127.0.0.1`, downgrades secret errors to warnings, keeps the simple initial password | `1` |
 | `DEV_AUTH_BYPASS` | Development only | Explicit local authentication bypass | `true` |
 
@@ -228,7 +229,9 @@ SQLite is the default persistence layer. Sequelize synchronizes the schema durin
 Backup options:
 
 1. Export a JSON snapshot from the administration interface or `GET /api/data/export-all`.
-2. Copy the SQLite file configured by `DB_STORAGE` while the service is stopped or through a SQLite-safe backup procedure.
+2. Copy the SQLite file configured by `DB_STORAGE` while the service is stopped. The database
+   runs in WAL mode, so copy the `-wal` and `-shm` sidecar files as well, or run
+   `PRAGMA wal_checkpoint(TRUNCATE);` first so the main file is self-contained.
 3. Build a local distribution bundle containing the current root `database.sqlite` with `npm run build:launchers:with-data`.
 
 Restore JSON snapshots through the administration interface or `POST /api/data/import-database`. Validate backups in a separate environment before production restoration.
