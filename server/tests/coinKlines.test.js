@@ -27,8 +27,9 @@ const coinsRouter = require('../routes/coins');
 
 async function run() {
   const defaultBackfillOptions = coinsRouter.__test.normalizeBackfillOptions({});
-  assert.deepStrictEqual(defaultBackfillOptions.intervals, ['15m', '1h', '4h', '1d']);
-  assert.strictEqual(defaultBackfillOptions.interval, '15m');
+  // 15m 已停止采集，不再进入默认回补周期
+  assert.deepStrictEqual(defaultBackfillOptions.intervals, ['1h', '4h', '1d']);
+  assert.strictEqual(defaultBackfillOptions.interval, '1h');
   assert.strictEqual(defaultBackfillOptions.limit, 1500);
 
   const legacyBackfillOptions = coinsRouter.__test.normalizeBackfillOptions({

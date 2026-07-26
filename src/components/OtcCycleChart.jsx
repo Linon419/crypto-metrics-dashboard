@@ -14,8 +14,9 @@ import { fetchCoinKlines, fetchCoinMetrics, subscribeCoinKlineStream } from '../
 
 const { Text } = Typography;
 
+// 15m 已停止采集：打开该周期会触发按需补库与实时流写入，是 K 线库膨胀的主因。
+// 未知周期会回落到 CHART_PERIODS[0]，因此移除该项不会影响历史选择状态。
 const CHART_PERIODS = [
-  { label: '15min', value: '15m', limit: 500 },
   { label: '1h', value: '1h', limit: 500 },
   { label: '4h', value: '4h', limit: 500 },
   { label: '日', value: '1d', limit: 365 },

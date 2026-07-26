@@ -96,10 +96,11 @@ test('renders BTC cycle chart with TradingView-style panels', async () => {
   render(<OtcCycleChart symbol="BTC" />);
 
   expect(await screen.findByText('量化 K 线')).toBeInTheDocument();
-  expect(screen.getByText('15min')).toBeInTheDocument();
   expect(screen.getByText('1h')).toBeInTheDocument();
   expect(screen.getByText('4h')).toBeInTheDocument();
   expect(screen.getByText('日')).toBeInTheDocument();
+  // 15m 已停止采集：打开该周期会触发按需补库与实时流写入，选项不再提供
+  expect(screen.queryByText('15min')).not.toBeInTheDocument();
   await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledWith('BTC', expect.objectContaining({ interval: '4h' })));
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('BTC K线');
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('BOLL(20,2)');

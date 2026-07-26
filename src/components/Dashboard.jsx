@@ -100,7 +100,8 @@ const VIEW_MODES = [
   },
 ];
 
-const KLINE_BACKFILL_INTERVALS = ['15m', '1h', '4h', '1d'];
+// 与后端 KLINE_BACKFILL_DEFAULT_INTERVALS 保持一致：15m 已停止采集
+const KLINE_BACKFILL_INTERVALS = ['1h', '4h', '1d'];
 const KLINE_BACKFILL_MODE_YAHOO_PREPOST_REFRESH = 'yahoo_prepost_refresh';
 const KLINE_BACKFILL_INTERVAL_LABELS = {
   '15m': '15min',

@@ -25,7 +25,9 @@ const { resolveEffectiveKlineMapping } = require('../utils/coinKlineMappings');
 const { requireAdmin } = require('../middleware/auth');
 
 const KLINE_BACKFILL_DEFAULT_INTERVAL = '4h';
-const KLINE_BACKFILL_DEFAULT_INTERVALS = ['15m', '1h', '4h', '1d'];
+// 15m 已停止采集：单周期就占了 K 线库 2/3 的体积，而实际分析粒度是 4h/1d。
+// 存量数据仍可通过「管理后台 → K线清理」处理。
+const KLINE_BACKFILL_DEFAULT_INTERVALS = ['1h', '4h', '1d'];
 const KLINE_BACKFILL_DEFAULT_DELAY_MS = 5000;
 const KLINE_BACKFILL_MIN_DELAY_MS = 3000;
 const KLINE_BACKFILL_MAX_LOGS = 30;
