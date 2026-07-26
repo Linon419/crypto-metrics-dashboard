@@ -110,8 +110,8 @@ Username: admin
 Initial password: 123456
 ```
 
-After the first login, the dashboard opens the password dialog and asks for a unique
-password of at least 15 characters. `ADMIN_PASSWORD` can override the initial password.
+After the first login, the dashboard opens the password dialog and asks for a new password
+(at least 6 characters and not a common weak password). `ADMIN_PASSWORD` can override the initial password.
 
 The launcher runs in local mode (`DASHBOARD_LOCAL_MODE=1`): the server binds to `127.0.0.1` only,
 weak bundled secrets are reported as warnings instead of blocking startup, and the password
@@ -165,7 +165,7 @@ Copy `.env.example` to `.env` for local operation. Production templates live und
 | `JWT_SECRET` | Yes in production | JWT signing secret; at least 32 characters. Template placeholder values are rejected at startup | Random 32+ character value |
 | `ADMIN_USERNAME` | First run | Initial administrator username | `admin` |
 | `ADMIN_EMAIL` | First run | Initial administrator email | `admin@example.com` |
-| `ADMIN_PASSWORD` | First run | Initial administrator password. Required for non-local deployments; must satisfy the 15-character policy | Random passphrase |
+| `ADMIN_PASSWORD` | First run | Initial administrator password. Required for non-local deployments; must satisfy the password policy (6+ characters, not a common weak password) | Random passphrase |
 | `REGISTRATION_ENABLED` | Optional | Initial registration fallback before Admin saves a setting | `false` in production |
 | `SQLITE_BUSY_TIMEOUT_MS` | Optional | How long a blocked SQLite connection waits before failing | `5000` |
 | `DASHBOARD_LOCAL_MODE` | Local launcher | Set to `1` by `scripts/start-local-dashboard.js`. Binds to `127.0.0.1`, downgrades secret errors to warnings, keeps the simple initial password | `1` |
@@ -180,7 +180,7 @@ Secret handling depends on the deployment mode:
   `AI_SETTINGS_ENCRYPTION_KEY` still holds a template placeholder value.
   The first administrator is never created from a default password — `ADMIN_PASSWORD` must be set
   explicitly and satisfy the password policy, otherwise the API answers
-  `503 ADMIN_BOOTSTRAP_BLOCKED`. Accounts that log in with a password shorter than 15 characters
+  `503 ADMIN_BOOTSTRAP_BLOCKED`. Accounts that log in with a password failing the policy
   receive `403 PASSWORD_CHANGE_REQUIRED` on every endpoint except `/api/auth` until the password
   is replaced.
 

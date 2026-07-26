@@ -2,11 +2,46 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { getJwtSecret } = require('./authConfig');
 
-const MIN_PASSWORD_LENGTH = 15;
+const MIN_PASSWORD_LENGTH = 6;
 const MAX_PASSWORD_BYTES = 72;
 const MAX_USERNAME_LENGTH = 64;
 const MAX_EMAIL_LENGTH = 254;
+// 长度下限放宽到 6 后，黑名单必须覆盖常见弱口令：
+// 初始密码 123456 依赖这份名单触发首登改密流程，删减前先看 checkFirstRun
 const COMMON_PASSWORDS = new Set([
+  '123456',
+  '1234567',
+  '12345678',
+  '123456789',
+  '1234567890',
+  '123123',
+  '111111',
+  '000000',
+  '654321',
+  '666666',
+  '888888',
+  'a123456',
+  '123456a',
+  'qq123456',
+  'password',
+  'password1',
+  'passw0rd',
+  'qwerty',
+  'qwerty1',
+  'qwertyuiop',
+  'abc123',
+  'abcd1234',
+  'admin1',
+  'admin123',
+  'admin888',
+  'letmein',
+  'iloveyou',
+  'dragon',
+  'monkey',
+  'sunshine',
+  'welcome',
+  '5201314',
+  'woaini1314',
   '123456789012345',
   'adminadminadmin',
   'passwordpassword',

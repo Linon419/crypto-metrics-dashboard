@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { changePassword } from '../services/api';
 import { logout } from '../redux/slices/authSlice';
 
-const MIN_PASSWORD_LENGTH = 15;
+const MIN_PASSWORD_LENGTH = 6;
 
 function ChangePassword({ visible, onClose, mandatory = false }) {
   const [form] = Form.useForm();
@@ -86,8 +86,8 @@ function ChangePassword({ visible, onClose, mandatory = false }) {
         <Alert
           message="请更换初始密码"
           description={mandatory
-            ? '当前账号正在使用简易初始密码，其他功能已被暂时锁定。请设置至少15个字符的独立口令，修改后需要重新登录。'
-            : '当前账号正在使用简易初始密码。建议设置至少15个字符的独立口令，修改后需要重新登录。'}
+            ? '当前账号正在使用简易初始密码，其他功能已被暂时锁定。请设置一个不易猜测的新密码（至少6个字符），修改后需要重新登录。'
+            : '当前账号正在使用简易初始密码。建议设置一个不易猜测的新密码（至少6个字符），修改后需要重新登录。'}
           type="warning"
           showIcon
           className="mb-4"
@@ -106,7 +106,7 @@ function ChangePassword({ visible, onClose, mandatory = false }) {
         <Form.Item
           name="newPassword"
           label="新密码"
-          extra={`至少${MIN_PASSWORD_LENGTH}个字符，建议使用独立长口令`}
+          extra={`至少${MIN_PASSWORD_LENGTH}个字符，且不能是常见弱密码`}
           rules={[
             { required: true, message: '请输入新密码' },
             { min: MIN_PASSWORD_LENGTH, message: `密码长度至少为${MIN_PASSWORD_LENGTH}个字符` },

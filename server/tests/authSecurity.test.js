@@ -117,7 +117,11 @@ async function run() {
     error => error.statusCode === 401 && error.message === 'Invalid credentials'
   );
 
-  assert.throws(() => validatePassword('short123'), /至少/);
+  assert.throws(() => validatePassword('ab1'), /至少/);
+  assert.throws(() => validatePassword('123456'), /常见/);
+  assert.throws(() => validatePassword('password'), /常见/);
+  assert.doesNotThrow(() => validatePassword('short123'));
+  assert.doesNotThrow(() => validatePassword('q12345'));
   assert.doesNotThrow(() => validatePassword('correct horse battery staple'));
 
   currentUser.status = 'active';

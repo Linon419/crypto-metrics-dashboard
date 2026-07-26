@@ -250,7 +250,7 @@ class UserAuth {
         const messages = {
             PASSWORD_CHANGE_REQUIRED:
                 '⚠️ 当前账号仍在使用初始密码，服务端已锁定业务功能。\n'
-                + '请先在浏览器登录仪表盘完成密码修改（至少15个字符），'
+                + '请先在浏览器登录仪表盘完成密码修改（至少6个字符且非常见弱密码），'
                 + '然后使用 /auth 重新绑定新密码。',
             DEMO_ACCOUNT_READ_ONLY:
                 'ℹ️ 当前绑定的是演示账号，仅支持浏览类操作。',

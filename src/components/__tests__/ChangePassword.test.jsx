@@ -33,7 +33,7 @@ test('shows a clear warning when the account uses an initial simple password', (
   render(<ChangePassword visible onClose={jest.fn()} />);
 
   expect(screen.getByText('请更换初始密码')).toBeInTheDocument();
-  expect(screen.getAllByText(/至少15个字符/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/至少6个字符/).length).toBeGreaterThan(0);
 });
 
 test('offers no way out when the password change is mandatory', () => {

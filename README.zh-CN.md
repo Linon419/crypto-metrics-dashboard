@@ -110,7 +110,7 @@ node scripts/start-local-dashboard.js
 初始密码：123456
 ```
 
-首次登录后，看板会自动打开修改密码窗口，并提示设置至少 15 个字符的独立口令。
+首次登录后，看板会自动打开修改密码窗口，并提示设置新密码（至少 6 个字符且非常见弱密码）。
 `ADMIN_PASSWORD` 可以覆盖初始密码。
 
 启动器以本地模式运行（`DASHBOARD_LOCAL_MODE=1`）：服务只监听 `127.0.0.1`，内置的弱密钥只告警不阻断启动，
@@ -163,7 +163,7 @@ npm run dev
 | `JWT_SECRET` | 生产环境必需 | JWT 签名密钥，至少 32 个字符；仍是模板占位值时启动会被拒绝 | 32 位以上随机值 |
 | `ADMIN_USERNAME` | 首次运行 | 初始管理员用户名 | `admin` |
 | `ADMIN_EMAIL` | 首次运行 | 初始管理员邮箱 | `admin@example.com` |
-| `ADMIN_PASSWORD` | 首次运行 | 初始管理员密码。对外部署必填，且需满足 15 字符口令策略 | 随机长口令 |
+| `ADMIN_PASSWORD` | 首次运行 | 初始管理员密码。对外部署必填，且需满足口令策略（至少 6 字符且非常见弱密码） | 随机长口令 |
 | `REGISTRATION_ENABLED` | 可选 | Admin 保存设置前的注册功能初始回退值 | 生产环境为 `false` |
 | `SQLITE_BUSY_TIMEOUT_MS` | 可选 | SQLite 连接遇锁时的等待毫秒数，超时才报错 | `5000` |
 | `DASHBOARD_LOCAL_MODE` | 本地启动器 | 由 `scripts/start-local-dashboard.js` 自动设为 `1`。只监听 `127.0.0.1`，密钥问题降级为告警，保留简易初始密码 | `1` |
@@ -176,7 +176,7 @@ npm run dev
 - **其他所有部署**（Docker、VPS、局域网）：`JWT_SECRET` 或 `AI_SETTINGS_ENCRYPTION_KEY`
   仍是模板占位值会导致启动失败；首个管理员不再回退到默认密码，
   必须显式配置满足口令策略的 `ADMIN_PASSWORD`，否则接口返回 `503 ADMIN_BOOTSTRAP_BLOCKED`；
-  使用不足 15 个字符的密码登录的账号，在完成改密前除 `/api/auth` 外的所有接口都会返回
+  使用不满足口令策略的密码登录的账号，在完成改密前除 `/api/auth` 外的所有接口都会返回
   `403 PASSWORD_CHANGE_REQUIRED`。
 
 ### AI 解析配置
