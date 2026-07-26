@@ -14,9 +14,11 @@ const {
   buildCoinKlineBackfillChunks,
   getPreferredKlineMarket,
   MAX_LIMIT,
+  mergePreferredAndYahooKlines,
   normalizeInterval,
   serializeCoinKline,
   shouldRefreshStoredCoinKlines,
+  shouldBlendYahooHistory,
   syncCoinKlines,
   YAHOO_FINANCE_MARKET,
   YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
@@ -657,6 +659,28 @@ router.get('/:symbol/klines', async (req, res) => {
       });
     }
 
+    if (shouldBlendYahooHistory(coin.symbol, effectiveKlineMapping)) {
+      const yahooRows = await findStoredCoinKlines({
+        coinId: coin.id,
+        interval,
+        limit,
+        market: YAHOO_FINANCE_MARKET,
+        coinSymbol: coin.symbol,
+        startTime,
+        endTime,
+        includePrePost,
+        CoinKlineModel: CoinKline,
+      });
+      rows = mergePreferredAndYahooKlines({
+        preferredRows: rows,
+        yahooRows,
+        interval,
+        limit,
+        startTime,
+        endTime,
+      });
+    }
+
     rows.reverse();
     const markets = Array.from(new Set(rows.map(row => row.market).filter(Boolean)));
     const tradingSymbols = Array.from(new Set(rows.map(row => row.trading_symbol).filter(Boolean)));
@@ -664,7 +688,7 @@ router.get('/:symbol/klines', async (req, res) => {
     res.json({
       symbol: coin.symbol,
       interval,
-      market: markets[0] || syncResult?.market || null,
+      market: rows[rows.length - 1]?.market || syncResult?.market || null,
       markets,
       tradingSymbols,
       source: 'CoinKlines',

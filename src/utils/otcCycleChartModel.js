@@ -97,9 +97,15 @@ function shouldUseYahooFinanceKlines(symbol) {
  * 美股映射切到 Binance，静态符号表只作为数据未到达时的初始猜测。
  */
 function resolveIsYahooFinanceSource(symbol, klines) {
-  const market = Array.isArray(klines)
-    ? klines.find(kline => kline?.market)?.market
-    : null;
+  let market = null;
+  if (Array.isArray(klines)) {
+    for (let index = klines.length - 1; index >= 0; index -= 1) {
+      if (klines[index]?.market) {
+        market = klines[index].market;
+        break;
+      }
+    }
+  }
   if (market) return market === 'yahoo_finance';
   return shouldUseYahooFinanceKlines(symbol);
 }

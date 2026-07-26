@@ -215,10 +215,16 @@ function shouldUseDeribitBtcDvol(symbol, klineMapping) {
 }
 
 function shouldUseYahooFinance(symbol, klineMapping) {
-  if (klineMapping?.enabled && klineMapping.market === YAHOO_FINANCE_MARKET) {
-    return true;
+  if (klineMapping?.enabled) {
+    return klineMapping.market === YAHOO_FINANCE_MARKET;
   }
   return YAHOO_FINANCE_COIN_SYMBOLS.has(String(symbol || '').trim().toUpperCase());
+}
+
+function shouldBlendYahooHistory(symbol, klineMapping) {
+  const market = klineMapping?.enabled ? klineMapping.market : null;
+  return YAHOO_FINANCE_COIN_SYMBOLS.has(String(symbol || '').trim().toUpperCase())
+    && (market === DEFAULT_MARKET || market === BINANCE_SPOT_MARKET);
 }
 
 function shouldUseChinaFuturesSinaMarket(symbol, klineMapping) {
@@ -1389,6 +1395,41 @@ async function findStoredCoinKlines({
   });
 }
 
+function getStoredKlineOpenTimeMs(row) {
+  const value = row?.open_time;
+  const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function mergePreferredAndYahooKlines({
+  preferredRows = [],
+  yahooRows = [],
+  interval = DEFAULT_INTERVAL,
+  limit = DEFAULT_LIMIT,
+  startTime,
+  endTime,
+} = {}) {
+  const validPreferredRows = preferredRows.filter(row => getStoredKlineOpenTimeMs(row) !== null);
+  const preferredStartTime = validPreferredRows.reduce((earliest, row) => {
+    const timestamp = getStoredKlineOpenTimeMs(row);
+    return earliest === null || timestamp < earliest ? timestamp : earliest;
+  }, null);
+  const rowsByOpenTime = new Map();
+
+  yahooRows.forEach(row => {
+    const timestamp = getStoredKlineOpenTimeMs(row);
+    if (timestamp === null || (preferredStartTime !== null && timestamp >= preferredStartTime)) return;
+    rowsByOpenTime.set(timestamp, row);
+  });
+  validPreferredRows.forEach(row => {
+    rowsByOpenTime.set(getStoredKlineOpenTimeMs(row), row);
+  });
+
+  return Array.from(rowsByOpenTime.values())
+    .sort((left, right) => getStoredKlineOpenTimeMs(right) - getStoredKlineOpenTimeMs(left))
+    .slice(0, normalizeStoredKlineLimit({ interval, limit, startTime, endTime }));
+}
+
 function serializeCoinKline(row) {
   return {
     openTime: row.open_time instanceof Date ? row.open_time.toISOString() : new Date(row.open_time).toISOString(),
@@ -1435,6 +1476,7 @@ module.exports = {
   findCoinKlineBackfillGaps,
   findStoredCoinKlines,
   getPreferredKlineMarket,
+  mergePreferredAndYahooKlines,
   alignTimestampToIntervalStart,
   normalizeInterval,
   normalizeLimit,
@@ -1444,6 +1486,7 @@ module.exports = {
   parseYahooChartResult,
   resolveYahooSymbol,
   shouldRefreshStoredCoinKlines,
+  shouldBlendYahooHistory,
   shouldUseYahooFinance,
   serializeCoinKline,
   syncCoinKlines,

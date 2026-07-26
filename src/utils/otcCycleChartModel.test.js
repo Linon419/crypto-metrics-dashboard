@@ -34,6 +34,14 @@ describe('resolveIsYahooFinanceSource', () => {
     const rows = [{ close: 1 }, { market: 'binance_usdm_perpetual', close: 2 }];
     expect(resolveIsYahooFinanceSource('TSLA', rows)).toBe(false);
   });
+
+  test('uses the latest market when Yahoo history is followed by Binance rows', () => {
+    const rows = [
+      { market: 'yahoo_finance', close: 1 },
+      { market: 'binance_usdm_perpetual', close: 2 },
+    ];
+    expect(resolveIsYahooFinanceSource('TSLA', rows)).toBe(false);
+  });
 });
 
 describe('formatChartTickMark', () => {

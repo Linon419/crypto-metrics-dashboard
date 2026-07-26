@@ -265,8 +265,7 @@ function OtcCycleChart({
       onMessage: (message) => {
         if (
           message?.interval !== selectedPeriod.value ||
-          !message?.kline?.openTime ||
-          message.isClosed !== true
+          !message?.kline?.openTime
         ) return;
         setKlines(current => mergeKlinesByOpenTime(current, [message.kline]));
       },
@@ -762,4 +761,3 @@ function OtcCycleChart({
 }
 
 export default OtcCycleChart;
-

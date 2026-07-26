@@ -17,10 +17,13 @@ const {
   findCoinKlineBackfillGaps,
   findStoredCoinKlines,
   getPreferredKlineMarket,
+  mergePreferredAndYahooKlines,
   parseBinanceKlineRow,
   parseChinaFuturesSinaKlineRows,
   resolveYahooSymbol,
+  shouldBlendYahooHistory,
   shouldRefreshStoredCoinKlines,
+  shouldUseYahooFinance,
   syncCoinKlines,
 } = require('../utils/coinKlines');
 const coinsRouter = require('../routes/coins');
@@ -188,6 +191,65 @@ async function run() {
     },
   });
   assert.strictEqual(yahooExtendedSessionQueryOptions[0].where.volume, undefined);
+
+  const preferredRows = [
+    {
+      market: 'binance_usdm_perpetual',
+      open_time: new Date(Date.UTC(2026, 0, 2)),
+    },
+    {
+      market: 'binance_usdm_perpetual',
+      open_time: new Date(Date.UTC(2026, 0, 1)),
+    },
+  ];
+  const yahooRows = [
+    {
+      market: YAHOO_FINANCE_MARKET,
+      open_time: new Date(Date.UTC(2026, 0, 1)),
+    },
+    {
+      market: YAHOO_FINANCE_MARKET,
+      open_time: new Date(Date.UTC(2025, 11, 31)),
+    },
+  ];
+  const blendedRows = mergePreferredAndYahooKlines({
+    preferredRows,
+    yahooRows,
+    interval: '1d',
+    limit: 365,
+  });
+  assert.deepStrictEqual(
+    blendedRows.map(item => [item.market, item.open_time.toISOString()]),
+    [
+      ['binance_usdm_perpetual', '2026-01-02T00:00:00.000Z'],
+      ['binance_usdm_perpetual', '2026-01-01T00:00:00.000Z'],
+      [YAHOO_FINANCE_MARKET, '2025-12-31T00:00:00.000Z'],
+    ]
+  );
+
+  const yahooOnlyRows = mergePreferredAndYahooKlines({
+    preferredRows: [],
+    yahooRows,
+    interval: '1d',
+    limit: 365,
+  });
+  assert.deepStrictEqual(yahooOnlyRows, yahooRows);
+  assert.strictEqual(shouldBlendYahooHistory('TSLA', {
+    enabled: true,
+    market: 'binance_usdm_perpetual',
+  }), true);
+  assert.strictEqual(shouldBlendYahooHistory('BTC', {
+    enabled: true,
+    market: 'binance_usdm_perpetual',
+  }), false);
+  assert.strictEqual(shouldBlendYahooHistory('TSLA', {
+    enabled: true,
+    market: YAHOO_FINANCE_MARKET,
+  }), false);
+  assert.strictEqual(shouldUseYahooFinance('TSLA', {
+    enabled: true,
+    market: 'binance_usdm_perpetual',
+  }), false);
 
   assert.strictEqual(shouldRefreshStoredCoinKlines({
     rows: [{

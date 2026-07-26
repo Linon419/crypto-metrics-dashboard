@@ -225,7 +225,7 @@ test('loads 1500 older candles to the left and merges them with current candles'
   await waitFor(() => expect(screen.getByText('最近 5 根')).toBeInTheDocument());
 });
 
-test('updates the latest candle only when the live kline closes', async () => {
+test('updates the latest candle while the live kline is still open', async () => {
   let handleLiveKline;
   fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
   fetchCoinMetrics.mockResolvedValue(metrics);
@@ -260,8 +260,7 @@ test('updates the latest candle only when the live kline closes', async () => {
     });
   });
 
-  expect(screen.getByText('Close 98.00')).toBeInTheDocument();
-  expect(screen.queryByText('Close 128.50')).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.getByText('Close 128.50')).toBeInTheDocument());
 
   act(() => {
     handleLiveKline({
@@ -275,13 +274,13 @@ test('updates the latest candle only when the live kline closes', async () => {
         open: 98,
         high: 132,
         low: 96,
-        close: 128.5,
+        close: 129.25,
         volume: 18,
       },
     });
   });
 
-  await waitFor(() => expect(screen.getByText('Close 128.50')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText('Close 129.25')).toBeInTheDocument());
 });
 
 test('can load latest kline window while keeping metric date range', async () => {
