@@ -10,6 +10,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite-3-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
 
@@ -392,4 +393,4 @@ npm run build:launchers:with-data
 
 ## 许可证
 
-当前许可证状态为待定：仓库根目录尚未发布 `LICENSE` 文件。在明确许可证发布前，请与仓库所有者确认复用和分发条款。正式开源发布应配套 OSI 认可的许可证。
+本项目基于 [MIT 许可证](LICENSE) 发布。

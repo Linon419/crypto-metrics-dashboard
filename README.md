@@ -10,6 +10,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite-3-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
 
@@ -397,4 +398,4 @@ Keep generated databases, credentials, logs, local artifacts, and provider respo
 
 ## License
 
-Licensing status is currently pending: the repository has no root `LICENSE` file. Review reuse and distribution terms with the repository owner until an explicit license is published. An OSI-approved license should accompany any formal open-source release.
+Released under the [MIT License](LICENSE).
