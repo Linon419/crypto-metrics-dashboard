@@ -165,6 +165,8 @@ function startServer() {
   const env = {
     ...process.env,
     NODE_ENV: 'production',
+    // 标记为本地模式：内置弱密钥只告警不中断，且服务仅监听 127.0.0.1
+    DASHBOARD_LOCAL_MODE: '1',
     PORT: port,
     API_PUBLIC_HOST: appUrl,
     DB_STORAGE: process.env.DB_STORAGE || path.join(ROOT, 'database.sqlite'),

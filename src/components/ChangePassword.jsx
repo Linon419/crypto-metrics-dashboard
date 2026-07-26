@@ -8,7 +8,7 @@ import { logout } from '../redux/slices/authSlice';
 
 const MIN_PASSWORD_LENGTH = 15;
 
-function ChangePassword({ visible, onClose }) {
+function ChangePassword({ visible, onClose, mandatory = false }) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -63,7 +63,10 @@ function ChangePassword({ visible, onClose }) {
     <Modal
       title="修改密码"
       open={visible}
-      onCancel={onClose}
+      onCancel={mandatory ? undefined : onClose}
+      closable={!mandatory}
+      maskClosable={!mandatory}
+      keyboard={!mandatory}
       footer={null}
       destroyOnHidden
     >
@@ -82,7 +85,9 @@ function ChangePassword({ visible, onClose }) {
       {user?.passwordChangeRecommended && (
         <Alert
           message="请更换初始密码"
-          description="当前账号正在使用简易初始密码。请设置至少15个字符的独立口令，修改后需要重新登录。"
+          description={mandatory
+            ? '当前账号正在使用简易初始密码，其他功能已被暂时锁定。请设置至少15个字符的独立口令，修改后需要重新登录。'
+            : '当前账号正在使用简易初始密码。建议设置至少15个字符的独立口令，修改后需要重新登录。'}
           type="warning"
           showIcon
           className="mb-4"
@@ -131,7 +136,7 @@ function ChangePassword({ visible, onClose }) {
         <Form.Item className="mb-0">
           <div className="flex justify-end">
             <Space>
-              <Button onClick={onClose}>取消</Button>
+              {!mandatory && <Button onClick={onClose}>取消</Button>}
               <Button type="primary" htmlType="submit" loading={loading}>修改密码</Button>
             </Space>
           </div>

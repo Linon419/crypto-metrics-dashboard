@@ -172,6 +172,16 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response, // 直接返回成功响应
   (error) => {
+    // 账号仍在使用初始密码：后端锁定业务接口，等待用户在强制弹窗中改密，不清 token 也不跳转
+    if (
+      error.response
+      && error.response.status === 403
+      && error.response.data?.code === 'PASSWORD_CHANGE_REQUIRED'
+    ) {
+      error.passwordChangeRequired = true;
+      return Promise.reject(error);
+    }
+
     if (error.response && error.response.status === 401) {
       console.warn('[API Auth Error] Received 401 Unauthorized. Clearing token and redirecting to login.');
       localStorage.removeItem('token');

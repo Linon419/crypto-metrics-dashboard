@@ -10,6 +10,7 @@ const {
   registerUser,
 } = require('../services/authService');
 const { writeUserAuditLog } = require('../services/userManagementService');
+const { isDemoAccount } = require('../utils/demoAccounts');
 
 const JWT_SECRET = getJwtSecret();
 const loginAttemptLimiter = createLoginAttemptLimiter();
@@ -96,6 +97,15 @@ function createAuthRouter({
   router.get('/verify', verifyToken, (req, res) => res.json({ user: req.user }));
 
   router.put('/change-password', verifyToken, async (req, res) => {
+    // 演示账号的凭据是公开的，任何访客都能登录；若允许自助改密，
+    // 第一个访问者就能改掉口令并独占该账号
+    if (isDemoAccount(req.user)) {
+      return res.status(403).json({
+        error: '演示账号不支持修改密码',
+        code: 'DEMO_ACCOUNT_READ_ONLY',
+      });
+    }
+
     try {
       const result = await changeOwnPassword({ UserModel }, req.user.id, req.body || {});
       await writeAuthAudit({

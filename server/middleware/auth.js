@@ -6,6 +6,12 @@ const {
   createAuthVersion,
   serializeAuthUser,
 } = require('../utils/authSecurity');
+const { isPasswordChangeEnforced } = require('../utils/productionSecrets');
+const {
+  isDemoAccount,
+  isDemoAccountMisconfigured,
+  isDemoReadOnly,
+} = require('../utils/demoAccounts');
 
 const JWT_SECRET = getJwtSecret();
 const DEV_AUTH_BYPASS = ['true', '1', 'yes'].includes(
@@ -57,9 +63,16 @@ function createAuthMiddleware({
         return sendUnauthorized(res, 'Session has expired');
       }
 
+      const passwordChangeRecommended = decoded.passwordChangeRecommended === true;
+      const safeUser = serializeAuthUser(user);
+      const demoAccount = isDemoAccount(safeUser);
       req.user = {
-        ...serializeAuthUser(user),
-        passwordChangeRecommended: decoded.passwordChangeRecommended === true,
+        ...safeUser,
+        passwordChangeRecommended,
+        passwordChangeEnforced:
+          passwordChangeRecommended && isPasswordChangeEnforced() && !demoAccount,
+        demoAccount,
+        demoReadOnly: demoAccount && isDemoReadOnly(),
       };
       req.auth = { claims: decoded, token };
       return next();
@@ -71,6 +84,32 @@ function createAuthMiddleware({
 }
 
 const authMiddleware = createAuthMiddleware();
+
+/**
+ * 初始密码闸门：携带 passwordChangeRecommended 的会话除 /api/auth 外一律拒绝。
+ * 前端弹窗只是提示，真正的强制在这里。
+ * 本地一键启动（DASHBOARD_LOCAL_MODE=1）不启用，仅保留提示。
+ */
+function requirePasswordChange(req, res, next) {
+  if (!isPasswordChangeEnforced()) return next();
+
+  // 演示账号按设计保留弱口令，改由只读闸门限制影响面
+  if (isDemoAccount(req.user)) return next();
+
+  if (isDemoAccountMisconfigured(req.user)) {
+    console.error(
+      `[安全告警] DEMO_USERNAMES 包含管理员账号 ${req.user.username}，已忽略该豁免。请改用普通用户角色。`
+    );
+  }
+
+  if (req.user?.passwordChangeRecommended === true) {
+    return res.status(403).json({
+      error: '当前账号仍在使用初始密码，请先完成密码修改后再使用其他功能',
+      code: 'PASSWORD_CHANGE_REQUIRED',
+    });
+  }
+  return next();
+}
 
 function requireAdmin(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
@@ -84,6 +123,7 @@ module.exports = {
   createAuthMiddleware,
   verifyToken: authMiddleware,
   requireAdmin,
+  requirePasswordChange,
   __authTestUtils: {
     resolvedJwtSecret: JWT_SECRET,
   },

@@ -9,6 +9,8 @@ const {
   signAuthToken,
   validatePassword,
 } = require('../utils/authSecurity');
+const { isPasswordChangeEnforced } = require('../utils/productionSecrets');
+const { isDemoAccount, isDemoReadOnly } = require('../utils/demoAccounts');
 
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('dummy authentication comparison value', 10);
 
@@ -93,9 +95,20 @@ async function authenticateUser({
   const lastLogin = now();
   await user.update({ lastLogin });
   const passwordChangeRecommended = !passwordMeetsPolicy(password);
+  const safeUser = serializeAuthUser(user);
+  const demoAccount = isDemoAccount(safeUser);
   return {
     token: signAuthToken(user, { jwtSecret, passwordChangeRecommended }),
-    user: { ...serializeAuthUser(user), passwordChangeRecommended },
+    user: {
+      ...safeUser,
+      passwordChangeRecommended,
+      // 本地一键启动只提示不锁功能；对外部署会被后端闸门强制。
+      // 演示账号按设计保留弱口令，不进入强制流程。
+      passwordChangeEnforced:
+        passwordChangeRecommended && isPasswordChangeEnforced() && !demoAccount,
+      demoAccount,
+      demoReadOnly: demoAccount && isDemoReadOnly(),
+    },
   };
 }
 

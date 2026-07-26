@@ -10,37 +10,12 @@ const checkFirstRun = require('./middleware/checkFirstRun');
 const mcpGatewayRouter = require('./routes/mcpGateway');
 const { attachKlineWebSocketServer } = require('./services/klineWebSocketServer');
 const { buildRuntimeConfigScript } = require('./utils/runtimeConfig');
+const { assertProductionSecrets, isLocalMode } = require('./utils/productionSecrets');
+const { enforceDemoReadOnly } = require('./utils/demoAccounts');
 
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3001;
-
-function isWeakJwtSecret(secret) {
-  if (typeof secret !== 'string') return true;
-  const trimmed = secret.trim();
-  if (!trimmed) return true;
-
-  const knownBad = new Set([
-    'your-secret-key-change-this-in-production',
-    'your-secret-key-should-be-in-env-file',
-    'fallback-dev-secret-key-change-in-production',
-    'your-secret-key',
-  ]);
-
-  if (knownBad.has(trimmed)) return true;
-  if (trimmed.length < 32) return true;
-  return false;
-}
-
-function assertProductionSecrets() {
-  if (process.env.NODE_ENV !== 'production') return;
-
-  const jwtSecret = process.env.JWT_SECRET;
-  if (isWeakJwtSecret(jwtSecret)) {
-    console.error('FATAL: 生产环境必须设置强 JWT_SECRET（建议随机生成，长度>=32）。');
-    process.exit(1);
-  }
-}
 
 assertProductionSecrets();
 
@@ -56,9 +31,11 @@ app.use(checkFirstRun);
 
 // 认证中间件（延迟加载，避免路径错误）
 let authMiddleware;
+let requirePasswordChange;
 try {
   const authModule = require('./middleware/auth');
   authMiddleware = authModule.verifyToken || authModule;
+  requirePasswordChange = authModule.requirePasswordChange;
 } catch (error) {
   console.error('Failed to load auth middleware:', error);
   if (process.env.NODE_ENV === 'production') {
@@ -69,6 +46,11 @@ try {
     console.warn('Using fallback auth middleware (dev only).');
     next();
   };
+}
+
+// 认证模块降级时（仅开发环境）保持链路完整
+if (typeof requirePasswordChange !== 'function') {
+  requirePasswordChange = (req, res, next) => next();
 }
 
 // ======================================================================
@@ -115,7 +97,9 @@ app.use('/default/crypto', mcpGatewayRouter);
 function safelyLoadRoutes(routePath, mountPath) {
   try {
     const router = require(routePath);
-    app.use(mountPath, authMiddleware, router);
+    // 未更换初始密码的会话只能访问 /api/auth，其余业务接口一律拦截；
+    // 演示账号豁免改密但默认只读
+    app.use(mountPath, authMiddleware, requirePasswordChange, enforceDemoReadOnly, router);
     console.log(`Route loaded: ${mountPath}`);
     return true;
   } catch (error) {
@@ -187,8 +171,10 @@ db.sequelize
     }
 
     attachKlineWebSocketServer({ server, db });
-    server.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on port ${PORT}`);
+    // 本地一键启动使用内置弱密钥，只监听回环地址，避免同局域网直接访问
+    const host = process.env.HOST || (isLocalMode() ? '127.0.0.1' : '0.0.0.0');
+    server.listen(PORT, host, () => {
+      console.log(`Server running on ${host}:${PORT}`);
       console.log('Kline WebSocket running on /ws/klines');
     });
   })
