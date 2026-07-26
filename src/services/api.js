@@ -1282,6 +1282,18 @@ export const getAllUsers = async () => {
   }
 };
 
+export const getUserAuditLogs = async ({ limit = 50 } = {}) => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/admin/users/audit-logs', {
+      params: { limit },
+    }));
+    return response.data;
+  } catch (error) {
+    console.error('[getUserAuditLogs] 获取用户审计日志失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
 // 创建新用户
 export const createUser = async (userData) => {
   try {

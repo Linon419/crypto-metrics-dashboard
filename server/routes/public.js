@@ -8,9 +8,14 @@ const { getSystemSettings } = require('../utils/settings');
 const { buildPeriodRiskNotes } = require('../utils/periodRiskNotes');
 
 // 公开接口：获取注册状态
-router.get('/registration-status', (req, res) => {
-  const settings = getSystemSettings();
-  res.json({ registrationEnabled: settings.registrationEnabled });
+router.get('/registration-status', async (req, res) => {
+  try {
+    const settings = await getSystemSettings();
+    return res.json({ registrationEnabled: settings.registrationEnabled });
+  } catch (error) {
+    console.error('获取注册状态失败:', error);
+    return res.status(500).json({ error: '获取注册状态失败' });
+  }
 });
 
 const CRYPTO_SYMBOLS = [

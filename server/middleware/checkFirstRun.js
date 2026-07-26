@@ -6,7 +6,9 @@
 
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { Op } = require('sequelize');
 const { User } = require('../models');
+const { validatePassword } = require('../utils/authSecurity');
 
 let isFirstRunChecked = false;
 
@@ -15,13 +17,25 @@ function generateStrongPassword() {
   return crypto.randomBytes(24).toString('base64url');
 }
 
+function resolveInitialAdminPassword(configuredPassword) {
+  if (configuredPassword) {
+    try {
+      validatePassword(configuredPassword);
+      return { password: configuredPassword, source: '环境变量', replacedWeakPassword: false };
+    } catch {
+      return { password: generateStrongPassword(), source: '自动生成', replacedWeakPassword: true };
+    }
+  }
+  return { password: generateStrongPassword(), source: '自动生成', replacedWeakPassword: false };
+}
+
 async function checkFirstRun(req, res, next) {
   if (isFirstRunChecked) {
     return next();
   }
 
   try {
-    const adminExists = await User.findOne({ where: { role: 'admin' } });
+    const adminExists = await User.findOne({ where: { role: 'admin', status: 'active' } });
     if (adminExists) {
       console.log('系统初始化检查：已存在管理员账号');
       isFirstRunChecked = true;
@@ -33,27 +47,44 @@ async function checkFirstRun(req, res, next) {
     const adminUsername = process.env.ADMIN_USERNAME || 'admin';
     const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
 
-    let adminPassword = process.env.ADMIN_PASSWORD;
-    let passwordSource = '环境变量';
+    const passwordResolution = resolveInitialAdminPassword(process.env.ADMIN_PASSWORD);
+    const adminPassword = passwordResolution.password;
+    const passwordSource = passwordResolution.source;
 
-    if (!adminPassword) {
-      adminPassword = generateStrongPassword();
-      passwordSource = '自动生成';
+    if (passwordResolution.replacedWeakPassword) {
+      console.warn('ADMIN_PASSWORD 未满足强口令规则，已改用自动生成的管理员初始密码');
+    }
+    if (passwordSource === '自动生成') {
       console.warn(
-        `未设置 ADMIN_PASSWORD，已生成随机管理员初始密码（请立即保存并尽快修改）：${adminPassword}`
+        `管理员随机初始密码（请立即保存并尽快修改）：${adminPassword}`
       );
     }
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(adminPassword, salt);
 
-    await User.create({
-      username: adminUsername,
-      email: adminEmail,
-      password: hashedPassword,
-      role: 'admin',
-      status: 'active',
+    const recoverableAdmin = await User.findOne({
+      where: {
+        [Op.or]: [{ username: adminUsername }, { email: adminEmail }],
+      },
     });
+
+    if (recoverableAdmin) {
+      await recoverableAdmin.update({
+        password: hashedPassword,
+        role: 'admin',
+        status: 'active',
+      });
+      console.warn(`系统初始化恢复了管理员账号：${recoverableAdmin.username}`);
+    } else {
+      await User.create({
+        username: adminUsername,
+        email: adminEmail,
+        password: hashedPassword,
+        role: 'admin',
+        status: 'active',
+      });
+    }
 
     console.log(
       `系统初始化完成：管理员账号已创建（用户名：${adminUsername}，密码来源：${passwordSource}）`
@@ -69,4 +100,7 @@ async function checkFirstRun(req, res, next) {
 }
 
 module.exports = checkFirstRun;
-
+module.exports.__testUtils = {
+  generateStrongPassword,
+  resolveInitialAdminPassword,
+};

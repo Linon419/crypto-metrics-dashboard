@@ -1,191 +1,122 @@
-// server/routes/auth.js
 const express = require('express');
-const router = express.Router();
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { User } = require('../models');
-const { Op } = require('sequelize');
+const { AppSetting, User, UserAuditLog } = require('../models');
+const { createAuthMiddleware } = require('../middleware/auth');
 const { getJwtSecret } = require('../utils/authConfig');
+const { createLoginAttemptLimiter } = require('../utils/loginAttemptLimiter');
+const { getSystemSettings } = require('../utils/settings');
+const {
+  authenticateUser,
+  changeOwnPassword,
+  registerUser,
+} = require('../services/authService');
+const { writeUserAuditLog } = require('../services/userManagementService');
 
 const JWT_SECRET = getJwtSecret();
+const loginAttemptLimiter = createLoginAttemptLimiter();
 
-// 导入系统设置管理
-const { getSystemSettings } = require('../utils/settings');
+function getRequestIp(req) {
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
 
-// Register a new user
-router.post('/register', async (req, res) => {
+function sendRouteError(res, error, fallbackMessage) {
+  const uniqueConflict = error.name === 'SequelizeUniqueConstraintError';
+  const statusCode = error.statusCode || (uniqueConflict ? 409 : 500);
+  if (statusCode >= 500) console.error(fallbackMessage, error);
+  if (error.retryAfterSeconds) res.set('Retry-After', String(error.retryAfterSeconds));
+  const message = uniqueConflict ? 'Username or email already exists' : (error.message || fallbackMessage);
+  return res.status(statusCode).json({ error: message });
+}
+
+async function writeAuthAudit(payload) {
   try {
-    // 检查注册是否开启
-    const settings = getSystemSettings();
-    if (!settings.registrationEnabled) {
-      return res.status(403).json({ 
-        error: '注册功能已关闭，请联系管理员' 
+    await writeUserAuditLog({ UserAuditLogModel: UserAuditLog }, payload);
+  } catch (error) {
+    console.error('Failed to write authentication audit log:', error);
+  }
+}
+
+function createAuthRouter({
+  UserModel = User,
+  AppSettingModel = AppSetting,
+  limiter = loginAttemptLimiter,
+  jwtSecret = JWT_SECRET,
+} = {}) {
+  const router = express.Router();
+  const verifyToken = createAuthMiddleware({ UserModel, jwtSecret });
+  router.use((req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
+
+  router.post('/register', async (req, res) => {
+    try {
+      const settings = await getSystemSettings({ AppSettingModel });
+      if (!settings.registrationEnabled) {
+        return res.status(403).json({ error: '注册功能已关闭，请联系管理员' });
+      }
+      const result = await registerUser({ UserModel, jwtSecret }, req.body || {});
+      await writeAuthAudit({
+        actor: result.user,
+        target: result.user,
+        action: 'auth.register',
+        ip: getRequestIp(req),
       });
+      return res.status(201).json({ message: 'User registered successfully', ...result });
+    } catch (error) {
+      return sendRouteError(res, error, 'Failed to register user');
     }
-    
-    const { username, password, email } = req.body;
-    
-    // Check if user already exists
-    const existingUser = await User.findOne({ 
-      where: { 
-        [Op.or]: [
-          { username },
-          ...(email ? [{ email }] : [])
-        ]
-      } 
-    });
-    
-    if (existingUser) {
-      return res.status(400).json({ error: 'Username or email already exists' });
-    }
-    
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-    
-    // Create new user
-    const user = await User.create({
-      username,
-      password: hashedPassword,
-      email: email || null
-    });
-    
-    // Create JWT token
-    const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-    
-    res.status(201).json({
-      message: 'User registered successfully',
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role
+  });
+
+  router.post('/login', async (req, res) => {
+    try {
+      const result = await authenticateUser({ UserModel, limiter, jwtSecret }, {
+        ...req.body,
+        ip: getRequestIp(req),
+      });
+      await writeAuthAudit({
+        actor: result.user,
+        target: result.user,
+        action: 'auth.login.success',
+        ip: getRequestIp(req),
+      });
+      return res.json({ message: 'Login successful', ...result });
+    } catch (error) {
+      if (error.statusCode !== 429) {
+        await writeAuthAudit({
+          action: 'auth.login.failed',
+          target: { username: String(req.body?.username || '').trim().slice(0, 64) || null },
+          details: { statusCode: error.statusCode || 500 },
+          ip: getRequestIp(req),
+        });
       }
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ error: 'Failed to register user' });
-  }
-});
+      return sendRouteError(res, error, 'Failed to login');
+    }
+  });
 
-// Login user
-router.post('/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    // Find user
-    const user = await User.findOne({ where: { username } });
-    
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    
-    // Create JWT token
-    const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-    
-    res.json({
-      message: 'Login successful',
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role
-      }
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Failed to login' });
-  }
-});
+  router.get('/verify', verifyToken, (req, res) => res.json({ user: req.user }));
 
-// Verify token (used to check if user is logged in)
-router.get('/verify', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
+  router.put('/change-password', verifyToken, async (req, res) => {
+    try {
+      const result = await changeOwnPassword({ UserModel }, req.user.id, req.body || {});
+      await writeAuthAudit({
+        actor: req.user,
+        target: req.user,
+        action: 'auth.password.change',
+        ip: getRequestIp(req),
+      });
+      return res.json({ message: '密码修改成功，请重新登录', ...result });
+    } catch (error) {
+      return sendRouteError(res, error, '密码修改失败');
     }
-    
-    const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Find user to ensure they still exist
-    const user = await User.findByPk(decoded.id);
-    
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-    
-    res.json({
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role
-      }
-    });
-  } catch (error) {
-    console.error('Token verification error:', error);
-    res.status(401).json({ error: 'Invalid token' });
-  }
-});
+  });
 
-// Change password
-router.put('/change-password', async (req, res) => {
-  try {
-    const { currentPassword, newPassword, userId } = req.body;
-    
-    if (!currentPassword || !newPassword || !userId) {
-      return res.status(400).json({ error: '当前密码、新密码和用户ID都是必填项' });
-    }
-    
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: '新密码长度必须至少为6个字符' });
-    }
-    
-    // Find user
-    const user = await User.findByPk(userId);
-    
-    if (!user) {
-      return res.status(404).json({ error: '用户不存在' });
-    }
-    
-    // Verify current password
-    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
-    
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: '当前密码不正确' });
-    }
-    
-    // Hash new password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-    
-    // Update user password
-    await user.update({ password: hashedPassword });
-    
-    res.json({ message: '密码修改成功' });
-  } catch (error) {
-    console.error('Change password error:', error);
-    res.status(500).json({ error: '密码修改失败' });
-  }
-});
+  return router;
+}
 
+const router = createAuthRouter();
+router.createAuthRouter = createAuthRouter;
 router.__authTestUtils = {
+  loginAttemptLimiter,
   resolvedJwtSecret: JWT_SECRET,
 };
 

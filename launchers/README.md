@@ -12,12 +12,9 @@ Requirement: install Node.js LTS from `https://nodejs.org/`.
 
 Configuration is shared through the repository root `.env` file. Copy `.env.example` to `.env`, then fill in `OPENAI_API_KEY` if AI parsing is needed.
 
-If the package includes `database.sqlite`, it starts with that database. For a new local database, the first admin account is:
-
-```text
-username: admin
-password: 123456
-```
+If the package includes `database.sqlite`, it starts with that database. For a new local
+database, the first admin username is `admin`. Set a strong `ADMIN_PASSWORD` in `.env`,
+or save the generated password printed in the initialization log.
 
 ## Windows
 

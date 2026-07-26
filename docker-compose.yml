@@ -18,6 +18,10 @@ services:
       - AI_SETTINGS_ENCRYPTION_KEY=${AI_SETTINGS_ENCRYPTION_KEY:-}
       - DB_STORAGE=/data/db/database.sqlite
       - JWT_SECRET=${JWT_SECRET}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - REGISTRATION_ENABLED=${REGISTRATION_ENABLED:-false}
       - API_PUBLIC_HOST=http://168.138.207.11:3080
       - BRANDFETCH_CLIENT_ID=${BRANDFETCH_CLIENT_ID:-}
       # Telegram Bot 配置

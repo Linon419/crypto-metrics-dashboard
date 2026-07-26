@@ -165,7 +165,8 @@ class UserAuth {
             console.error(`Login failed for user ${chatId}:`, error.response?.data || error.message);
             return {
                 success: false,
-                error: error.response?.data?.error || 'Login failed'
+                error: error.response?.data?.error || 'Login failed',
+                status: error.response?.status || null
             };
         }
     }
@@ -213,37 +214,52 @@ class UserAuth {
         });
     }
 
+    static async executeAuthenticatedRequest(axiosInstance, method, endpoint, data = null) {
+        switch (method.toLowerCase()) {
+            case 'get':
+                return axiosInstance.get(endpoint);
+            case 'post':
+                return axiosInstance.post(endpoint, data);
+            case 'put':
+                return axiosInstance.put(endpoint, data);
+            case 'delete':
+                return axiosInstance.delete(endpoint);
+            default:
+                throw new Error(`Unsupported HTTP method: ${method}`);
+        }
+    }
+
+    static async refreshUserLogin(chatId) {
+        const credentials = await this.getUserCredentials(chatId);
+        if (!credentials) return { success: false, error: 'No credentials stored' };
+        return this.loginUser(chatId, credentials.username, credentials.password);
+    }
+
     // 用户API调用包装器
     static async makeUserAuthenticatedRequest(chatId, method, endpoint, data = null) {
         try {
             const axiosInstance = await this.getUserAuthenticatedAxios(chatId);
-            
-            let response;
-            switch (method.toLowerCase()) {
-                case 'get':
-                    response = await axiosInstance.get(endpoint);
-                    break;
-                case 'post':
-                    response = await axiosInstance.post(endpoint, data);
-                    break;
-                case 'put':
-                    response = await axiosInstance.put(endpoint, data);
-                    break;
-                case 'delete':
-                    response = await axiosInstance.delete(endpoint);
-                    break;
-                default:
-                    throw new Error(`Unsupported HTTP method: ${method}`);
-            }
-            
+            const response = await this.executeAuthenticatedRequest(axiosInstance, method, endpoint, data);
             return response.data;
         } catch (error) {
-            // 如果是401错误，清除存储的token并要求重新认证
             if (error.response?.status === 401) {
-                console.log(`Authentication failed for user ${chatId}, clearing credentials...`);
-                await this.clearUserCredentials(chatId);
+                console.log(`Authentication expired for user ${chatId}, refreshing token...`);
+                const loginResult = await this.refreshUserLogin(chatId);
+                if (loginResult.success) {
+                    const retryInstance = await this.getUserAuthenticatedAxios(chatId);
+                    const retryResponse = await this.executeAuthenticatedRequest(
+                        retryInstance,
+                        method,
+                        endpoint,
+                        data
+                    );
+                    return retryResponse.data;
+                }
+                if ([401, 403].includes(loginResult.status)) {
+                    await this.clearUserCredentials(chatId);
+                }
             }
-            
+
             console.error(`User API request failed for ${chatId} (${method} ${endpoint}):`, 
                          error.response?.data || error.message);
             throw error;

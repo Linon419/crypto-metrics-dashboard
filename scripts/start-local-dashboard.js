@@ -5,7 +5,6 @@ const { spawn, spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const LOCAL_JWT_SECRET = 'local-one-click-dashboard-secret-change-me-2026';
-const LOCAL_ADMIN_PASSWORD = '123456';
 
 let serverProcess = null;
 
@@ -171,7 +170,7 @@ function startServer() {
     DB_STORAGE: process.env.DB_STORAGE || path.join(ROOT, 'database.sqlite'),
     JWT_SECRET: process.env.JWT_SECRET || LOCAL_JWT_SECRET,
     ADMIN_USERNAME: process.env.ADMIN_USERNAME || 'admin',
-    ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || LOCAL_ADMIN_PASSWORD,
+    ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '',
   };
 
   serverProcess = spawn(process.execPath, ['server/index.js'], {
@@ -224,7 +223,7 @@ async function main() {
   }
 
   log(`Local dashboard is ready: ${getAppUrl()}`);
-  log(`First local admin account on a new database: admin / ${LOCAL_ADMIN_PASSWORD}`);
+  log('For a new database, read the generated first-admin password from the initialization log above.');
   openBrowser(getAppUrl());
 
   if (process.env.LOCAL_LAUNCHER_EXIT_AFTER_READY === '1') {

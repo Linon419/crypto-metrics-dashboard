@@ -4,7 +4,10 @@ module.exports = (sequelize, DataTypes) => {
       username: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true
+        unique: true,
+        validate: {
+          len: [3, 64]
+        }
       },
       password: {
         type: DataTypes.STRING,
@@ -12,7 +15,11 @@ module.exports = (sequelize, DataTypes) => {
       },
       role: {
         type: DataTypes.STRING,
-        defaultValue: 'user'
+        defaultValue: 'user',
+        allowNull: false,
+        validate: {
+          isIn: [['user', 'admin']]
+        }
       },
       email: {
         type: DataTypes.STRING,
@@ -25,7 +32,10 @@ module.exports = (sequelize, DataTypes) => {
       status: {
         type: DataTypes.STRING,
         defaultValue: 'active',
-        allowNull: false
+        allowNull: false,
+        validate: {
+          isIn: [['active', 'banned', 'inactive']]
+        }
       },
       lastLogin: {
         type: DataTypes.DATE,

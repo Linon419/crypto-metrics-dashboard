@@ -1,5 +1,5 @@
 // src/components/UserManagement.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { 
   Table, 
   Button, 
@@ -18,6 +18,7 @@ import {
   Tooltip
 } from 'antd';
 import {
+  AuditOutlined,
   UserOutlined,
   PlusOutlined,
   EditOutlined,
@@ -26,6 +27,7 @@ import {
   LockOutlined,
   UnlockOutlined
 } from '@ant-design/icons';
+import { useSelector } from 'react-redux';
 import { 
   getAllUsers, 
   createUser, 
@@ -33,12 +35,27 @@ import {
   deleteUser, 
   banUser, 
   unbanUser,
+  getUserAuditLogs,
   getSystemSettings,
   updateSystemSettings
 } from '../services/api';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const MIN_PASSWORD_LENGTH = 15;
+
+const AUDIT_ACTION_LABELS = {
+  'auth.login.success': '登录成功',
+  'auth.login.failed': '登录失败',
+  'auth.password.change': '修改密码',
+  'auth.register': '自主注册',
+  'user.create': '创建用户',
+  'user.update': '更新用户',
+  'user.delete': '删除用户',
+  'user.ban': '封禁用户',
+  'user.unban': '解封用户',
+  'settings.registration.update': '更新注册设置',
+};
 
 function UserManagement() {
   const [users, setUsers] = useState([]);
@@ -46,36 +63,62 @@ function UserManagement() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [form] = Form.useForm();
-  const [systemSettings, setSystemSettings] = useState({ registrationEnabled: true });
+  const [systemSettings, setSystemSettings] = useState({ registrationEnabled: false });
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const { user: currentUser } = useSelector(state => state.auth);
 
   // 加载用户列表
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
       const response = await getAllUsers();
       setUsers(response.users || []);
     } catch (error) {
-      message.error('加载用户列表失败: ' + error.message);
+      message.error('加载用户列表失败: ' + (error.displayMessage || error.message));
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // 加载系统设置
-  const loadSystemSettings = async () => {
+  const loadSystemSettings = useCallback(async () => {
     try {
       const response = await getSystemSettings();
-      setSystemSettings(response.settings || { registrationEnabled: true });
+      setSystemSettings(response.settings || { registrationEnabled: false });
     } catch (error) {
-      console.error('加载系统设置失败:', error);
+      message.error('加载系统设置失败: ' + (error.displayMessage || error.message));
     }
-  };
+  }, []);
+
+  const loadAuditLogs = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const response = await getUserAuditLogs({ limit: 50 });
+      setAuditLogs(response.auditLogs || []);
+    } catch (error) {
+      message.error('加载审计日志失败: ' + (error.displayMessage || error.message));
+    } finally {
+      setAuditLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadUsers();
     loadSystemSettings();
-  }, []);
+    loadAuditLogs();
+  }, [loadAuditLogs, loadSystemSettings, loadUsers]);
+
+  const activeAdminCount = useMemo(() => users.filter(user => (
+    user.role === 'admin' && user.status === 'active'
+  )).length, [users]);
+
+  const isCurrentUser = useCallback(user => Number(user?.id) === Number(currentUser?.id), [currentUser]);
+  const isFinalActiveAdmin = useCallback(user => (
+    user?.role === 'admin' && user?.status === 'active' && activeAdminCount <= 1
+  ), [activeAdminCount]);
 
   // 打开创建/编辑用户模态框
   const openModal = (user = null) => {
@@ -95,6 +138,7 @@ function UserManagement() {
 
   // 提交表单
   const handleSubmit = async (values) => {
+    setSaving(true);
     try {
       if (editingUser) {
         // 编辑用户
@@ -107,9 +151,12 @@ function UserManagement() {
       }
       setModalVisible(false);
       form.resetFields();
-      loadUsers();
+      await Promise.all([loadUsers(), loadAuditLogs()]);
     } catch (error) {
-      message.error(editingUser ? '更新用户失败: ' + error.message : '创建用户失败: ' + error.message);
+      const reason = error.displayMessage || error.message;
+      message.error(editingUser ? '更新用户失败: ' + reason : '创建用户失败: ' + reason);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -118,9 +165,9 @@ function UserManagement() {
     try {
       await deleteUser(userId);
       message.success('用户删除成功');
-      loadUsers();
+      await Promise.all([loadUsers(), loadAuditLogs()]);
     } catch (error) {
-      message.error('删除用户失败: ' + error.message);
+      message.error('删除用户失败: ' + (error.displayMessage || error.message));
     }
   };
 
@@ -134,9 +181,9 @@ function UserManagement() {
         await banUser(user.id);
         message.success('用户已封禁');
       }
-      loadUsers();
+      await Promise.all([loadUsers(), loadAuditLogs()]);
     } catch (error) {
-      message.error('操作失败: ' + error.message);
+      message.error('操作失败: ' + (error.displayMessage || error.message));
     }
   };
 
@@ -147,8 +194,9 @@ function UserManagement() {
       await updateSystemSettings({ registrationEnabled: enabled });
       setSystemSettings(prev => ({ ...prev, registrationEnabled: enabled }));
       message.success(enabled ? '注册功能已开启' : '注册功能已关闭');
+      await loadAuditLogs();
     } catch (error) {
-      message.error('更新设置失败: ' + error.message);
+      message.error('更新设置失败: ' + (error.displayMessage || error.message));
     } finally {
       setSettingsLoading(false);
     }
@@ -228,51 +276,98 @@ function UserManagement() {
       title: '操作',
       key: 'actions',
       width: 200,
-      render: (_, record) => (
-        <Space>
+      render: (_, record) => {
+        const protectedAccount = isCurrentUser(record) || isFinalActiveAdmin(record);
+        const protectionReason = isCurrentUser(record)
+          ? '当前登录账号需要通过个人设置维护'
+          : '系统需要保留至少一个正常管理员';
+        return (
+          <Space>
           <Tooltip title="编辑用户">
             <Button
               type="link"
               icon={<EditOutlined />}
+              aria-label={`编辑 ${record.username}`}
               onClick={() => openModal(record)}
               size="small"
             />
           </Tooltip>
           
-          <Tooltip title={record.status === 'banned' ? '解封用户' : '封禁用户'}>
+          <Tooltip title={protectedAccount ? protectionReason : (record.status === 'banned' ? '解封用户' : '封禁用户')}>
             <Popconfirm
               title={`确定要${record.status === 'banned' ? '解封' : '封禁'}该用户吗？`}
               onConfirm={() => handleBanToggle(record)}
               okText="确定"
               cancelText="取消"
+              disabled={protectedAccount}
             >
               <Button
                 type="link"
                 icon={record.status === 'banned' ? <UnlockOutlined /> : <LockOutlined />}
+                aria-label={`${record.status === 'banned' ? '解封' : '封禁'} ${record.username}`}
                 danger={record.status !== 'banned'}
+                disabled={protectedAccount}
                 size="small"
               />
             </Popconfirm>
           </Tooltip>
 
-          <Tooltip title="删除用户">
+          <Tooltip title={protectedAccount ? protectionReason : '删除用户'}>
             <Popconfirm
               title="确定要删除该用户吗？此操作不可恢复！"
               onConfirm={() => handleDelete(record.id)}
               okText="确定"
               cancelText="取消"
               okType="danger"
+              disabled={protectedAccount}
             >
               <Button
                 type="link"
                 icon={<DeleteOutlined />}
+                aria-label={`删除 ${record.username}`}
                 danger
+                disabled={protectedAccount}
                 size="small"
               />
             </Popconfirm>
           </Tooltip>
-        </Space>
-      ),
+          </Space>
+        );
+      },
+    },
+  ];
+
+  const auditColumns = [
+    {
+      title: '时间',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 170,
+      render: value => value ? new Date(value).toLocaleString() : '-',
+    },
+    {
+      title: '操作',
+      dataIndex: 'action',
+      key: 'action',
+      render: action => <Tag>{AUDIT_ACTION_LABELS[action] || action}</Tag>,
+    },
+    {
+      title: '操作者',
+      dataIndex: 'actorUsername',
+      key: 'actorUsername',
+      render: value => value || '系统/访客',
+    },
+    {
+      title: '目标账号',
+      dataIndex: 'targetUsername',
+      key: 'targetUsername',
+      render: value => value || '-',
+    },
+    {
+      title: '来源 IP',
+      dataIndex: 'ipAddress',
+      key: 'ipAddress',
+      render: value => value || '-',
     },
   ];
 
@@ -379,6 +474,22 @@ function UserManagement() {
         />
       </Card>
 
+      <Card
+        className="mt-6"
+        title={<><AuditOutlined className="mr-2" />安全审计</>}
+        extra={<Text type="secondary">最近 50 条认证与账号操作</Text>}
+      >
+        <Table
+          columns={auditColumns}
+          dataSource={auditLogs}
+          loading={auditLoading}
+          rowKey="id"
+          pagination={false}
+          scroll={{ x: 760 }}
+          size="small"
+        />
+      </Card>
+
       {/* 创建/编辑用户模态框 */}
       <Modal
         title={editingUser ? '编辑用户' : '添加用户'}
@@ -401,7 +512,7 @@ function UserManagement() {
             rules={[
               { required: true, message: '请输入用户名' },
               { min: 3, message: '用户名至少3个字符' },
-              { max: 20, message: '用户名最多20个字符' }
+              { max: 64, message: '用户名最多64个字符' }
             ]}
           >
             <Input prefix={<UserOutlined />} placeholder="请输入用户名" />
@@ -424,7 +535,7 @@ function UserManagement() {
               label="密码"
               rules={[
                 { required: true, message: '请输入密码' },
-                { min: 6, message: '密码至少6个字符' }
+                { min: MIN_PASSWORD_LENGTH, message: `密码至少${MIN_PASSWORD_LENGTH}个字符` }
               ]}
             >
               <Input.Password placeholder="请输入密码" />
@@ -436,7 +547,10 @@ function UserManagement() {
             label="角色"
             rules={[{ required: true, message: '请选择角色' }]}
           >
-            <Select placeholder="请选择角色">
+            <Select
+              placeholder="请选择角色"
+              disabled={Boolean(editingUser && (isCurrentUser(editingUser) || isFinalActiveAdmin(editingUser)))}
+            >
               <Option value="user">普通用户</Option>
               <Option value="admin">管理员</Option>
             </Select>
@@ -447,7 +561,10 @@ function UserManagement() {
             label="状态"
             rules={[{ required: true, message: '请选择状态' }]}
           >
-            <Select placeholder="请选择状态">
+            <Select
+              placeholder="请选择状态"
+              disabled={Boolean(editingUser && (isCurrentUser(editingUser) || isFinalActiveAdmin(editingUser)))}
+            >
               <Option value="active">正常</Option>
               <Option value="banned">封禁</Option>
               <Option value="inactive">未激活</Option>
@@ -459,7 +576,7 @@ function UserManagement() {
               <Button onClick={() => setModalVisible(false)}>
                 取消
               </Button>
-              <Button type="primary" htmlType="submit">
+              <Button type="primary" htmlType="submit" loading={saving}>
                 {editingUser ? '更新' : '创建'}
               </Button>
             </Space>

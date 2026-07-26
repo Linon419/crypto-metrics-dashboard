@@ -1,6 +1,5 @@
 // server/routes/admin.js
 const express = require('express');
-const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
@@ -16,6 +15,7 @@ const {
   LiquidityOverview,
   TrendingCoin,
   User,
+  UserAuditLog,
   UserFavorite,
   sequelize,
 } = require('../models');
@@ -59,6 +59,15 @@ const {
   normalizeKlineMappingInput,
   resolveDisplayedKlineMapping,
 } = require('../utils/coinKlineMappings');
+const {
+  createManagedUser,
+  deleteManagedUser,
+  listManagedUsers,
+  listUserAuditLogs,
+  setManagedUserStatus,
+  updateManagedUser,
+  writeUserAuditLog,
+} = require('../services/userManagementService');
 
 const KLINE_CLEANUP_INTERVALS = new Set(['15m', '1h', '4h', '1d']);
 
@@ -71,6 +80,12 @@ const patchModels = {
   DailyMetric,
   LiquidityOverview,
   TrendingCoin,
+};
+
+const userManagementModels = {
+  UserModel: User,
+  UserAuditLogModel: UserAuditLog,
+  SequelizeInstance: sequelize,
 };
 
 function toPlainRow(row) {
@@ -1105,277 +1120,111 @@ router.post('/kline-cleanup/delete', async (req, res) => {
   }
 });
 
-// 获取所有用户
+function sendUserManagementError(res, error, fallbackMessage) {
+  const uniqueConflict = error.name === 'SequelizeUniqueConstraintError';
+  const statusCode = error.statusCode || (uniqueConflict ? 409 : 500);
+  if (statusCode >= 500) console.error(fallbackMessage, error);
+  return res.status(statusCode).json({
+    success: false,
+    error: uniqueConflict ? '用户名或邮箱已存在' : (error.message || fallbackMessage),
+  });
+}
+
+router.get('/users/audit-logs', async (req, res) => {
+  try {
+    const result = await listUserAuditLogs(userManagementModels, { limit: req.query.limit });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return sendUserManagementError(res, error, '获取用户审计日志失败');
+  }
+});
+
 router.get('/users', async (req, res) => {
   try {
-    const users = await User.findAll({
-      attributes: { exclude: ['password'] }, // 不返回密码
-      order: [['createdAt', 'DESC']]
-    });
-    
-    res.json({
-      success: true,
-      users: users
-    });
+    const result = await listManagedUsers(userManagementModels);
+    return res.json({ success: true, ...result });
   } catch (error) {
-    console.error('获取用户列表失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '获取用户列表失败'
-    });
+    return sendUserManagementError(res, error, '获取用户列表失败');
   }
 });
 
-// 创建新用户
 router.post('/users', async (req, res) => {
   try {
-    const { username, email, password, role = 'user', status = 'active' } = req.body;
-
-    // 验证必填字段
-    if (!username || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: '用户名、邮箱和密码为必填项'
-      });
-    }
-
-    // 检查用户名是否已存在
-    const existingUser = await User.findOne({ where: { username } });
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        error: '用户名已存在'
-      });
-    }
-
-    // 检查邮箱是否已存在
-    const existingEmail = await User.findOne({ where: { email } });
-    if (existingEmail) {
-      return res.status(400).json({
-        success: false,
-        error: '邮箱已存在'
-      });
-    }
-
-    // 加密密码
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 创建用户
-    const user = await User.create({
-      username,
-      email,
-      password: hashedPassword,
-      role,
-      status
-    });
-
-    // 返回用户信息（不包含密码）
-    const userResponse = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      status: user.status,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    };
-
-    res.status(201).json({
-      success: true,
-      message: '用户创建成功',
-      user: userResponse
-    });
+    const result = await createManagedUser(
+      userManagementModels,
+      req.user,
+      req.body || {},
+      { ip: req.ip }
+    );
+    return res.status(201).json({ success: true, message: '用户创建成功', ...result });
   } catch (error) {
-    console.error('创建用户失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '创建用户失败'
-    });
+    return sendUserManagementError(res, error, '创建用户失败');
   }
 });
 
-// 更新用户信息
 router.put('/users/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { username, email, role, status } = req.body;
-
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: '用户不存在'
-      });
-    }
-
-    // 如果要更新用户名，检查是否与其他用户冲突
-    if (username && username !== user.username) {
-      const existingUser = await User.findOne({ 
-        where: { 
-          username,
-          id: { [require('sequelize').Op.ne]: id }
-        } 
-      });
-      if (existingUser) {
-        return res.status(400).json({
-          success: false,
-          error: '用户名已存在'
-        });
-      }
-    }
-
-    // 如果要更新邮箱，检查是否与其他用户冲突
-    if (email && email !== user.email) {
-      const existingEmail = await User.findOne({ 
-        where: { 
-          email,
-          id: { [require('sequelize').Op.ne]: id }
-        } 
-      });
-      if (existingEmail) {
-        return res.status(400).json({
-          success: false,
-          error: '邮箱已存在'
-        });
-      }
-    }
-
-    // 更新用户信息
-    await user.update({
-      username: username || user.username,
-      email: email || user.email,
-      role: role || user.role,
-      status: status || user.status
-    });
-
-    const userResponse = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      status: user.status,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    };
-
-    res.json({
-      success: true,
-      message: '用户更新成功',
-      user: userResponse
-    });
+    const result = await updateManagedUser(
+      userManagementModels,
+      req.user,
+      req.params.id,
+      req.body || {},
+      { ip: req.ip }
+    );
+    return res.json({ success: true, message: '用户更新成功', ...result });
   } catch (error) {
-    console.error('更新用户失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '更新用户失败'
-    });
+    return sendUserManagementError(res, error, '更新用户失败');
   }
 });
 
-// 删除用户
 router.delete('/users/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-
-    // 不能删除自己
-    if (parseInt(id) === req.user.id) {
-      return res.status(400).json({
-        success: false,
-        error: '不能删除自己的账户'
-      });
-    }
-
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: '用户不存在'
-      });
-    }
-
-    await user.destroy();
-
-    res.json({
-      success: true,
-      message: '用户删除成功'
-    });
+    const result = await deleteManagedUser(
+      userManagementModels,
+      req.user,
+      req.params.id,
+      { ip: req.ip }
+    );
+    return res.json({ success: true, message: '用户删除成功', ...result });
   } catch (error) {
-    console.error('删除用户失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '删除用户失败'
-    });
+    return sendUserManagementError(res, error, '删除用户失败');
   }
 });
 
-// 封禁用户
 router.post('/users/:id/ban', async (req, res) => {
   try {
-    const { id } = req.params;
-
-    // 不能封禁自己
-    if (parseInt(id) === req.user.id) {
-      return res.status(400).json({
-        success: false,
-        error: '不能封禁自己的账户'
-      });
-    }
-
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: '用户不存在'
-      });
-    }
-
-    await user.update({ status: 'banned' });
-
-    res.json({
-      success: true,
-      message: '用户已封禁'
-    });
+    const result = await setManagedUserStatus(
+      userManagementModels,
+      req.user,
+      req.params.id,
+      'banned',
+      { ip: req.ip }
+    );
+    return res.json({ success: true, message: '用户已封禁', ...result });
   } catch (error) {
-    console.error('封禁用户失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '封禁用户失败'
-    });
+    return sendUserManagementError(res, error, '封禁用户失败');
   }
 });
 
-// 解封用户
 router.post('/users/:id/unban', async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: '用户不存在'
-      });
-    }
-
-    await user.update({ status: 'active' });
-
-    res.json({
-      success: true,
-      message: '用户已解封'
-    });
+    const result = await setManagedUserStatus(
+      userManagementModels,
+      req.user,
+      req.params.id,
+      'active',
+      { ip: req.ip }
+    );
+    return res.json({ success: true, message: '用户已解封', ...result });
   } catch (error) {
-    console.error('解封用户失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '解封用户失败'
-    });
+    return sendUserManagementError(res, error, '解封用户失败');
   }
 });
 
 // 获取系统设置
 router.get('/settings', async (req, res) => {
   try {
-    const settings = getSystemSettings();
+    const settings = await getSystemSettings({ AppSettingModel: AppSetting });
     res.json({
       success: true,
       settings: settings
@@ -1392,14 +1241,29 @@ router.get('/settings', async (req, res) => {
 // 更新系统设置
 router.put('/settings', async (req, res) => {
   try {
-    const { registrationEnabled } = req.body;
-    
-    const newSettings = {};
-    if (typeof registrationEnabled === 'boolean') {
-      newSettings.registrationEnabled = registrationEnabled;
+    const { registrationEnabled } = req.body || {};
+    if (typeof registrationEnabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'registrationEnabled 必须是布尔值',
+      });
     }
 
-    const updatedSettings = updateSystemSettings(newSettings);
+    const updatedSettings = await updateSystemSettings(
+      { AppSettingModel: AppSetting },
+      { registrationEnabled }
+    );
+    try {
+      await writeUserAuditLog(userManagementModels, {
+        actor: req.user,
+        target: req.user,
+        action: 'settings.registration.update',
+        details: updatedSettings,
+        ip: req.ip,
+      });
+    } catch (auditError) {
+      console.error('记录注册设置审计日志失败:', auditError);
+    }
 
     res.json({
       success: true,
@@ -1408,7 +1272,7 @@ router.put('/settings', async (req, res) => {
     });
   } catch (error) {
     console.error('更新系统设置失败:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       error: '更新系统设置失败'
     });

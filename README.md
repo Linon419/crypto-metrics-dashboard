@@ -102,15 +102,12 @@ node scripts/start-local-dashboard.js
 
 Open <http://localhost:3001>. The launcher also opens this address automatically.
 
-For a new local database created from `.env.example`, use:
+For a new local database created from `.env.example`, the username is `admin`. When
+`ADMIN_PASSWORD` is empty, the server generates a strong password and prints it in the
+initialization log.
 
-```text
-Username: admin
-Password: 123456
-```
-
-> [!CAUTION]
-> `123456` is a development-only sample credential. Set a unique strong `ADMIN_PASSWORD` before the first launch of every shared or production instance, or change the password immediately after the first local sign-in.
+Set a unique password of at least 15 characters through `ADMIN_PASSWORD`, or save the
+generated password before the log is rotated.
 
 AI parsing becomes available after `OPENAI_API_KEY` is configured; dashboards and local data management remain available through the launcher with an empty key.
 
@@ -160,6 +157,7 @@ Copy `.env.example` to `.env` for local operation. Production templates live und
 | `ADMIN_USERNAME` | First run | Initial administrator username | `admin` |
 | `ADMIN_EMAIL` | First run | Initial administrator email | `admin@example.com` |
 | `ADMIN_PASSWORD` | First run | Initial administrator password | Strong unique password |
+| `REGISTRATION_ENABLED` | Optional | Initial registration fallback before Admin saves a setting | `false` in production |
 | `DEV_AUTH_BYPASS` | Development only | Explicit local authentication bypass | `true` |
 
 When `ADMIN_PASSWORD` is absent, the server generates a strong password and writes it once to the startup log. Save it before the log is rotated.
@@ -351,7 +349,7 @@ Artifacts are written to `local-artifacts/launchers/` as folders and ZIP archive
 - Restrict file permissions for the SQLite database, backups, logs, and logo cache.
 - Keep `DEV_AUTH_BYPASS` scoped to local development.
 - Review public registration and administrator settings before exposing the service.
-- Rotate the sample local administrator password during the first session.
+- Rotate the generated or configured initial administrator password during the first session.
 
 Please report security-sensitive findings privately to the repository owner through their [GitHub profile](https://github.com/Linon419).
 

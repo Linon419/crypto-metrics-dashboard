@@ -102,15 +102,11 @@ node scripts/start-local-dashboard.js
 
 访问 <http://localhost:3001>。启动器也会自动打开该地址。
 
-使用 `.env.example` 创建全新本地数据库时，初始账号为：
+使用 `.env.example` 创建全新本地数据库时，初始用户名为 `admin`。当
+`ADMIN_PASSWORD` 留空时，服务端会生成强随机密码并输出到初始化日志。
 
-```text
-用户名：admin
-密码：123456
-```
-
-> [!CAUTION]
-> `123456` 仅用于本地开发示例。共享实例与生产实例应在首次启动前配置独立强 `ADMIN_PASSWORD`；本地首次登录后也应立即修改密码。
+可以通过 `ADMIN_PASSWORD` 配置至少 15 个字符的独立口令；使用随机密码时，
+请在日志轮转前保存。
 
 配置 `OPENAI_API_KEY` 后即可使用 AI 解析；密钥为空时，本地启动器仍可用于看板浏览与本地数据管理。
 
@@ -160,6 +156,7 @@ npm run dev
 | `ADMIN_USERNAME` | 首次运行 | 初始管理员用户名 | `admin` |
 | `ADMIN_EMAIL` | 首次运行 | 初始管理员邮箱 | `admin@example.com` |
 | `ADMIN_PASSWORD` | 首次运行 | 初始管理员密码 | 独立强密码 |
+| `REGISTRATION_ENABLED` | 可选 | Admin 保存设置前的注册功能初始回退值 | 生产环境为 `false` |
 | `DEV_AUTH_BYPASS` | 仅开发环境 | 显式开启本地鉴权绕过 | `true` |
 
 未配置 `ADMIN_PASSWORD` 时，服务端会生成强随机密码，并在首次启动日志中输出一次。请在日志轮转前保存。
@@ -351,7 +348,7 @@ npm run build:launchers:with-data
 - 限制 SQLite 数据库、备份、日志和 Logo 缓存的文件权限。
 - 将 `DEV_AUTH_BYPASS` 限定在本地开发环境。
 - 对外提供服务前检查公开注册与管理员设置。
-- 首次会话中立即更换示例管理员密码。
+- 首次会话中立即更换自动生成或预先配置的管理员初始密码。
 
 安全敏感问题请通过仓库所有者的 [GitHub 主页](https://github.com/Linon419)私下反馈。
 

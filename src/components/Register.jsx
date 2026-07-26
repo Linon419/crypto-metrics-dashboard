@@ -14,8 +14,9 @@ function Register() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { loading, error, isAuthenticated } = useSelector(state => state.auth);
-  const [registrationEnabled, setRegistrationEnabled] = useState(true);
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(true);
+  const [registrationStatusError, setRegistrationStatusError] = useState(false);
   
   // Redirect if already authenticated
   useEffect(() => {
@@ -29,10 +30,13 @@ function Register() {
     const checkRegistrationStatus = async () => {
       try {
         const response = await getRegistrationStatus();
-        setRegistrationEnabled(response.registrationEnabled ?? true);
+        const enabled = response.registrationEnabled === true;
+        setRegistrationEnabled(enabled);
+        setRegistrationStatusError(typeof response.registrationEnabled !== 'boolean');
       } catch (error) {
         console.error('获取注册状态失败:', error);
-        setRegistrationEnabled(true);
+        setRegistrationEnabled(false);
+        setRegistrationStatusError(true);
       } finally {
         setSettingsLoading(false);
       }
@@ -69,7 +73,13 @@ function Register() {
       dispatch(registerSuccess(data));
       navigate('/dashboard');
     } catch (error) {
-      dispatch(registerFailure(error.error || 'Registration failed'));
+      dispatch(registerFailure(
+        error.displayMessage
+        || error.response?.data?.error
+        || error.error
+        || error.message
+        || 'Registration failed'
+      ));
     }
   };
   
@@ -98,8 +108,10 @@ function Register() {
           </div>
           
           <Alert
-            message="注册功能已关闭"
-            description="系统管理员已关闭新用户注册功能，如需账号请联系管理员。"
+            message={registrationStatusError ? '暂时无法确认注册状态' : '注册功能已关闭'}
+            description={registrationStatusError
+              ? '系统暂时无法读取注册设置，请稍后重试或联系管理员。'
+              : '系统管理员已关闭新用户注册功能，如需账号请联系管理员。'}
             type="warning"
             showIcon
             className="mb-4"
@@ -145,7 +157,8 @@ function Register() {
             name="username"
             rules={[
               { required: true, message: '请输入用户名' },
-              { min: 3, message: '用户名至少3个字符' }
+              { min: 3, message: '用户名至少3个字符' },
+              { max: 64, message: '用户名最多64个字符' }
             ]}
           >
             <Input
@@ -172,7 +185,7 @@ function Register() {
             name="password"
             rules={[
               { required: true, message: '请输入密码' },
-              { min: 6, message: '密码至少6个字符' }
+              { min: 15, message: '密码至少15个字符' }
             ]}
           >
             <Input.Password
