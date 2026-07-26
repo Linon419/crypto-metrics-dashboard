@@ -235,6 +235,42 @@ class UserAuth {
         return this.loginUser(chatId, credentials.username, credentials.password);
     }
 
+    // 由 bot.js 注册的用户通知回调（chatId, message) => Promise
+    static setUserNotifier(notifier) {
+        this.userNotifier = typeof notifier === 'function' ? notifier : null;
+    }
+
+    /**
+     * 服务端明确拒绝且用户可自行解决的错误码 → 直接告知用户怎么做，
+     * 否则 bot 只会在日志里报错，用户看到的是静默失败。
+     * 同一 chatId 同一错误码 6 小时内只提醒一次，避免定时任务刷屏。
+     */
+    static async notifyActionableError(chatId, error) {
+        const code = error.response?.data?.code;
+        const messages = {
+            PASSWORD_CHANGE_REQUIRED:
+                '⚠️ 当前账号仍在使用初始密码，服务端已锁定业务功能。\n'
+                + '请先在浏览器登录仪表盘完成密码修改（至少15个字符），'
+                + '然后使用 /auth 重新绑定新密码。',
+            DEMO_ACCOUNT_READ_ONLY:
+                'ℹ️ 当前绑定的是演示账号，仅支持浏览类操作。',
+        };
+        const message = messages[code];
+        if (!message || !this.userNotifier) return;
+
+        this.notifiedActionableErrors = this.notifiedActionableErrors || new Map();
+        const dedupeKey = `${chatId}:${code}`;
+        const lastNotifiedAt = this.notifiedActionableErrors.get(dedupeKey) || 0;
+        if (Date.now() - lastNotifiedAt < 6 * 60 * 60 * 1000) return;
+        this.notifiedActionableErrors.set(dedupeKey, Date.now());
+
+        try {
+            await this.userNotifier(chatId, message);
+        } catch (notifyError) {
+            console.error(`Failed to notify user ${chatId}:`, notifyError.message);
+        }
+    }
+
     // 用户API调用包装器
     static async makeUserAuthenticatedRequest(chatId, method, endpoint, data = null) {
         try {
@@ -242,6 +278,9 @@ class UserAuth {
             const response = await this.executeAuthenticatedRequest(axiosInstance, method, endpoint, data);
             return response.data;
         } catch (error) {
+            if (error.response?.status === 403) {
+                await this.notifyActionableError(chatId, error);
+            }
             if (error.response?.status === 401) {
                 console.log(`Authentication expired for user ${chatId}, refreshing token...`);
                 const loginResult = await this.refreshUserLogin(chatId);

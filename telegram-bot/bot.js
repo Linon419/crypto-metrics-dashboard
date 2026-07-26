@@ -110,6 +110,8 @@ UserAuth.setDatabase(db);
 // 初始化定时任务
 const { initializeDependencies, initializeScheduler, runImmediateCheck } = require('./scheduler');
 initializeDependencies(bot, db);
+// 服务端 403（如初始密码未修改）时直接提示用户如何解决，而非静默失败
+UserAuth.setUserNotifier((chatId, message) => bot.sendMessage(chatId, message));
 initializeScheduler();
 
 // 获取用户的API数据的辅助函数
