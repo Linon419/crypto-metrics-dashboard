@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main, master, develop ]
 
+# 同一分支的连续 push 取消进行中的旧 run，避免排队浪费额度
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   server:
     name: Backend tests (Node ${{ matrix.node-version }})
@@ -58,5 +63,11 @@ jobs:
       - name: Run frontend tests
         # 必须串行：并行时 antd 重渲染用例会随机超时，见 test:client 的 --runInBand
         run: npm run test:client
+        env:
+          CI: true
+
+      - name: Build with warnings as errors
+        # ESLint warning 已清零（5d15016），此步防止回潮
+        run: npm run build
         env:
           CI: true
