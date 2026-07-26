@@ -33,6 +33,8 @@ outputs/
 server/output/
 telegram-bot/data/
 data/logos/
+# 运行时 Logo 缓存：DB_STORAGE 为 ./database.sqlite 时解析到项目根目录
+/logos/
 zsxq-*.json
 zsxq-*.txt
 
