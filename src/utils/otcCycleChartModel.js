@@ -918,6 +918,29 @@ function parseDateBoundaryMs(value, boundary = 'start') {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
+/**
+ * 把 YYYY-MM-DD 解析成浏览器本地时区的当天边界。
+ *
+ * 轴刻度与十字线都按本地时区渲染（见 formatChartTickMark），
+ * 若请求区间仍按 UTC 锚定，UTC+8 用户会丢掉起始日的前 8 小时。
+ */
+export function parseLocalDateBoundaryMs(value, boundary = 'start') {
+  if (!value) return null;
+  const normalizedValue = String(value);
+  const match = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    const timestamp = new Date(normalizedValue).getTime();
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+
+  const [, year, month, day] = match;
+  const localDate = boundary === 'end'
+    ? new Date(Number(year), Number(month) - 1, Number(day), 23, 59, 59, 999)
+    : new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
+  const timestamp = localDate.getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 export function calculateDateRangeKlineLimit({
   interval,
   startDate,

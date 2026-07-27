@@ -17,6 +17,44 @@ const {
   classifyPeriodQuality,
 } = require('./periodQuality');
 
+function toDateKey(value) {
+  if (value instanceof Date) return value.toISOString().split('T')[0];
+  return String(value ?? '').split('T')[0];
+}
+
+/**
+ * 同一 (coin_id, date) 可能存在多条“版本”记录（操作员重录、补录等），
+ * 生产库中有 228 组。而质量评估的关键节点扫描是拿 [i] 与 [i-1] 当
+ * 相邻两天比较的，一旦同一天进来两条，就会凭空造出“爆破跌破200 / 由负转正”节点。
+ *
+ * 例：CRV 2026-04-30 同时存在 explosion 209 与 188 两行（后者其实是 05-01 错填），
+ * 算法据此在当天内部造出一个跌破 200 的节点，标签由“高质量进场”翻成“低质量进场”。
+ *
+ * 这里与各 GET 接口保持一致，每个日期只保留最新版本（timestamp 优先，其次 id）。
+ */
+function dedupeMetricsByDate(metrics) {
+  if (!Array.isArray(metrics)) return [];
+
+  const isNewer = (candidate, current) => {
+    const ct = candidate.timestamp ? new Date(candidate.timestamp).getTime() : NaN;
+    const rt = current.timestamp ? new Date(current.timestamp).getTime() : NaN;
+    if (Number.isFinite(ct) && Number.isFinite(rt) && ct !== rt) return ct > rt;
+    return Number(candidate.id || 0) > Number(current.id || 0);
+  };
+
+  const latestByDate = new Map();
+  for (const metric of metrics) {
+    const key = toDateKey(metric?.date);
+    if (!key) continue;
+    const current = latestByDate.get(key);
+    if (!current || isNewer(metric, current)) latestByDate.set(key, metric);
+  }
+
+  // 调用方一律假定按日期降序
+  return Array.from(latestByDate.values())
+    .sort((a, b) => toDateKey(b.date).localeCompare(toDateKey(a.date)));
+}
+
 function hasIncompleteEntryStart(metric) {
   const entryExitDay = Number(metric?.entry_exit_day);
   return Number.isFinite(entryExitDay) && entryExitDay > 1;
@@ -356,8 +394,10 @@ function getSimplifiedQuality(metric) {
  * @param {Array} historicalMetrics - 预先获取的历史数据
  * @returns {Promise<string>} - 描述周期质量的字符串
  */
-async function calculatePeriodQualityForDate(coinId, targetDate, historicalMetrics) {
+async function calculatePeriodQualityForDate(coinId, targetDate, rawHistoricalMetrics) {
   try {
+    // 同一天的多版本记录会被关键节点扫描误当成相邻两天，必须先去重
+    const historicalMetrics = dedupeMetricsByDate(rawHistoricalMetrics);
     console.log(`[QualityCheck-Historical] CoinID ${coinId}: Calculating quality for date ${targetDate} with ${historicalMetrics.length} historical records.`);
 
     if (historicalMetrics.length < 2) {
@@ -458,14 +498,14 @@ async function calculatePeriodQuality(coinId) {
     lookbackDate.setDate(lookbackDate.getDate() - QUALITY_LOOKBACK_DAYS);
     const lookbackDateStr = lookbackDate.toISOString().split('T')[0];
 
-    const historicalMetrics = await DailyMetric.findAll({
+    const historicalMetrics = dedupeMetricsByDate(await DailyMetric.findAll({
       where: {
         coin_id: coinId,
         date: { [Op.gte]: lookbackDateStr }
       },
       order: [['date', 'DESC']],
       raw: true
-    });
+    }));
 
     if (historicalMetrics.length < 2) {
       console.log(`[QualityCheck] CoinID ${coinId}: Insufficient historical data (${historicalMetrics.length} records). Returning '数据不足'.`);
@@ -533,7 +573,9 @@ async function calculatePeriodQuality(coinId) {
         // 2. 在退场期内，找到第一个“爆破指数由负转正”的节点
         // 从退场期开始往前查找，找到的第一个转正节点就是上一次转正的节点
         // 按照bodong文档第六章实现退场期质量评估
-        return evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId);
+        // targetMetric 必须传最新一天：省略会退化成退场期首日，
+        // 导致 afterExitNodes 全被过滤掉、标签冻结在首日甚至掉成“待观察”。
+        return evaluateExitQualityBodong(historicalMetrics, exitStartDateMetric, exitStartOtcIndex, coinId, latestMetric);
     }
 
     console.log(`[QualityCheck] CoinID ${coinId}: Not in entry/exit period. Returning '观望'.`);
@@ -548,6 +590,7 @@ module.exports = {
   calculatePeriodQuality,
   calculatePeriodQualityForDate,
   __internals: {
+    dedupeMetricsByDate,
     detectWeakEntryWithinFirstWeek,
     evaluateEntryQualityBodong,
     evaluateExitQualityBodong,

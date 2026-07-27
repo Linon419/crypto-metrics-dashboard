@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Flex,
   Popconfirm,
   Space,
   Typography,
@@ -193,7 +194,8 @@ function AIModelSettings() {
     <div className="ai-model-settings">
       <Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <Space align="start" justify="space-between" wrap style={{ width: '100%' }}>
+          {/* Space 没有 justify，属性会直接漏到 DOM 上；右对齐要用 Flex */}
+          <Flex align="start" justify="space-between" gap="middle" wrap style={{ width: '100%' }}>
             <div>
               <Text type="secondary">ADMIN SETTINGS</Text>
               <Title level={3}>AI 模型</Title>
@@ -226,7 +228,7 @@ function AIModelSettings() {
                 保存
               </Button>
             </Space>
-          </Space>
+          </Flex>
 
           <Alert
             type="info"

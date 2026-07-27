@@ -1,5 +1,5 @@
 // src/components/CoinList.jsx - Mobile-friendly version
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Row, Col, Pagination, Spin, Empty, Button, Alert, Card, Badge } from 'antd';
 import { WarningOutlined } from '@ant-design/icons';
 import CoinCard from './CoinCard';
@@ -19,50 +19,33 @@ function CoinList({
   const [currentPage, setCurrentPage] = useState(1);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const pageSize = isMobile ? 6 : 8; // Optimized page size for mobile
-  
-  const safeCoins = Array.isArray(coins) ? coins : [];
+
+  // 视图筛选（收藏/热门/多空）统一由 Dashboard 决定，这里只负责展示，
+  // 避免"筛选栏说 10 个、卡片只画 3 张"这种两处规则不一致的问题
+  const displayedCoins = useMemo(() => (Array.isArray(coins) ? coins : []), [coins]);
+  const safeCoins = displayedCoins;
 
   // Listen for window resize to adjust for mobile
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
     };
-    
+
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Filter coins based on view mode
-  const filterCoins = () => {
-    switch (viewMode) {
-      case 'favorites':
-        return safeCoins.filter(coin => favorites.includes(coin.symbol));
-      case 'popular':
-        return safeCoins.filter(coin => {
-          const otcIndex = parseInt(coin.otcIndex) || 0;
-          const explosionIndex = parseInt(coin.explosionIndex) || 0;
-          return otcIndex > 1000 && explosionIndex > 180;
-        });
-      default:
-        return safeCoins;
-    }
-  };
+  // 以集合内容作为重置依据：父组件每次渲染都会生成新数组，
+  // 按引用重置会导致父级重渲染把分页打回第 1 页
+  const coinSetKey = useMemo(
+    () => `${displayedCoins.length}|${displayedCoins.map(coin => coin.symbol).join(',')}`,
+    [displayedCoins]
+  );
 
-  const [displayedCoins, setDisplayedCoins] = useState(filterCoins());
-
-  // Update displayed coins when filters change
-  useEffect(() => {
-    setDisplayedCoins(filterCoins());
-    // Only reset to first page when viewMode changes, not when favorites change
-    // This prevents jumping to first page when toggling favorites
-  // filterCoins 每次渲染都是新引用，加入依赖会让本 effect 每帧执行
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coins, viewMode, favorites, safeCoins]);
-
-  // Reset to first page only when viewMode or coins change, not when favorites change
+  // Reset to first page only when the coin set itself or the view mode changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [coins, viewMode]);
+  }, [coinSetKey, viewMode]);
 
   // Auto-select first coin when none selected
   useEffect(() => {
@@ -286,4 +269,5 @@ function CoinList({
   );
 }
 
-export default CoinList;
+// Dashboard 会因为滚动、后台轮询等原因频繁重渲染，这里挡一层
+export default React.memo(CoinList);

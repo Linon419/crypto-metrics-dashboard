@@ -50,6 +50,9 @@ function run() {
 
   // 落库、拉外部数据、整库导入导出：全部收敛为管理员专属
   assertAdminOnly(coins, 'POST', '/klines/backfill');
+  // 回补任务只有管理员能发起，任务状态里带着日志和错误详情，读接口同样收敛为管理员专属
+  assertAdminOnly(coins, 'GET', '/klines/backfill/status');
+  assertAdminOnly(data, 'GET', '/debug/date-range');
   assertAdminOnly(coins, 'POST', '/');
   assertAdminOnly(coins, 'PUT', '/:id');
   assertAdminOnly(coins, 'DELETE', '/:id');
@@ -70,7 +73,6 @@ function run() {
   assertOpenToMembers(coins, 'GET', '/');
   assertOpenToMembers(coins, 'GET', '/:symbol');
   assertOpenToMembers(coins, 'GET', '/:symbol/klines');
-  assertOpenToMembers(coins, 'GET', '/klines/backfill/status');
   assertOpenToMembers(data, 'GET', '/latest');
   assertOpenToMembers(data, 'GET', '/by-date/:date');
   assertOpenToMembers(data, 'GET', '/available-dates');

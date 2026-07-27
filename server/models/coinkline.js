@@ -74,9 +74,10 @@ module.exports = (sequelize, DataTypes) => {
         name: 'coin_klines_trading_symbol_market_interval_open_time',
       },
       {
-        fields: ['coin_id', 'market', 'interval', 'open_time'],
+        // trading_symbol 必须进唯一键，否则同一市场换标的时会按 open_time 覆盖掉另一个标的的历史
+        fields: ['coin_id', 'market', 'interval', 'trading_symbol', 'open_time'],
         unique: true,
-        name: 'coin_klines_unique_coin_market_interval_open_time',
+        name: 'coin_klines_unique_coin_market_symbol_interval_open_time',
       },
     ],
   });

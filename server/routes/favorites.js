@@ -39,19 +39,22 @@ router.post('/', authMiddleware, async (req, res) => {
       return res.status(401).json({ error: 'User must be logged in' });
     }
 
-    if (!symbol) {
-      return res.status(400).json({ error: 'Symbol is required' });
+    // 只判空会让 {"symbol": 123} 通过校验，随后 toUpperCase 抛错变成 500
+    if (typeof symbol !== 'string' || symbol.trim() === '') {
+      return res.status(400).json({ error: 'Symbol is required and must be a string' });
     }
+
+    const normalizedSymbol = symbol.trim().toUpperCase();
 
     // 使用findOrCreate防止重复添加
     const [favorite, created] = await UserFavorite.findOrCreate({
       where: {
         user_id: userId,
-        symbol: symbol.toUpperCase()
+        symbol: normalizedSymbol
       },
       defaults: {
         user_id: userId,
-        symbol: symbol.toUpperCase()
+        symbol: normalizedSymbol
       }
     });
 

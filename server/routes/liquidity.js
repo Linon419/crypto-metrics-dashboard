@@ -10,12 +10,18 @@ router.get('/', async (req, res) => {
   try {
     const { date, startDate, endDate } = req.query;
     
-    // 构建查询条件
+    // 构建查询条件：date 为精确匹配，优先级高于 startDate/endDate 区间；
+    // 区间条件必须放进同一个对象，展开字符串会得到 {"0":"2",...} 让 Sequelize 报 Invalid value
     const where = {};
-    if (date) where.date = date;
-    if (startDate) where.date = { [Op.gte]: startDate };
-    if (endDate) where.date = { ...where.date, [Op.lte]: endDate };
-    
+    if (date) {
+      where.date = date;
+    } else {
+      const dateRange = {};
+      if (startDate) dateRange[Op.gte] = startDate;
+      if (endDate) dateRange[Op.lte] = endDate;
+      if (Object.getOwnPropertySymbols(dateRange).length > 0) where.date = dateRange;
+    }
+
     const liquidityData = await LiquidityOverview.findAll({
       where,
       order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']]
@@ -67,10 +73,15 @@ router.post('/', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Date is required' });
     }
     
-    // 查找是否存在同一天的记录
+    // 查找是否存在同一天的记录：同一天可能有多个版本，必须命中最新的那条，
+    // 否则读接口返回新版本、写接口改老版本，前端看起来像没生效
     const [liquidityData, created] = await LiquidityOverview.findOrCreate({
       where: { date },
+      order: [['timestamp', 'DESC'], ['id', 'DESC']],
       defaults: {
+        date,
+        timestamp: new Date(),
+        time_precision: 'day',
         btc_fund_change,
         eth_fund_change,
         sol_fund_change,
@@ -104,14 +115,16 @@ router.delete('/:date', requireAdmin, async (req, res) => {
   try {
     const { date } = req.params;
     
+    // 与 GET /:date 保持一致，按最新版本定义删除目标
     const liquidityData = await LiquidityOverview.findOne({
-      where: { date }
+      where: { date },
+      order: [['timestamp', 'DESC'], ['id', 'DESC']]
     });
-    
+
     if (!liquidityData) {
       return res.status(404).json({ error: 'Liquidity data not found for the specified date' });
     }
-    
+
     await liquidityData.destroy();
     
     res.json({ message: 'Liquidity data deleted successfully' });

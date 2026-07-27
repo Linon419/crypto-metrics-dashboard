@@ -36,14 +36,24 @@ test('shows a clear warning when the account uses an initial simple password', (
   expect(screen.getAllByText(/至少6个字符/).length).toBeGreaterThan(0);
 });
 
-test('offers no way out when the password change is mandatory', () => {
+test('cannot be dismissed when mandatory, but still offers a sign-out escape', () => {
   mockAuthUser = { id: 7, username: 'admin', passwordChangeRecommended: true };
 
   render(<ChangePassword visible mandatory onClose={jest.fn()} />);
 
+  // 仍然不允许"取消"掉过强制改密
   expect(screen.queryByRole('button', { name: '取消' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: '修改密码' })).toBeInTheDocument();
+
+  // 但必须留一条出口：忘记当前密码的用户否则只能手工清 localStorage
+  const signOut = screen.getByRole('button', { name: '退出登录' });
+  expect(signOut).toBeInTheDocument();
+
+  fireEvent.click(signOut);
+
+  expect(mockDispatch).toHaveBeenCalled();
+  expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true });
 });
 
 test('changes the authenticated user password and requires a new login', async () => {

@@ -1,7 +1,12 @@
 const assert = require('assert');
 const { EventEmitter } = require('events');
 
-const { attachKlineWebSocketServer } = require('../services/klineWebSocketServer');
+const {
+  attachKlineWebSocketServer,
+  authenticateKlineWebSocketRequest,
+  readAuthorizationFromWebSocketRequest,
+} = require('../services/klineWebSocketServer');
+const { signAuthToken } = require('../utils/authSecurity');
 const {
   buildBinanceKlineStreamName,
   buildBinanceKlineStreamUrl,
@@ -121,6 +126,60 @@ async function run() {
     trade_count: 9876,
   });
 
+  const authUser = {
+    id: 12,
+    username: 'kline-viewer',
+    password: 'stored-password-hash',
+    role: 'user',
+    status: 'active',
+  };
+  const authToken = signAuthToken(authUser);
+  const authRequest = {
+    url: '/ws/klines?symbol=BTC&interval=4h',
+    headers: { 'sec-websocket-protocol': `bearer, ${authToken}` },
+  };
+  assert.strictEqual(
+    readAuthorizationFromWebSocketRequest(authRequest),
+    `Bearer ${authToken}`,
+    'WebSocket 子协议应转换成 Bearer 凭据'
+  );
+  const authResult = await authenticateKlineWebSocketRequest({
+    request: authRequest,
+    db: {
+      User: {
+        findByPk: async id => (Number(id) === authUser.id ? authUser : null),
+      },
+    },
+  });
+  assert.strictEqual(authResult.ok, true, '有效登录会话应允许订阅 K 线流');
+  assert.strictEqual(authResult.user.id, authUser.id);
+
+  let anonymousUpstreamCount = 0;
+  const anonymousWss = attachKlineWebSocketServer({
+    server: {},
+    db: {
+      Coin: { findOne: async () => ({ id: 1, symbol: 'BTC' }) },
+      CoinKline: { upsert: async () => {} },
+    },
+    WebSocketCtor: class extends FakeUpstreamSocket {
+      constructor(url) {
+        super(url);
+        anonymousUpstreamCount += 1;
+      }
+    },
+    WebSocketServerCtor: FakeWebSocketServer,
+    authenticateRequest: async () => ({ ok: false, statusCode: 401, message: 'Authentication required' }),
+    logger: { warn: () => {} },
+  });
+  const anonymousClient = new FakeClientSocket();
+  anonymousWss.emit('connection', anonymousClient, { url: '/ws/klines?symbol=BTC&interval=4h' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(anonymousUpstreamCount, 0, '匿名连接不得创建上游行情连接');
+  assert.deepStrictEqual(anonymousClient.closeCalls[0], {
+    code: 1008,
+    reason: 'Authentication required',
+  });
+
   let upstreamSocket;
   const db = {
     Coin: {
@@ -140,6 +199,7 @@ async function run() {
       }
     },
     WebSocketServerCtor: FakeWebSocketServer,
+    authenticateRequest: async () => ({ ok: true, user: authUser }),
     logger: { warn: () => {} },
   });
   const client = new FakeClientSocket();
@@ -150,6 +210,43 @@ async function run() {
     client.emit('close');
   });
   assert.strictEqual(upstreamSocket.terminated, true);
+
+  // 回归：浏览器在查库期间断开时，不能再建出一个永远没人回收的上游连接
+  let resolveCoinLookup;
+  const createdUpstreams = [];
+  const slowDb = {
+    Coin: {
+      findOne: () => new Promise((resolve) => {
+        resolveCoinLookup = () => resolve({ id: 79, symbol: 'AXTI' });
+      }),
+    },
+    CoinKline: {
+      upsert: async () => {},
+    },
+  };
+  const slowWss = attachKlineWebSocketServer({
+    server: {},
+    db: slowDb,
+    WebSocketCtor: class extends FakeUpstreamSocket {
+      constructor(url) {
+        super(url);
+        createdUpstreams.push(this);
+      }
+    },
+    WebSocketServerCtor: FakeWebSocketServer,
+    authenticateRequest: async () => ({ ok: true, user: authUser }),
+    logger: { warn: () => {} },
+  });
+  const earlyCloseClient = new FakeClientSocket();
+  slowWss.emit('connection', earlyCloseClient, { url: '/ws/klines?symbol=AXTI&interval=4h' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  earlyCloseClient.emit('close');
+  resolveCoinLookup();
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.strictEqual(createdUpstreams.length, 0, '客户端已断开后不应再创建上游连接');
 
   console.log('klineWebSocket.test.js passed');
 }

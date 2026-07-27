@@ -806,6 +806,7 @@ router.get('/database-patches/logs', async (req, res) => {
 });
 
 const dateRecordModels = {
+  BtcPricePoint,
   DailyMetric,
   LiquidityOverview,
   TrendingCoin,

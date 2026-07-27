@@ -2,7 +2,15 @@
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize'); // 添加这一行
-const { Coin, DailyMetric, CoinKline, CoinKlineMapping } = require('../models');
+const {
+  BtcPricePoint,
+  Coin,
+  CoinKline,
+  CoinKlineMapping,
+  DailyMetric,
+  UserFavorite,
+  sequelize,
+} = require('../models');
 const { calculatePeriodQualityForDate } = require('../utils/periodQualityEvaluation');
 const {
   attachPeriodQualityToMetrics,
@@ -459,7 +467,7 @@ router.post('/klines/backfill', requireAdmin, async (req, res) => {
   }
 });
 
-router.get('/klines/backfill/status', (req, res) => {
+router.get('/klines/backfill/status', requireAdmin, (req, res) => {
   res.json({
     success: true,
     job: serializeBackfillJob(activeKlineBackfillJob),
@@ -705,24 +713,26 @@ router.get('/:symbol/klines', async (req, res) => {
 router.post('/', requireAdmin, async (req, res) => {
   try {
     const { symbol, name, current_price, logo_url } = req.body;
-    
-    // 验证必要字段
-    if (!symbol || !name) {
-      return res.status(400).json({ error: 'Symbol and name are required' });
+
+    // 只判空会让 {"symbol": 123} 通过校验，随后 toUpperCase 抛错变成 500
+    if (typeof symbol !== 'string' || symbol.trim() === '' || typeof name !== 'string' || name.trim() === '') {
+      return res.status(400).json({ error: 'Symbol and name are required and must be strings' });
     }
-    
+
+    const normalizedSymbol = symbol.trim().toUpperCase();
+
     // 检查是否已存在
     const existingCoin = await Coin.findOne({
-      where: { symbol: symbol.toUpperCase() }
+      where: { symbol: normalizedSymbol }
     });
-    
+
     if (existingCoin) {
       return res.status(409).json({ error: 'Coin already exists' });
     }
-    
+
     // 创建新币种
     const newCoin = await Coin.create({
-      symbol: symbol.toUpperCase(),
+      symbol: normalizedSymbol,
       name,
       current_price,
       logo_url
@@ -760,20 +770,85 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
+async function countCoinRows(Model, where) {
+  if (!Model?.count) return 0;
+  return Model.count({ where });
+}
+
+// 与 /api/admin/coins/:id 保持一致：先报依赖数量，再由调用方二次确认
+async function getCoinDependencyCounts(coin) {
+  const coinId = Number(coin.id);
+  const symbol = String(coin.symbol || '').toUpperCase();
+  const [
+    dailyMetrics,
+    coinKlines,
+    coinKlineMappings,
+    userFavorites,
+    btcPricePoints,
+  ] = await Promise.all([
+    countCoinRows(DailyMetric, { coin_id: coinId }),
+    countCoinRows(CoinKline, { coin_id: coinId }),
+    countCoinRows(CoinKlineMapping, { coin_id: coinId }),
+    countCoinRows(UserFavorite, { symbol }),
+    countCoinRows(BtcPricePoint, { coin_id: coinId }),
+  ]);
+
+  return {
+    dailyMetrics,
+    coinKlines,
+    coinKlineMappings,
+    userFavorites,
+    btcPricePoints,
+    total: dailyMetrics + coinKlines + coinKlineMappings + userFavorites + btcPricePoints,
+  };
+}
+
+async function destroyCoinRows(Model, where, transaction) {
+  if (!Model?.destroy) return 0;
+  return Model.destroy({ where, transaction });
+}
+
+async function deleteCoinDependencies(coin, transaction) {
+  const coinId = Number(coin.id);
+  const symbol = String(coin.symbol || '').toUpperCase();
+
+  await destroyCoinRows(BtcPricePoint, { coin_id: coinId }, transaction);
+  await destroyCoinRows(CoinKline, { coin_id: coinId }, transaction);
+  await destroyCoinRows(CoinKlineMapping, { coin_id: coinId }, transaction);
+  await destroyCoinRows(UserFavorite, { symbol }, transaction);
+  await destroyCoinRows(DailyMetric, { coin_id: coinId }, transaction);
+}
+
 // 删除币种
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    
+    const force = req.query.force === 'true' || req.body?.force === true;
+
     const coin = await Coin.findByPk(id);
     if (!coin) {
       return res.status(404).json({ error: 'Coin not found' });
     }
-    
-    // 删除币种
-    await coin.destroy();
-    
-    res.json({ message: 'Coin deleted successfully' });
+
+    // DailyMetrics.coin_id / CoinKlines.coin_id 都是 ON DELETE CASCADE，
+    // 裸删会把全部历史静默清空，因此未确认时先返回依赖数量
+    const dependencies = await getCoinDependencyCounts(coin);
+    if (dependencies.total > 0 && !force) {
+      return res.status(409).json({
+        error: '该币种已有历史数据，需要二次确认后删除',
+        dependencies,
+        requiresConfirmation: true,
+      });
+    }
+
+    await sequelize.transaction(async (transaction) => {
+      if (force) {
+        await deleteCoinDependencies(coin, transaction);
+      }
+      await coin.destroy({ transaction });
+    });
+
+    res.json({ message: 'Coin deleted successfully', dependencies });
   } catch (error) {
     console.error(`Error deleting coin ${req.params.id}:`, error);
     res.status(500).json({ error: 'Failed to delete coin' });

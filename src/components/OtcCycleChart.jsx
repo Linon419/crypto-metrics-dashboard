@@ -37,7 +37,7 @@ import {
   getReviewVisibleBars,
   mergeKlinesByOpenTime,
   mergeMetricsByVersion,
-  parseDateBoundaryMs,
+  parseLocalDateBoundaryMs,
   shouldUsePagedDateRangeKlines,
   resolveIsYahooFinanceSource,
   syncTimeRange,
@@ -45,6 +45,9 @@ import {
 } from '../utils/otcCycleChartModel';
 
 const { Text } = Typography;
+
+// 切币期间用同一个空数组引用，避免下游 useMemo 因为新数组白跑一次
+const EMPTY_KLINES = [];
 
 // 图表模型构建逻辑位于 utils/otcCycleChartModel；此处再导出测试所需的纯函数
 export {
@@ -70,7 +73,8 @@ function OtcCycleChart({
 }) {
   const normalizedSymbol = String(symbol || '').toUpperCase();
   const [interval, setInterval] = useState(DEFAULT_CHART_INTERVAL);
-  const [klines, setKlines] = useState([]);
+  // K 线与所属 symbol 一起保存：切币时立即作废，避免用上一个币的 market 判断数据源
+  const [klineState, setKlineState] = useState({ symbol: normalizedSymbol, klines: EMPTY_KLINES });
   const [metrics, setMetrics] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandingLeft, setExpandingLeft] = useState(false);
@@ -90,10 +94,24 @@ function OtcCycleChart({
   const phaseLayerRef = useRef(null);
   const syncingRef = useRef(false);
   const chartsRef = useRef([]);
+  const chartHandlesRef = useRef(null);
+  const chartContextRef = useRef({});
   const manualVisibleRangeRef = useRef(null);
   const loadingOlderRef = useRef(false);
   const hasMoreLeftRef = useRef(true);
+  const loadRequestSeqRef = useRef(0);
   const [hasMoreLeft, setHasMoreLeft] = useState(true);
+
+  const klines = klineState.symbol === normalizedSymbol ? klineState.klines : EMPTY_KLINES;
+  const setKlines = useCallback((updater) => {
+    setKlineState((current) => {
+      const base = current.symbol === normalizedSymbol ? current.klines : EMPTY_KLINES;
+      return {
+        symbol: normalizedSymbol,
+        klines: typeof updater === 'function' ? updater(base) : updater,
+      };
+    });
+  }, [normalizedSymbol]);
 
   const selectedPeriod = CHART_PERIODS.find(period => period.value === interval) || CHART_PERIODS[0];
   // 优先信任已加载 K 线上报的 market：映射可能已切到币安，静态表只是初始猜测
@@ -113,6 +131,9 @@ function OtcCycleChart({
   }, []);
 
   const loadChartData = useCallback(async ({ refresh = false, silent = false } = {}) => {
+    // 快速切换周期/日期时，只有最后一次请求可以写入状态
+    const requestSeq = loadRequestSeqRef.current + 1;
+    loadRequestSeqRef.current = requestSeq;
     if (!silent) setLoading(true);
     if (!silent) {
       manualVisibleRangeRef.current = null;
@@ -146,26 +167,32 @@ function OtcCycleChart({
           klineRequest.refresh = true;
         }
       }
+      // 区间按本地时区锚定，和轴刻度保持一致
       if (!useLatestKlineWindow && !shouldPageDateRange && startDate) {
-        klineRequest.startTime = new Date(startDate).getTime();
+        const startTime = parseLocalDateBoundaryMs(startDate, 'start');
+        if (startTime !== null) klineRequest.startTime = startTime;
       }
       if (!useLatestKlineWindow && endDate) {
-        klineRequest.endTime = new Date(`${endDate}T23:59:59.999Z`).getTime();
+        const endTime = parseLocalDateBoundaryMs(endDate, 'end');
+        if (endTime !== null) klineRequest.endTime = endTime;
       }
       const klineResult = await fetchCoinKlines(symbol, klineRequest);
+      if (loadRequestSeqRef.current !== requestSeq) return;
       const klineRange = getKlineDateRange(klineResult?.klines || []);
       const metricResult = await fetchCoinMetrics(symbol, {
         startDate: klineRange?.startDate || startDate,
         endDate: endDate || klineRange?.endDate,
       });
+      if (loadRequestSeqRef.current !== requestSeq) return;
       setKlines(klineResult?.klines || []);
       setMetrics(Array.isArray(metricResult) ? metricResult : []);
     } catch (err) {
+      if (loadRequestSeqRef.current !== requestSeq) return;
       setError(err.message || '新版场外周期图加载失败');
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && loadRequestSeqRef.current === requestSeq) setLoading(false);
     }
-  }, [endDate, includePrePost, isYahooFinanceSource, selectedPeriod.limit, selectedPeriod.value, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
+  }, [endDate, includePrePost, isYahooFinanceSource, selectedPeriod.limit, selectedPeriod.value, setKlines, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
 
   useEffect(() => {
     loadChartData();
@@ -196,7 +223,7 @@ function OtcCycleChart({
     }, Infinity);
 
     if (!Number.isFinite(earliestOpenTime)) return;
-    const lowerBoundary = !useLatestKlineWindow ? parseDateBoundaryMs(startDate, 'start') : null;
+    const lowerBoundary = !useLatestKlineWindow ? parseLocalDateBoundaryMs(startDate, 'start') : null;
     if (lowerBoundary !== null && earliestOpenTime <= lowerBoundary) {
       updateHasMoreLeft(false);
       return;
@@ -255,7 +282,7 @@ function OtcCycleChart({
       loadingOlderRef.current = false;
       setExpandingLeft(false);
     }
-  }, [endDate, expandingLeft, includePrePost, isYahooFinanceSource, klines, selectedPeriod.value, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
+  }, [endDate, expandingLeft, includePrePost, isYahooFinanceSource, klines, selectedPeriod.value, setKlines, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
 
   useEffect(() => {
     if (normalizedSymbol === 'VEGA' || isYahooFinanceSource) return () => {};
@@ -274,7 +301,7 @@ function OtcCycleChart({
         console.warn('[OtcCycleChart] live kline stream error:', message);
       },
     });
-  }, [isYahooFinanceSource, normalizedSymbol, selectedPeriod.value, symbol]);
+  }, [isYahooFinanceSource, normalizedSymbol, selectedPeriod.value, setKlines, symbol]);
 
   const model = useMemo(
     () => buildTradingViewCycleModel({ klines, metrics }),
@@ -293,9 +320,23 @@ function OtcCycleChart({
   const renderedAnnotationLabels = annotationLabels.length > 0
     ? annotationLabels
     : fallbackAnnotationLabels;
+  const hasChartRows = model.rows.length > 0;
+
+  // 图表实例只在容器/尺寸变化时创建一次；下面注册的回调统一从这个 ref 读取最新渲染值，
+  // 这样实时K线每 250ms 推送一次也不会把三个图表销毁重建。
+  chartContextRef.current = {
+    hoverSnapSeconds,
+    loadOlderKlines,
+    loading,
+    model,
+    showMetricEvents,
+    startDate,
+    useLatestKlineWindow,
+    visibleBars,
+  };
 
   useEffect(() => {
-    if (!priceRootRef.current || !otcRootRef.current || !explosionRootRef.current || model.rows.length === 0) {
+    if (!priceRootRef.current || !otcRootRef.current || !explosionRootRef.current || !hasChartRows) {
       setAnnotationLabels([]);
       return undefined;
     }
@@ -319,10 +360,6 @@ function OtcCycleChart({
       priceLineVisible: false,
       lastValueVisible: true,
     });
-    candleSeries.setData(model.candles);
-    if (showMetricEvents) {
-      createSeriesMarkers(candleSeries, model.markers, { zOrder: 'top' });
-    }
 
     const bollUpperSeries = priceChart.addSeries(LineSeries, {
       color: '#64748b',
@@ -331,7 +368,6 @@ function OtcCycleChart({
       priceLineVisible: false,
       lastValueVisible: false,
     });
-    bollUpperSeries.setData(model.boll.upper);
 
     const bollMiddleSeries = priceChart.addSeries(LineSeries, {
       color: ORANGE,
@@ -339,7 +375,6 @@ function OtcCycleChart({
       priceLineVisible: false,
       lastValueVisible: false,
     });
-    bollMiddleSeries.setData(model.boll.middle);
 
     const bollLowerSeries = priceChart.addSeries(LineSeries, {
       color: '#64748b',
@@ -348,17 +383,6 @@ function OtcCycleChart({
       priceLineVisible: false,
       lastValueVisible: false,
     });
-    bollLowerSeries.setData(model.boll.lower);
-
-    if (model.latest) {
-      candleSeries.createPriceLine({
-        price: model.latest.close,
-        color: model.candles.at(-1)?.close >= model.candles.at(-1)?.open ? GREEN : RED,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-      });
-    }
 
     const otcSeries = otcChart.addSeries(LineSeries, {
       color: BLUE,
@@ -366,10 +390,15 @@ function OtcCycleChart({
       priceLineVisible: false,
       lastValueVisible: false,
     });
-    otcSeries.setData(model.otcIndex);
-    if (showMetricEvents) {
-      createSeriesMarkers(otcSeries, model.otcPointMarkers, { zOrder: 'top' });
-    }
+
+    const explosionSeries = explosionChart.addSeries(LineSeries, {
+      color: PURPLE,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+
+    // 固定阈值线与数据无关，只创建一次
     otcSeries.createPriceLine({
       price: 1000,
       color: ORANGE,
@@ -378,27 +407,6 @@ function OtcCycleChart({
       axisLabelVisible: true,
       title: '1000',
     });
-    if (model.latest?.otcIndex !== null && model.latest?.otcIndex !== undefined) {
-      otcSeries.createPriceLine({
-        price: model.latest.otcIndex,
-        color: BLUE,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        axisLabelVisible: true,
-        title: '场外',
-      });
-    }
-
-    const explosionSeries = explosionChart.addSeries(LineSeries, {
-      color: PURPLE,
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    explosionSeries.setData(model.explosionIndex);
-    if (showMetricEvents) {
-      createSeriesMarkers(explosionSeries, model.explosionPointMarkers, { zOrder: 'top' });
-    }
     explosionSeries.createPriceLine({
       price: 200,
       color: ORANGE,
@@ -415,29 +423,16 @@ function OtcCycleChart({
       axisLabelVisible: true,
       title: '0',
     });
-    if (model.latest?.explosionIndex !== null && model.latest?.explosionIndex !== undefined) {
-      explosionSeries.createPriceLine({
-        price: model.latest.explosionIndex,
-        color: PURPLE,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        axisLabelVisible: true,
-        title: '爆破',
-      });
-    }
+
+    const candleMarkers = createSeriesMarkers(candleSeries, [], { zOrder: 'top' });
+    const otcMarkers = createSeriesMarkers(otcSeries, [], { zOrder: 'top' });
+    const explosionMarkers = createSeriesMarkers(explosionSeries, [], { zOrder: 'top' });
 
     const charts = [priceChart, otcChart, explosionChart];
     chartsRef.current = charts;
-    const initialRange = manualVisibleRangeRef.current;
-    if (initialRange) {
-      charts.forEach((chart) => {
-        chart.timeScale().setVisibleRange(initialRange);
-      });
-    } else {
-      applyReviewRange(charts, model.rows, visibleBars, model.metricEvents);
-    }
 
     const updateMetricHover = (param) => {
+      const context = chartContextRef.current;
       const axisText = formatChartAxisTime(param?.time);
       const axisX = toFiniteCoordinate(param?.point?.x);
       if (axisText && axisX !== null) {
@@ -448,7 +443,11 @@ function OtcCycleChart({
         setHoverAxisLabel(null);
       }
 
-      const event = findNearestMetricEventForTime(model.metricEvents, param?.time, hoverSnapSeconds);
+      const event = findNearestMetricEventForTime(
+        context.model.metricEvents,
+        param?.time,
+        context.hoverSnapSeconds,
+      );
       setHoveredMetricEvent(event || null);
       if (!event) {
         setHoverValueLabels(null);
@@ -476,28 +475,31 @@ function OtcCycleChart({
       }
     };
     const maybeLoadOlderFromVisibleRange = (range) => {
+      const context = chartContextRef.current;
       rememberVisibleRange(range);
       if (
         !range ||
-        loading ||
+        context.loading ||
         loadingOlderRef.current ||
         !hasMoreLeftRef.current ||
-        model.rows.length === 0
+        context.model.rows.length === 0
       ) return;
 
       const from = Number(range.from);
-      const earliestTime = model.rows[0].time;
+      const earliestTime = context.model.rows[0].time;
       if (!Number.isFinite(from) || !Number.isFinite(earliestTime)) return;
 
-      const lowerBoundary = !useLatestKlineWindow ? parseDateBoundaryMs(startDate, 'start') : null;
+      const lowerBoundary = !context.useLatestKlineWindow
+        ? parseLocalDateBoundaryMs(context.startDate, 'start')
+        : null;
       if (lowerBoundary !== null && earliestTime * 1000 <= lowerBoundary) {
         updateHasMoreLeft(false);
         return;
       }
 
-      const thresholdSeconds = getMedianRowTimeGap(model.rows) * AUTO_LEFT_PAGE_THRESHOLD_BARS;
+      const thresholdSeconds = getMedianRowTimeGap(context.model.rows) * AUTO_LEFT_PAGE_THRESHOLD_BARS;
       if (from <= earliestTime + thresholdSeconds) {
-        loadOlderKlines();
+        context.loadOlderKlines();
       }
     };
 
@@ -510,13 +512,14 @@ function OtcCycleChart({
     explosionChart.timeScale().subscribeVisibleTimeRangeChange(explosionSync);
 
     const updatePhaseLayer = () => {
+      const { model: currentModel } = chartContextRef.current;
       const layer = phaseLayer;
       if (!layer) return;
       const chartWidth = priceRootRef.current?.clientWidth || 0;
       layer.innerHTML = '';
       if (chartWidth <= 0) return;
 
-      const coordinates = model.rows
+      const coordinates = currentModel.rows
         .map(row => priceChart.timeScale().timeToCoordinate(row.time))
         .filter(value => value !== null)
         .sort((left, right) => left - right);
@@ -527,7 +530,7 @@ function OtcCycleChart({
       const medianGap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 8;
       const barHalfWidth = Math.max(4, Math.min(36, medianGap / 2));
 
-      model.phaseRanges.forEach((range) => {
+      currentModel.phaseRanges.forEach((range) => {
         const startX = priceChart.timeScale().timeToCoordinate(range.startTime);
         const endX = priceChart.timeScale().timeToCoordinate(range.endTime);
         if (startX === null || endX === null) return;
@@ -542,14 +545,15 @@ function OtcCycleChart({
     };
 
     const updateAnnotationLayer = () => {
+      const { model: currentModel, showMetricEvents: showEvents } = chartContextRef.current;
       const chartWidth = priceRootRef.current?.clientWidth || 800;
-      if (!showMetricEvents || chartWidth <= 0) {
+      if (!showEvents || chartWidth <= 0) {
         setAnnotationLabels([]);
         return;
       }
 
       setAnnotationLabels(buildPositionedAnnotationLabels(
-        model.annotationTracks,
+        currentModel.annotationTracks,
         chartWidth,
         time => priceChart.timeScale().timeToCoordinate(time),
       ));
@@ -557,10 +561,9 @@ function OtcCycleChart({
 
     priceChart.timeScale().subscribeVisibleTimeRangeChange(updatePhaseLayer);
     priceChart.timeScale().subscribeVisibleTimeRangeChange(updateAnnotationLayer);
-    updatePhaseLayer();
-    updateAnnotationLayer();
 
     const resize = () => {
+      const context = chartContextRef.current;
       const priceWidth = priceRootRef.current?.clientWidth || 800;
       const otcWidth = otcRootRef.current?.clientWidth || priceWidth;
       const explosionWidth = explosionRootRef.current?.clientWidth || priceWidth;
@@ -573,7 +576,7 @@ function OtcCycleChart({
           chart.timeScale().setVisibleRange(manualRange);
         });
       } else {
-        applyReviewRange(charts, model.rows, visibleBars, model.metricEvents);
+        applyReviewRange(charts, context.model.rows, context.visibleBars, context.model.metricEvents);
       }
       updatePhaseLayer();
       updateAnnotationLayer();
@@ -585,7 +588,23 @@ function OtcCycleChart({
     });
     window.addEventListener('resize', resize);
 
+    chartHandlesRef.current = {
+      bollLowerSeries,
+      bollMiddleSeries,
+      bollUpperSeries,
+      candleMarkers,
+      candleSeries,
+      charts,
+      explosionMarkers,
+      explosionSeries,
+      otcMarkers,
+      otcSeries,
+      updateAnnotationLayer,
+      updatePhaseLayer,
+    };
+
     return () => {
+      chartHandlesRef.current = null;
       priceChart.timeScale().unsubscribeVisibleTimeRangeChange(priceSync);
       priceChart.timeScale().unsubscribeVisibleTimeRangeChange(maybeLoadOlderFromVisibleRange);
       priceChart.timeScale().unsubscribeVisibleTimeRangeChange(updatePhaseLayer);
@@ -603,7 +622,72 @@ function OtcCycleChart({
       setHoverValueLabels(null);
       setHoverAxisLabel(null);
     };
-  }, [hoverSnapSeconds, indicatorChartHeight, loadOlderKlines, loading, model, priceChartHeight, showMetricEvents, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow, visibleBars]);
+  }, [hasChartRows, indicatorChartHeight, priceChartHeight, updateHasMoreLeft]);
+
+  // 数据更新只走 setData / setMarkers，不重建图表实例
+  useEffect(() => {
+    const handles = chartHandlesRef.current;
+    if (!handles) return undefined;
+
+    handles.candleSeries.setData(model.candles);
+    handles.bollUpperSeries.setData(model.boll.upper);
+    handles.bollMiddleSeries.setData(model.boll.middle);
+    handles.bollLowerSeries.setData(model.boll.lower);
+    handles.otcSeries.setData(model.otcIndex);
+    handles.explosionSeries.setData(model.explosionIndex);
+
+    handles.candleMarkers?.setMarkers?.(showMetricEvents ? model.markers : []);
+    handles.otcMarkers?.setMarkers?.(showMetricEvents ? model.otcPointMarkers : []);
+    handles.explosionMarkers?.setMarkers?.(showMetricEvents ? model.explosionPointMarkers : []);
+
+    // 最新值虚线跟着数据走，下一次更新前先撤掉旧的
+    const latestPriceLines = [];
+    const trackPriceLine = (series, line) => {
+      if (line) latestPriceLines.push([series, line]);
+    };
+    if (model.latest) {
+      trackPriceLine(handles.candleSeries, handles.candleSeries.createPriceLine({
+        price: model.latest.close,
+        color: model.candles.at(-1)?.close >= model.candles.at(-1)?.open ? GREEN : RED,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+      }));
+    }
+    if (model.latest?.otcIndex !== null && model.latest?.otcIndex !== undefined) {
+      trackPriceLine(handles.otcSeries, handles.otcSeries.createPriceLine({
+        price: model.latest.otcIndex,
+        color: BLUE,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: '场外',
+      }));
+    }
+    if (model.latest?.explosionIndex !== null && model.latest?.explosionIndex !== undefined) {
+      trackPriceLine(handles.explosionSeries, handles.explosionSeries.createPriceLine({
+        price: model.latest.explosionIndex,
+        color: PURPLE,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: '爆破',
+      }));
+    }
+
+    // 用户拖动过（或已经应用过一次复盘区间）就不再抢镜头
+    if (!manualVisibleRangeRef.current) {
+      applyReviewRange(handles.charts, model.rows, visibleBars, model.metricEvents);
+    }
+    handles.updatePhaseLayer();
+    handles.updateAnnotationLayer();
+
+    return () => {
+      // 图表实例已经被创建 effect 销毁时不需要（也不能）再摘价格线
+      if (chartHandlesRef.current !== handles) return;
+      latestPriceLines.forEach(([series, line]) => series.removePriceLine?.(line));
+    };
+  }, [hasChartRows, indicatorChartHeight, model, priceChartHeight, showMetricEvents, visibleBars]);
 
   const latest = model.latest;
   const metricStatusText = showMetricEvents
@@ -676,6 +760,15 @@ function OtcCycleChart({
         <div className="otc-cycle-chart-panel__loading">
           <Spin size="small" />
           <Text>正在加载 {symbol} K 线与场外指标</Text>
+        </div>
+      ) : klines.length === 0 ? (
+        // 空数组涵盖无数据与请求失败两种状态，界面提供对应说明
+        <div className="otc-cycle-chart-panel__loading" data-testid="cycle-chart-empty">
+          <Text type="secondary">
+            {error
+              ? `${symbol} K 线加载失败，请点击"刷新K线"重试`
+              : `暂无 ${symbol} 的 K 线数据`}
+          </Text>
         </div>
       ) : (
         <div className="tv-cycle-chart" data-testid="cycle-chart">

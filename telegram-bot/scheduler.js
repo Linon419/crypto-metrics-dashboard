@@ -5,6 +5,9 @@ require('dotenv').config();
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3001/api';
 
+// 所有定时任务统一使用的时区，去重日期也必须按它计算
+const SCHEDULER_TIMEZONE = 'Australia/Sydney';
+
 // 导入用户认证模块
 const UserAuth = require('./user-auth');
 
@@ -14,6 +17,65 @@ let db = null;
 
 // 存储上次检查的数据快照
 const lastDataSnapshot = new Map();
+
+// 定时任务并发闸门：node-cron 的 noOverlap 只作用于单个 job，跨 job 的重叠再加一层保护
+const runningJobs = new Set();
+
+// 综合通知的去重键，查询和写入必须共用同一个常量
+const DATA_UPDATE_NOTIFICATION_KEY = 'data_update';
+
+// 上一轮还没跑完就跳过本轮，避免请求卡住时执行堆积、两次运行同时推送
+async function runExclusiveJob(jobName, jobFn) {
+    if (runningJobs.has(jobName)) {
+        console.log(`Skipping ${jobName}: previous run still in progress`);
+        return;
+    }
+
+    runningJobs.add(jobName);
+    try {
+        await jobFn();
+    } catch (error) {
+        console.error(`Error running ${jobName}:`, error);
+    } finally {
+        runningJobs.delete(jobName);
+    }
+}
+
+// 去重日期必须和 cron 时区一致，否则窗口会在悉尼时间上午重置
+function getSchedulerDate(date = new Date()) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: SCHEDULER_TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(date);
+}
+
+// /data/latest 返回 snake_case 且动能指标是 TEXT 列里的原始 JSON 字符串，
+// /data/by-date 已归一化成 camelCase 数组，这里统一兼容两种形态
+function getMomentumIndicators(metric) {
+    const value = metric?.momentumIndicators ?? metric?.momentum_indicators;
+
+    if (Array.isArray(value)) {
+        return value;
+    }
+
+    if (typeof value === 'string') {
+        const trimmedValue = value.trim();
+        if (!trimmedValue) {
+            return [];
+        }
+
+        try {
+            const parsedValue = JSON.parse(trimmedValue);
+            return Array.isArray(parsedValue) ? parsedValue : [];
+        } catch (error) {
+            return [];
+        }
+    }
+
+    return [];
+}
 
 // 创建数据快照用于比较
 function createDataSnapshot(data) {
@@ -28,7 +90,7 @@ function createDataSnapshot(data) {
             entry_exit_day: metric.entry_exit_day,
             period_quality: metric.period_quality,
             near_threshold: metric.near_threshold,
-            momentumIndicators: metric.momentumIndicators,
+            momentumIndicators: getMomentumIndicators(metric),
             strategy_signal_level: getStrategySignal(metric)?.level || null
         }))
     };
@@ -60,7 +122,7 @@ function hasDataChanged(lastSnapshot, currentSnapshot) {
             current.period_quality !== last.period_quality ||
             current.near_threshold !== last.near_threshold ||
             current.strategy_signal_level !== last.strategy_signal_level ||
-            JSON.stringify(current.momentumIndicators) !== JSON.stringify(last.momentumIndicators)) {
+            JSON.stringify(getMomentumIndicators(current)) !== JSON.stringify(getMomentumIndicators(last))) {
             return true;
         }
     }
@@ -89,7 +151,11 @@ async function getUserLatestData(chatId) {
 async function getUserFavoriteCoins(chatId) {
     try {
         const data = await UserAuth.makeUserAuthenticatedRequest(chatId, 'get', '/favorites');
-        return data.favorites || [];
+        // GET /api/favorites 返回的是裸数组，这里同时兼容 { favorites: [] } 包装形态
+        if (Array.isArray(data)) {
+            return data;
+        }
+        return Array.isArray(data?.favorites) ? data.favorites : [];
     } catch (error) {
         console.error(`Error fetching favorite coins for user ${chatId}:`, error.message);
         return [];
@@ -217,8 +283,7 @@ function isExplosionDropBelow200(metric) {
     const currentExplosion = Number(metric?.explosion_index);
     const previousExplosionValue = getPreviousExplosionIndex(metric);
     const previousExplosion = Number(previousExplosionValue);
-    const hasShortExitSignal = Array.isArray(metric?.momentumIndicators)
-        && metric.momentumIndicators.includes('‼');
+    const hasShortExitSignal = getMomentumIndicators(metric).includes('‼');
 
     if (hasShortExitSignal && Number.isFinite(currentExplosion) && currentExplosion < 200) {
         return true;
@@ -343,9 +408,8 @@ async function checkAllCoinsQualityEntry() {
     
     try {
         const subscribedUsers = await getAllSubscribedUsers();
-        const now = new Date();
-        const currentDate = now.toISOString().slice(0, 10); // YYYY-MM-DD format
-        
+        const currentDate = getSchedulerDate(); // 悉尼时区的 YYYY-MM-DD
+
         console.log(`Checking quality entry for ${subscribedUsers.length} subscribed users`);
 
         for (const chatId of subscribedUsers) {
@@ -438,9 +502,8 @@ async function checkFavoriteCoinsAlerts() {
     
     try {
         const subscribedUsers = await getAllSubscribedUsers();
-        const now = new Date();
-        const currentDate = now.toISOString().slice(0, 10); // YYYY-MM-DD format
-        
+        const currentDate = getSchedulerDate(); // 悉尼时区的 YYYY-MM-DD
+
         console.log(`Checking favorite alerts for ${subscribedUsers.length} subscribed users`);
 
         for (const chatId of subscribedUsers) {
@@ -562,11 +625,10 @@ async function checkDataUpdates() {
                     // 更新数据快照
                     lastDataSnapshot.set(chatId, currentDataSnapshot);
 
-                    const currentDate = new Date().toISOString().slice(0, 10);
-                    const currentTimestamp = Math.floor(Date.now() / 60000); // 分钟级时间戳
+                    const currentDate = getSchedulerDate(); // 悉尼时区的 YYYY-MM-DD
 
-                    // 使用更精确的去重机制
-                    const alreadyNotified = await hasNotificationSent(chatId, 'SYSTEM', `data_update_${currentTimestamp}`, currentDate);
+                    // 去重键必须和下面写入的键一致，否则重启后会重复推送同一条综合通知
+                    const alreadyNotified = await hasNotificationSent(chatId, 'SYSTEM', DATA_UPDATE_NOTIFICATION_KEY, currentDate);
 
                     if (!alreadyNotified) {
                         // 获取所有重要变化和通知
@@ -627,7 +689,17 @@ async function checkDataUpdates() {
 
                             try {
                                 await sendTelegramNotification(chatId, message);
-                                await recordNotification(chatId, 'SYSTEM', 'data_update', currentDate);
+                                await recordNotification(chatId, 'SYSTEM', DATA_UPDATE_NOTIFICATION_KEY, currentDate);
+
+                                // 记录全市场变化通知，避免与单独的轮询任务重复推送
+                                const marketChanges = allNotifications.find(n => n.type === 'market_changes');
+                                if (marketChanges) {
+                                    for (const change of marketChanges.content) {
+                                        if (change.notificationKey) {
+                                            await recordNotification(chatId, change.coin.symbol, change.notificationKey, currentDate);
+                                        }
+                                    }
+                                }
 
                                 // 为进场期前3天的币种记录特殊的通知历史
                                 const qualityOpps = allNotifications.find(n => n.type === 'quality_opportunities');
@@ -687,6 +759,7 @@ function analyzeDataChanges(metrics, lastSnapshot = null) {
                 coin: metric.coin,
                 changeType: '进场质量变化',
                 description: `${entryQualityChange.previousQuality} → ${entryQualityChange.currentQuality}`,
+                notificationKey: 'change_entry_quality',
                 currentData: {
                     otc_index: metric.otc_index,
                     explosion_index: metric.explosion_index
@@ -700,6 +773,7 @@ function analyzeDataChanges(metrics, lastSnapshot = null) {
                 coin: metric.coin,
                 changeType: '爆破跌破 200',
                 description: `爆破 ${formatNumber(getPreviousExplosionIndex(metric))} → ${formatNumber(metric.explosion_index)}`,
+                notificationKey: 'explosion_drop_200',
                 currentData: {
                     otc_index: metric.otc_index,
                     explosion_index: metric.explosion_index
@@ -713,6 +787,7 @@ function analyzeDataChanges(metrics, lastSnapshot = null) {
                 coin: metric.coin,
                 changeType: '新进入进场期',
                 description: `质量评估：${metric.period_quality || '待评估'}`,
+                notificationKey: 'change_entry_day_1',
                 currentData: {
                     otc_index: metric.otc_index,
                     explosion_index: metric.explosion_index
@@ -725,6 +800,7 @@ function analyzeDataChanges(metrics, lastSnapshot = null) {
                 coin: metric.coin,
                 changeType: '新进入退场期',
                 description: `质量评估：${metric.period_quality || '待评估'}`,
+                notificationKey: 'change_exit_day_1',
                 currentData: {
                     otc_index: metric.otc_index,
                     explosion_index: metric.explosion_index
@@ -782,9 +858,8 @@ async function checkMomentumIndicators() {
     
     try {
         const subscribedUsers = await getAllSubscribedUsers();
-        const now = new Date();
-        const currentDate = now.toISOString().slice(0, 10); // YYYY-MM-DD format
-        
+        const currentDate = getSchedulerDate(); // 悉尼时区的 YYYY-MM-DD
+
         console.log(`Checking momentum indicators for ${subscribedUsers.length} subscribed users`);
 
         for (const chatId of subscribedUsers) {
@@ -803,17 +878,15 @@ async function checkMomentumIndicators() {
                 }
 
                 // 查找有动能指标的币种
-                const coinsWithMomentum = data.metrics.filter(metric => 
-                    metric.momentumIndicators && 
-                    Array.isArray(metric.momentumIndicators) && 
-                    metric.momentumIndicators.length > 0
+                const coinsWithMomentum = data.metrics.filter(metric =>
+                    getMomentumIndicators(metric).length > 0
                 );
 
                 console.log(`Found ${coinsWithMomentum.length} coins with momentum indicators for user ${chatId}`);
 
                 for (const coinData of coinsWithMomentum) {
                     const coinSymbol = coinData.coin.symbol;
-                    const momentumIndicators = coinData.momentumIndicators;
+                    const momentumIndicators = getMomentumIndicators(coinData);
                     
                     // 只推送强动能和短期撤出信号
                     for (const indicator of momentumIndicators.filter(isImportantMomentumIndicator)) {
@@ -997,6 +1070,8 @@ async function analyzeQualityOpportunities(metrics, chatId, currentDate, notific
                 explosion: coin.explosion_index,
                 otc: coin.otc_index
             },
+            // 与 checkAllCoinsQualityEntry 共用同一个键，推送后互相去重
+            notificationKey: 'explosion_turn_positive',
             isEarlyEntry: false
         });
     });
@@ -1045,14 +1120,12 @@ async function analyzeMomentumIndicators(metrics, chatId, currentDate) {
     const alerts = [];
     
     // 查找有动能指标的币种
-    const coinsWithMomentum = metrics.filter(metric => 
-        metric.momentumIndicators && 
-        Array.isArray(metric.momentumIndicators) && 
-        metric.momentumIndicators.length > 0
+    const coinsWithMomentum = metrics.filter(metric =>
+        getMomentumIndicators(metric).length > 0
     );
-    
+
     for (const coin of coinsWithMomentum) {
-        for (const indicator of coin.momentumIndicators) {
+        for (const indicator of getMomentumIndicators(coin)) {
             if (!isImportantMomentumIndicator(indicator)) {
                 continue;
             }
@@ -1206,31 +1279,54 @@ function initializeScheduler() {
     // 1. 高频数据检测 - 每5分钟检查一次（全天24小时）
     cron.schedule('*/5 * * * *', async () => {
         console.log('Running frequent data update check');
-        await checkDataUpdates();
+        await runExclusiveJob('checkDataUpdates', checkDataUpdates);
     }, {
-        timezone: "Australia/Sydney"
+        timezone: SCHEDULER_TIMEZONE,
+        noOverlap: true
     });
 
     // 2. 核心时段加强检测 - 下午2点到晚上8点，每2分钟检查一次
     cron.schedule('*/2 14-20 * * *', async () => {
         console.log('Running intensive data update check (core hours)');
-        await checkDataUpdates();
+        await runExclusiveJob('checkDataUpdates', checkDataUpdates);
     }, {
-        timezone: "Australia/Sydney"
+        timezone: SCHEDULER_TIMEZONE,
+        noOverlap: true
     });
 
     // 3. 收藏币种特别关注 - 每分钟检查收藏币种的关键变化
     cron.schedule('* 14-20 * * *', async () => {
         console.log('Running favorite coins alerts check');
-        await checkFavoriteCoinsAlerts();
+        await runExclusiveJob('checkFavoriteCoinsAlerts', checkFavoriteCoinsAlerts);
     }, {
-        timezone: "Australia/Sydney"
+        timezone: SCHEDULER_TIMEZONE,
+        noOverlap: true
+    });
+
+    // 4. 全市场高质量进场期轮询 - 每2小时整点检查一次
+    cron.schedule('0 */2 * * *', async () => {
+        console.log('Running all coins quality entry check');
+        await runExclusiveJob('checkAllCoinsQualityEntry', checkAllCoinsQualityEntry);
+    }, {
+        timezone: SCHEDULER_TIMEZONE,
+        noOverlap: true
+    });
+
+    // 5. 动能指标检测 - 核心时段每15分钟检查一次
+    cron.schedule('*/15 14-20 * * *', async () => {
+        console.log('Running momentum indicators check');
+        await runExclusiveJob('checkMomentumIndicators', checkMomentumIndicators);
+    }, {
+        timezone: SCHEDULER_TIMEZONE,
+        noOverlap: true
     });
 
     console.log('Scheduler initialized with the following jobs:');
     console.log('- Every 5 minutes (24/7): Regular data update checks');
     console.log('- Every 2 minutes (2:00 PM - 8:00 PM): Intensive monitoring during core hours');
     console.log('- Every 1 minute (2:00 PM - 8:00 PM): Critical favorite coins alerts');
+    console.log('- Every 2 hours (24/7): All coins quality entry polling');
+    console.log('- Every 15 minutes (2:00 PM - 8:00 PM): Momentum indicators check');
 }
 
 // 立即执行一次检查（用于测试）

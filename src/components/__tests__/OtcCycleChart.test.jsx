@@ -283,6 +283,81 @@ test('updates the latest candle while the live kline is still open', async () =>
   await waitFor(() => expect(screen.getByText('Close 129.25')).toBeInTheDocument());
 });
 
+test('keeps the same chart instances while live klines stream in', async () => {
+  let handleLiveKline;
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+  subscribeCoinKlineStream.mockImplementation((symbol, options) => {
+    handleLiveKline = options.onMessage;
+    return jest.fn();
+  });
+
+  render(<OtcCycleChart symbol="BTC" />);
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+
+  const candleSeries = mockSeriesInstances[0];
+  const setDataCallsBefore = candleSeries.setData.mock.calls.length;
+
+  for (let index = 0; index < 4; index += 1) {
+    // eslint-disable-next-line no-loop-func
+    act(() => {
+      handleLiveKline({
+        type: 'kline',
+        symbol: 'BTC',
+        interval: '4h',
+        isClosed: false,
+        kline: {
+          openTime: '2026-01-03T00:00:00.000Z',
+          closeTime: '2026-01-03T03:59:59.999Z',
+          open: 98,
+          high: 132,
+          low: 96,
+          close: 120 + index,
+          volume: 18,
+        },
+      });
+    });
+  }
+
+  await waitFor(() => expect(screen.getByText('Close 123.00')).toBeInTheDocument());
+  // 图表实例不重建，只通过 setData 推数据
+  expect(createChart).toHaveBeenCalledTimes(3);
+  expect(mockChartInstances.every(chart => chart.remove.mock.calls.length === 0)).toBe(true);
+  expect(candleSeries.setData.mock.calls.length).toBeGreaterThan(setDataCallsBefore);
+});
+
+test('keeps the newest interval result when an older request resolves last', async () => {
+  let resolveInitialRequest;
+  const oneHourKlines = klines.map((kline, index) => ({
+    ...kline,
+    close: index === klines.length - 1 ? 205 : kline.close,
+  }));
+  fetchCoinKlines
+    .mockImplementationOnce(() => new Promise((resolve) => {
+      resolveInitialRequest = resolve;
+    }))
+    .mockResolvedValueOnce({ symbol: 'BTC', interval: '1h', klines: oneHourKlines });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+
+  render(<OtcCycleChart symbol="BTC" />);
+  await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledTimes(1));
+
+  fireEvent.click(screen.getByText('1h'));
+
+  await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.getByText('Close 205.00')).toBeInTheDocument());
+
+  await act(async () => {
+    resolveInitialRequest({ symbol: 'BTC', interval: '4h', klines });
+    await Promise.resolve();
+  });
+
+  expect(screen.getByText('Close 205.00')).toBeInTheDocument();
+  expect(fetchCoinMetrics).toHaveBeenCalledTimes(1);
+});
+
 test('can load latest kline window while keeping metric date range', async () => {
   fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
   fetchCoinMetrics.mockResolvedValue(metrics);
@@ -329,10 +404,11 @@ test('uses paged latest request for long date ranges', async () => {
   });
 
   await screen.findByText('量化 K 线');
+  // 区间按浏览器本地时区锚定，和轴刻度保持一致（原实现按 UTC 锚定，UTC+8 会丢掉起始日前 8 小时）
   await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledWith('BTC', expect.objectContaining({
     interval: '4h',
     limit: 1500,
-    endTime: new Date('2026-06-18T23:59:59.999Z').getTime(),
+    endTime: new Date(2026, 5, 18, 23, 59, 59, 999).getTime(),
   })));
   const [, request] = fetchCoinKlines.mock.calls[0];
   expect(request).not.toHaveProperty('startTime');

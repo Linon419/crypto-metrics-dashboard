@@ -14,8 +14,22 @@ if (!BOT_TOKEN) {
     process.exit(1);
 }
 
+// node-telegram-bot-api 会丢弃 handler 返回的 Promise，这里兜底避免未处理的 rejection 直接终止进程
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+});
+
 // 初始化机器人
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+
+// 没有监听器时轮询错误（例如重复实例导致的 409）完全不可见
+bot.on('polling_error', (error) => {
+    console.error('Telegram polling error:', error?.code || '', error?.message || error);
+});
 
 // 初始化数据库
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'data', 'bot_data.db');
@@ -125,14 +139,51 @@ async function getUserLatestData(chatId) {
     }
 }
 
-async function getUserFavoriteCoins(chatId) {
-    try {
-        const data = await UserAuth.makeUserAuthenticatedRequest(chatId, 'get', '/favorites');
-        return data.favorites || [];
-    } catch (error) {
-        console.error(`Error fetching favorite coins for user ${chatId}:`, error.message);
-        return [];
+// 收藏列表统一由 scheduler.js 取，这里原来的重复实现读错了 /favorites 的返回结构，已删除
+
+// Telegram HTML 模式下必须转义，数据库里存在带下划线的符号（如 CN_ROBOT）会让 Markdown 解析失败
+function escapeHtml(value) {
+    return String(value ?? 'N/A')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+// /data/latest 返回 snake_case 且动能指标是 TEXT 列里的原始 JSON 字符串，
+// /data/by-date 已归一化成 camelCase 数组，这里统一兼容两种形态
+function getMomentumIndicators(metric) {
+    const value = metric?.momentumIndicators ?? metric?.momentum_indicators;
+
+    if (Array.isArray(value)) {
+        return value;
     }
+
+    if (typeof value === 'string') {
+        const trimmedValue = value.trim();
+        if (!trimmedValue) {
+            return [];
+        }
+
+        try {
+            const parsedValue = JSON.parse(trimmedValue);
+            return Array.isArray(parsedValue) ? parsedValue : [];
+        } catch (error) {
+            return [];
+        }
+    }
+
+    return [];
+}
+
+// node-telegram-bot-api 不消费 handler 的 Promise，未捕获的 rejection 会终止进程，所以统一包一层
+function safeHandler(handlerName, handler) {
+    return async (...args) => {
+        try {
+            await handler(...args);
+        } catch (error) {
+            console.error(`Unhandled error in ${handlerName} handler:`, error);
+        }
+    };
 }
 
 // 数据库辅助函数
@@ -255,7 +306,7 @@ async function requireAuthentication(chatId, commandName = '') {
 }
 
 // 命令处理器
-bot.onText(/\/start/, async (msg) => {
+bot.onText(/\/start/, safeHandler('/start', async (msg) => {
     const chatId = msg.chat.id;
     const user = msg.from;
 
@@ -303,9 +354,9 @@ bot.onText(/\/start/, async (msg) => {
         console.error('Error in /start command:', error);
         await bot.sendMessage(chatId, '抱歉，启动时出现错误，请稍后重试。');
     }
-});
+}));
 
-bot.onText(/\/help/, async (msg) => {
+bot.onText(/\/help/, safeHandler('/help', async (msg) => {
     const helpMessage = `
 📖 *帮助文档*
 
@@ -343,10 +394,10 @@ bot.onText(/\/help/, async (msg) => {
     `;
 
     await bot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'Markdown' });
-});
+}));
 
 // 认证命令
-bot.onText(/\/auth/, async (msg) => {
+bot.onText(/\/auth/, safeHandler('/auth', async (msg) => {
     const chatId = msg.chat.id;
 
     try {
@@ -373,10 +424,10 @@ bot.onText(/\/auth/, async (msg) => {
         console.error('Error in /auth command:', error);
         await bot.sendMessage(chatId, '❌ 认证检查时出现错误，请稍后重试。');
     }
-});
+}));
 
 // 重新认证命令
-bot.onText(/\/reauth/, async (msg) => {
+bot.onText(/\/reauth/, safeHandler('/reauth', async (msg) => {
     const chatId = msg.chat.id;
     
     try {
@@ -387,10 +438,10 @@ bot.onText(/\/reauth/, async (msg) => {
         console.error('Error in /reauth command:', error);
         await bot.sendMessage(chatId, '❌ 重新认证时出现错误，请稍后重试。');
     }
-});
+}));
 
 // 注销命令
-bot.onText(/\/logout/, async (msg) => {
+bot.onText(/\/logout/, safeHandler('/logout', async (msg) => {
     const chatId = msg.chat.id;
     
     try {
@@ -407,10 +458,10 @@ bot.onText(/\/logout/, async (msg) => {
         console.error('Error in /logout command:', error);
         await bot.sendMessage(chatId, '❌ 注销时出现错误，请稍后重试。');
     }
-});
+}));
 
 // 消息处理器（处理认证流程）
-bot.on('message', async (msg) => {
+bot.on('message', safeHandler('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
     
@@ -488,10 +539,10 @@ bot.on('message', async (msg) => {
         await bot.sendMessage(chatId, '❌ 处理您的消息时出现错误，请重新开始：/auth');
         clearUserState(chatId);
     }
-});
+}));
 
 // 查询单个币种信息
-bot.onText(/\/check (.+)/, async (msg, match) => {
+bot.onText(/\/check (.+)/, safeHandler('/check', async (msg, match) => {
     const chatId = msg.chat.id;
     const coinSymbol = match[1].trim().toUpperCase();
 
@@ -521,8 +572,8 @@ bot.onText(/\/check (.+)/, async (msg, match) => {
         }
 
         const message = formatCoinInfo(coinData);
-        
-        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+        await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
         
     } catch (error) {
         console.error('Error in /check command:', error);
@@ -532,7 +583,7 @@ bot.onText(/\/check (.+)/, async (msg, match) => {
             await bot.sendMessage(chatId, '❌ 查询时出现错误，请稍后重试。');
         }
     }
-});
+}));
 
 // 生成场外数据表的函数
 async function generateOtcTableData(chatId, page = 1, sortBy = 'otc_index', order = 'desc') {
@@ -590,7 +641,7 @@ async function generateOtcTableData(chatId, page = 1, sortBy = 'otc_index', orde
 
     const orderLabel = order === 'asc' ? '升序' : '降序';
 
-    let message = `📋 *场外数据表* (${data.date})\n`;
+    let message = `📋 <b>场外数据表</b> (${escapeHtml(data.date)})\n`;
     message += `排序：${sortLabels[sortBy]} ${orderLabel} | 第${page}/${totalPages}页\n\n`;
 
     if (currentPageCoins.length > 0) {
@@ -600,9 +651,10 @@ async function generateOtcTableData(chatId, page = 1, sortBy = 'otc_index', orde
 
             // 动能指标处理
             let momentumText = '';
-            if (coin.momentumIndicators && coin.momentumIndicators.length > 0) {
-                const indicators = coin.momentumIndicators.join('');
-                momentumText = ` [${indicators}]`;
+            const momentumIndicators = getMomentumIndicators(coin);
+            if (momentumIndicators.length > 0) {
+                const indicators = momentumIndicators.join('');
+                momentumText = ` [${escapeHtml(indicators)}]`;
             }
 
             // 逼近阈值标记
@@ -615,7 +667,7 @@ async function generateOtcTableData(chatId, page = 1, sortBy = 'otc_index', orde
                 periodInfo = ` ${typeDisplay}${coin.entry_exit_day}`;
             }
 
-            message += `${num}. ${status}**${coin.coin.symbol}**${momentumText}${nearThreshold}${periodInfo}\n`;
+            message += `${num}. ${status}<b>${escapeHtml(coin.coin.symbol)}</b>${momentumText}${nearThreshold}${periodInfo}\n`;
             message += `   📊 场外: ${coin.otc_index || 'N/A'}`;
 
             // 显示场外指数变化
@@ -633,14 +685,14 @@ async function generateOtcTableData(chatId, page = 1, sortBy = 'otc_index', orde
             }
 
             message += `\n   🎯 谢林: ${formatSchellingPoint(coin.schelling_point)}`;
-            message += `\n   ⭐ ${coin.period_quality || '观望'}\n\n`;
+            message += `\n   ⭐ ${escapeHtml(coin.period_quality || '观望')}\n\n`;
         });
     } else {
         message += '❌ 没有数据\n\n';
     }
 
     message += '💡 使用按钮切换排序和分页\n';
-    message += '🔍 使用 /check <币种> 查看详细信息';
+    message += '🔍 使用 /check &lt;币种&gt; 查看详细信息';
 
     // 创建按钮
     const keyboard = [];
@@ -720,21 +772,21 @@ async function generateLatestData(chatId, page = 1) {
     const startIndex = (page - 1) * pageSize;
     const currentPageCoins = sortedQualityCoins.slice(startIndex, startIndex + pageSize);
 
-    let message = `📊 *市场概览* (${data.date})\n\n`;
+    let message = `📊 <b>市场概览</b> (${escapeHtml(data.date)})\n\n`;
     message += `📈 进场期币种：${entryCoins.length} 个\n`;
     message += `📉 退场期币种：${exitCoins.length} 个\n`;
     message += `⭐ 优质进场期：${qualityEntryCoins.length} 个\n\n`;
 
     // 显示当前页的优质进场期币种
     if (currentPageCoins.length > 0) {
-        message += `🌟 *优质进场期币种* (第${page}/${totalPages}页)：\n\n`;
+        message += `🌟 <b>优质进场期币种</b> (第${page}/${totalPages}页)：\n\n`;
         currentPageCoins.forEach((coin, index) => {
             const num = startIndex + index + 1;
-            message += `${num}. **${coin.coin.name} (${coin.coin.symbol})**\n`;
+            message += `${num}. <b>${escapeHtml(coin.coin.name)} (${escapeHtml(coin.coin.symbol)})</b>\n`;
             message += `   📊 场外指数：${coin.otc_index || 'N/A'}\n`;
             message += `   💥 爆破指数：${coin.explosion_index || 'N/A'}\n`;
             message += `   📈 ${getTypeDisplay(coin.entry_exit_type)}第${coin.entry_exit_day}天\n`;
-            message += `   ⭐ ${coin.period_quality}\n\n`;
+            message += `   ⭐ ${escapeHtml(coin.period_quality)}\n\n`;
         });
     } else if (qualityEntryCoins.length > 0 && page > totalPages) {
         message += `❌ 页面不存在。总共${totalPages}页\n\n`;
@@ -745,9 +797,9 @@ async function generateLatestData(chatId, page = 1) {
         .sort((a, b) => (b.explosion_index || 0) - (a.explosion_index || 0));
     
     if (highExplosionCoins.length > 0) {
-        message += `🚀 *爆破指数>200* (按爆破指数排序)：\n`;
+        message += `🚀 <b>爆破指数&gt;200</b> (按爆破指数排序)：\n`;
         highExplosionCoins.slice(0, 5).forEach(coin => {
-            message += `• **${coin.coin.name} (${coin.coin.symbol})**: ${coin.explosion_index}\n`;
+            message += `• <b>${escapeHtml(coin.coin.name)} (${escapeHtml(coin.coin.symbol)})</b>: ${coin.explosion_index}\n`;
         });
         if (highExplosionCoins.length > 5) {
             message += `...和其他 ${highExplosionCoins.length - 5} 个币种\n`;
@@ -755,8 +807,8 @@ async function generateLatestData(chatId, page = 1) {
         message += '\n';
     }
 
-    message += '💡 使用 /check <币种> 查看详细信息';
-    
+    message += '💡 使用 /check &lt;币种&gt; 查看详细信息';
+
     // 创建分页按钮
     const keyboard = [];
     if (qualityEntryCoins.length > 0 && totalPages > 1) {
@@ -775,7 +827,7 @@ async function generateLatestData(chatId, page = 1) {
 }
 
 // 获取最新数据概览 - 支持分页
-bot.onText(/\/latest(?:\s+(\d+))?/, async (msg, match) => {
+bot.onText(/\/latest(?:\s+(\d+))?/, safeHandler('/latest', async (msg, match) => {
     const chatId = msg.chat.id;
     const page = parseInt(match?.[1]) || 1; // 默认第1页
 
@@ -790,9 +842,9 @@ bot.onText(/\/latest(?:\s+(\d+))?/, async (msg, match) => {
         }
         
         const { message, keyboard } = await generateLatestData(chatId, page);
-        
-        const options = { 
-            parse_mode: 'Markdown',
+
+        const options = {
+            parse_mode: 'HTML',
             reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
         };
         
@@ -806,10 +858,10 @@ bot.onText(/\/latest(?:\s+(\d+))?/, async (msg, match) => {
             await bot.sendMessage(chatId, '❌ 获取数据时出现错误，请稍后重试。');
         }
     }
-});
+}));
 
 // 场外数据表命令
-bot.onText(/\/otctable/, async (msg) => {
+bot.onText(/\/otctable/, safeHandler('/otctable', async (msg) => {
     const chatId = msg.chat.id;
 
     try {
@@ -825,7 +877,7 @@ bot.onText(/\/otctable/, async (msg) => {
         const { message, keyboard } = await generateOtcTableData(chatId);
 
         const options = {
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
             reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
         };
 
@@ -839,10 +891,10 @@ bot.onText(/\/otctable/, async (msg) => {
             await bot.sendMessage(chatId, '❌ 获取场外数据表时出现错误，请稍后重试。');
         }
     }
-});
+}));
 
 // 收藏管理命令
-bot.onText(/\/favorite (.+)/, async (msg, match) => {
+bot.onText(/\/favorite (.+)/, safeHandler('/favorite', async (msg, match) => {
     const chatId = msg.chat.id;
     const coinSymbol = match[1].trim().toUpperCase();
 
@@ -892,9 +944,9 @@ bot.onText(/\/favorite (.+)/, async (msg, match) => {
         console.error('Error in /favorite command:', error);
         await bot.sendMessage(chatId, '❌ 添加收藏时出现错误，请稍后重试。');
     }
-});
+}));
 
-bot.onText(/\/unfavorite (.+)/, async (msg, match) => {
+bot.onText(/\/unfavorite (.+)/, safeHandler('/unfavorite', async (msg, match) => {
     const chatId = msg.chat.id;
     const coinSymbol = match[1].trim().toUpperCase();
 
@@ -925,9 +977,9 @@ bot.onText(/\/unfavorite (.+)/, async (msg, match) => {
         console.error('Error in /unfavorite command:', error);
         await bot.sendMessage(chatId, '❌ 移除收藏时出现错误，请稍后重试。');
     }
-});
+}));
 
-bot.onText(/\/myfavorites/, async (msg) => {
+bot.onText(/\/myfavorites/, safeHandler('/myfavorites', async (msg) => {
     const chatId = msg.chat.id;
 
     try {
@@ -955,8 +1007,8 @@ bot.onText(/\/myfavorites/, async (msg) => {
             return;
         }
 
-        let message = `📋 *您的Dashboard收藏列表* (${favorites.length} 个币种):\n\n`;
-        
+        let message = `📋 <b>您的Dashboard收藏列表</b> (${favorites.length} 个币种):\n\n`;
+
         // 获取最新数据以显示收藏币种的当前状态
         const data = await getUserLatestData(chatId);
         if (data && data.success) {
@@ -964,30 +1016,30 @@ bot.onText(/\/myfavorites/, async (msg) => {
                 const coinData = data.metrics.find(m => m.coin.symbol === symbol);
                 if (coinData) {
                     const status = getStatusEmoji(coinData);
-                    message += `${status} ${symbol} - ${coinData.period_quality || '观望'}\n`;
+                    message += `${status} ${escapeHtml(symbol)} - ${escapeHtml(coinData.period_quality || '观望')}\n`;
                 } else {
-                    message += `📊 ${symbol} - 暂无数据\n`;
+                    message += `📊 ${escapeHtml(symbol)} - 暂无数据\n`;
                 }
             });
         } else {
             favorites.forEach(symbol => {
-                message += `📊 ${symbol}\n`;
+                message += `📊 ${escapeHtml(symbol)}\n`;
             });
         }
         
-        message += '\n💡 使用 /check <币种> 查看详细信息\n';
-        message += '🗑️ 使用 /unfavorite <币种> 移除收藏';
-        
-        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        message += '\n💡 使用 /check &lt;币种&gt; 查看详细信息\n';
+        message += '🗑️ 使用 /unfavorite &lt;币种&gt; 移除收藏';
+
+        await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
         
     } catch (error) {
         console.error('Error in /myfavorites command:', error);
         await bot.sendMessage(chatId, '❌ 获取收藏列表时出现错误，请稍后重试。');
     }
-});
+}));
 
 // 订阅管理
-bot.onText(/\/subscribe/, async (msg) => {
+bot.onText(/\/subscribe/, safeHandler('/subscribe', async (msg) => {
     const chatId = msg.chat.id;
 
     try {
@@ -1020,9 +1072,9 @@ bot.onText(/\/subscribe/, async (msg) => {
         console.error('Error in /subscribe command:', error);
         await bot.sendMessage(chatId, '❌ 订阅时出现错误，请稍后重试。');
     }
-});
+}));
 
-bot.onText(/\/unsubscribe/, async (msg) => {
+bot.onText(/\/unsubscribe/, safeHandler('/unsubscribe', async (msg) => {
     const chatId = msg.chat.id;
 
     try {
@@ -1035,9 +1087,9 @@ bot.onText(/\/unsubscribe/, async (msg) => {
         console.error('Error in /unsubscribe command:', error);
         await bot.sendMessage(chatId, '❌ 取消订阅时出现错误，请稍后重试。');
     }
-});
+}));
 
-bot.onText(/\/status/, async (msg) => {
+bot.onText(/\/status/, safeHandler('/status', async (msg) => {
     const chatId = msg.chat.id;
 
     try {
@@ -1062,15 +1114,15 @@ bot.onText(/\/status/, async (msg) => {
             // 如果获取收藏失败，继续显示其他信息
         }
         
-        let message = `📊 *您的状态*\n\n`;
+        let message = `📊 <b>您的状态</b>\n\n`;
         message += `🔑 认证状态：✅ 已认证\n`;
         message += `🔔 通知订阅：${isSubscribed ? '✅ 已开启' : '❌ 已关闭'}\n`;
         message += `⭐ Dashboard收藏：${favorites.length || 0} 个\n`;
-        
+
         if (favorites.length > 0) {
             message += `\n📋 收藏列表：\n`;
             favorites.forEach(symbol => {
-                message += `• ${symbol}\n`;
+                message += `• ${escapeHtml(symbol)}\n`;
             });
         }
         
@@ -1078,17 +1130,17 @@ bot.onText(/\/status/, async (msg) => {
         message += `• 收藏数据来自您的Dashboard账户\n`;
         message += `• 监控提醒基于Dashboard收藏列表\n`;
         message += `• 使用 /subscribe 开启通知`;
-        
-        await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+        await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
         
     } catch (error) {
         console.error('Error in /status command:', error);
         await bot.sendMessage(chatId, '❌ 获取状态时出现错误，请稍后重试。');
     }
-});
+}));
 
 // 管理员命令 - 手动触发检查
-bot.onText(/\/admin_check/, async (msg) => {
+bot.onText(/\/admin_check/, safeHandler('/admin_check', async (msg) => {
     const chatId = msg.chat.id;
     const adminChatIds = process.env.ADMIN_CHAT_IDS ? 
         process.env.ADMIN_CHAT_IDS.split(',').map(id => parseInt(id.trim())) : 
@@ -1109,10 +1161,10 @@ bot.onText(/\/admin_check/, async (msg) => {
         console.error('Error in admin check:', error);
         await bot.sendMessage(chatId, '❌ 执行检查时出现错误。');
     }
-});
+}));
 
 // 管理员统计命令
-bot.onText(/\/admin_stats/, async (msg) => {
+bot.onText(/\/admin_stats/, safeHandler('/admin_stats', async (msg) => {
     const chatId = msg.chat.id;
     const adminChatIds = process.env.ADMIN_CHAT_IDS ? 
         process.env.ADMIN_CHAT_IDS.split(',').map(id => parseInt(id.trim())) : 
@@ -1142,7 +1194,7 @@ bot.onText(/\/admin_stats/, async (msg) => {
         console.error('Error in admin stats:', error);
         await bot.sendMessage(chatId, '❌ 获取统计信息时出现错误。');
     }
-});
+}));
 
 // 获取机器人统计信息
 function getBotStats() {
@@ -1187,7 +1239,7 @@ function formatCoinInfo(coinData) {
     const status = getStatusEmoji(coinData);
     const priceDisplay = coin.current_price ? `$${coin.current_price}` : '暂无价格';
     
-    let message = `${status} *${coin.symbol}* (${coin.name})\n\n`;
+    let message = `${status} <b>${escapeHtml(coin.symbol)}</b> (${escapeHtml(coin.name)})\n\n`;
     message += `💰 当前价格：${priceDisplay}\n`;
     message += `📊 场外指数：${coinData.otc_index || 'N/A'}\n`;
     message += `💥 爆破指数：${coinData.explosion_index || 'N/A'}\n`;
@@ -1198,7 +1250,7 @@ function formatCoinInfo(coinData) {
         message += `📅 第${coinData.entry_exit_day}天\n`;
     }
     
-    message += `⭐ 质量评估：${coinData.period_quality || '观望'}\n`;
+    message += `⭐ 质量评估：${escapeHtml(coinData.period_quality || '观望')}\n`;
     
     // 显示变化百分比
     if (coinData.otc_index_change_percent !== null) {
@@ -1240,12 +1292,13 @@ function getTypeDisplay(type) {
 }
 
 // 处理Inline Keyboard按钮点击
-bot.on('callback_query', async (callbackQuery) => {
-    const chatId = callbackQuery.message.chat.id;
-    const messageId = callbackQuery.message.message_id;
-    const data = callbackQuery.data;
-
+bot.on('callback_query', safeHandler('callback_query', async (callbackQuery) => {
     try {
+        // message 可能已被删除，读取放进 try 里避免抛在保护之外
+        const chatId = callbackQuery.message.chat.id;
+        const messageId = callbackQuery.message.message_id;
+        const data = callbackQuery.data;
+
         // 处理latest分页按钮
         if (data.startsWith('latest_')) {
             if (data === 'latest_current') {
@@ -1271,7 +1324,7 @@ bot.on('callback_query', async (callbackQuery) => {
             const { message, keyboard } = await generateLatestData(chatId, page);
 
             const options = {
-                parse_mode: 'Markdown',
+                parse_mode: 'HTML',
                 reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
             };
 
@@ -1325,7 +1378,7 @@ bot.on('callback_query', async (callbackQuery) => {
             const { message, keyboard } = await generateOtcTableData(chatId, page, sortBy, order);
 
             const options = {
-                parse_mode: 'Markdown',
+                parse_mode: 'HTML',
                 reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
             };
 
@@ -1354,8 +1407,13 @@ bot.on('callback_query', async (callbackQuery) => {
         }
     } catch (error) {
         console.error('Error handling callback query:', error);
-        await bot.answerCallbackQuery(callbackQuery.id, { text: '操作失败，请稍后重试' });
+        try {
+            // query 过期时这里同样会失败，不能让它把错误再抛出去
+            await bot.answerCallbackQuery(callbackQuery.id, { text: '操作失败，请稍后重试' });
+        } catch (answerError) {
+            console.error('Failed to answer callback query:', answerError.message);
+        }
     }
-});
+}));
 
 module.exports = { bot, db };

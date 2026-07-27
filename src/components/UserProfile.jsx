@@ -66,8 +66,9 @@ function UserProfile({ visible, onClose }) {
       <Divider />
       
       <div className="text-center">
+        {/* 这里原来渲染 new Date()，等于每次打开都显示当前时间，是编造的数据 */}
         <Text type="secondary">
-          上次登录时间: {new Date().toLocaleString()}
+          上次登录时间: {user?.lastLogin ? new Date(user.lastLogin).toLocaleString() : '暂无记录'}
         </Text>
       </div>
       

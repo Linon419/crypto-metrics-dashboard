@@ -2,9 +2,10 @@
 const express = require('express');
 const router = express.Router();
 const { Coin, DailyMetric } = require('../models');
+const { requireAdmin } = require('../middleware/auth');
 
-// 查看数据库中实际存在的数据
-router.get('/db-status', async (req, res) => {
+// 查看数据库中实际存在的数据（仅管理员可用）
+router.get('/db-status', requireAdmin, async (req, res) => {
   try {
     const coins = await Coin.findAll({ attributes: ['id', 'symbol'] });
     const metrics = await DailyMetric.findAll({ limit: 5 });

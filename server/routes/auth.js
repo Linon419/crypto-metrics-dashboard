@@ -24,7 +24,10 @@ function sendRouteError(res, error, fallbackMessage) {
   const statusCode = error.statusCode || (uniqueConflict ? 409 : 500);
   if (statusCode >= 500) console.error(fallbackMessage, error);
   if (error.retryAfterSeconds) res.set('Retry-After', String(error.retryAfterSeconds));
-  const message = uniqueConflict ? 'Username or email already exists' : (error.message || fallbackMessage);
+  // 登录/注册在鉴权之前，5xx 只回通用文案；4xx 的校验提示本来就是给用户看的，保留原文
+  const message = uniqueConflict
+    ? 'Username or email already exists'
+    : (statusCode >= 500 ? fallbackMessage : (error.message || fallbackMessage));
   return res.status(statusCode).json({ error: message });
 }
 

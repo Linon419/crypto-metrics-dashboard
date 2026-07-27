@@ -155,6 +155,18 @@ api.interceptors.response.use(
 
 // --- 4. 认证 API 调用 ---
 
+// 4xx 属于请求本身的问题（权限、参数、依赖冲突），重试只会重复副作用并让用户干等；
+// 只有这几个明确表示"稍后再试"的客户端状态码才值得重试。
+const RETRYABLE_CLIENT_STATUSES = new Set([408, 425, 429]);
+
+function isRetryableApiError(error) {
+  const status = error?.response?.status;
+  // 网络错误、超时等没有响应状态码，仍按临时故障处理
+  if (typeof status !== 'number') return true;
+  if (status >= 400 && status < 500) return RETRYABLE_CLIENT_STATUSES.has(status);
+  return true;
+}
+
 async function callApiWithRetry(apiCall, maxRetries = 3, initialRetryDelay = 2000) {
   let lastError;
   let retryDelay = initialRetryDelay;
@@ -165,8 +177,8 @@ async function callApiWithRetry(apiCall, maxRetries = 3, initialRetryDelay = 200
     } catch (error) {
       lastError = error;
       console.warn(`API Call Attempt ${attempt}/${maxRetries} failed:`, error.displayMessage || error.message);
-      // 不对 401 或 403 (权限问题) 进行重试，因为它们通常不是临时性网络问题
-      if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      // 不对不可重试的 4xx（401/403 权限、409 依赖冲突等）进行重试
+      if (!isRetryableApiError(error)) {
         console.log(`Skipping retry for ${error.response.status} error.`);
         throw lastError;
       }
@@ -186,5 +198,5 @@ async function callApiWithRetry(apiCall, maxRetries = 3, initialRetryDelay = 200
 
 // --- 6. 数据提交和获取 API 调用 ---
 
-export { api, dataCache, callApiWithRetry, effectiveApiBaseUrl };
+export { api, dataCache, callApiWithRetry, isRetryableApiError, effectiveApiBaseUrl };
 export default api;

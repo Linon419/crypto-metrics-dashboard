@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Flex,
   Input,
   Select,
   Space,
@@ -87,7 +88,8 @@ function normalizeRows(rows = []) {
 function KlineMappingSettings() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [savingCoinId, setSavingCoinId] = useState(null);
+  // 用 Set 跟踪在途保存：单槽位会让先保存的 BTC 的 finally 清掉后保存的 ETH 的 spinner
+  const [savingCoinIds, setSavingCoinIds] = useState(() => new Set());
   const [savingAll, setSavingAll] = useState(false);
   const [seeding, setSeeding] = useState(false);
 
@@ -120,8 +122,17 @@ function KlineMappingSettings() {
     });
   }, [updateRow]);
 
+  const markSaving = useCallback((coinId, busy) => {
+    setSavingCoinIds((current) => {
+      const next = new Set(current);
+      if (busy) next.add(coinId);
+      else next.delete(coinId);
+      return next;
+    });
+  }, []);
+
   const handleSave = useCallback(async (row) => {
-    setSavingCoinId(row.coinId);
+    markSaving(row.coinId, true);
     try {
       const response = await updateKlineMapping(row.coinId, buildSavePayload(row));
       const updated = normalizeRows([response.mapping])[0];
@@ -130,22 +141,40 @@ function KlineMappingSettings() {
     } catch (error) {
       message.error(`保存失败：${error.message}`);
     } finally {
-      setSavingCoinId(null);
+      markSaving(row.coinId, false);
     }
-  }, [updateRow]);
+  }, [markSaving, updateRow]);
 
   const handleSaveAll = useCallback(async () => {
     setSavingAll(true);
+    const snapshot = rows;
+    const savedByCoinId = new Map();
+    const failures = [];
+
     try {
-      const updatedRows = [];
-      for (const row of rows) {
-        const response = await updateKlineMapping(row.coinId, buildSavePayload(row));
-        updatedRows.push(response.mapping);
+      for (const row of snapshot) {
+        try {
+          const response = await updateKlineMapping(row.coinId, buildSavePayload(row));
+          savedByCoinId.set(row.coinId, response.mapping);
+        } catch (error) {
+          // 单行失败会记录错误，同时保留前面已经保存成功的行
+          failures.push(`${row.coinSymbol}：${error.message}`);
+        }
       }
-      setRows(normalizeRows(updatedRows));
-      message.success(`已保存 ${updatedRows.length} 条K线映射`);
-    } catch (error) {
-      message.error(`保存失败：${error.message}`);
+
+      // 成功的行用服务端返回值覆盖，失败的行保留用户当前输入
+      setRows(currentRows => normalizeRows(currentRows.map(row => (
+        savedByCoinId.has(row.coinId) ? { ...row, ...savedByCoinId.get(row.coinId) } : row
+      ))));
+
+      if (failures.length === 0) {
+        message.success(`已保存 ${savedByCoinId.size} 条K线映射`);
+      } else {
+        message.warning(
+          `已保存 ${savedByCoinId.size} 条，${failures.length} 条失败：${failures.join('；')}`,
+          8,
+        );
+      }
     } finally {
       setSavingAll(false);
     }
@@ -187,6 +216,7 @@ function KlineMappingSettings() {
           aria-label={`${row.coinSymbol} 来源`}
           value={row.market}
           options={MARKET_OPTIONS}
+          disabled={savingAll}
           onChange={(market) => handleMarketChange(row, market)}
           style={{ width: 180 }}
         />
@@ -200,6 +230,7 @@ function KlineMappingSettings() {
       render: (_, row) => (
         <Input
           value={row.tradingSymbol}
+          disabled={savingAll}
           onChange={(event) => updateRow(row.coinId, { tradingSymbol: event.target.value })}
           placeholder="例如 159819.SZ"
         />
@@ -213,6 +244,7 @@ function KlineMappingSettings() {
       render: (_, row) => (
         <Switch
           checked={row.enabled}
+          disabled={savingAll}
           onChange={(enabled) => updateRow(row.coinId, { enabled })}
         />
       ),
@@ -224,6 +256,7 @@ function KlineMappingSettings() {
       render: (_, row) => (
         <Input
           value={row.notes}
+          disabled={savingAll}
           onChange={(event) => updateRow(row.coinId, { notes: event.target.value })}
           placeholder="备注"
         />
@@ -252,20 +285,22 @@ function KlineMappingSettings() {
           aria-label={`保存 ${row.coinSymbol}`}
           type="primary"
           icon={<SaveOutlined />}
-          loading={savingCoinId === row.coinId}
+          loading={savingCoinIds.has(row.coinId)}
+          disabled={savingAll}
           onClick={() => handleSave(row)}
         >
           保存
         </Button>
       ),
     },
-  ], [handleMarketChange, handleSave, savingCoinId, updateRow]);
+  ], [handleMarketChange, handleSave, savingAll, savingCoinIds, updateRow]);
 
   return (
     <div className="kline-mapping-settings">
       <Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <Space align="start" justify="space-between" style={{ width: '100%' }}>
+          {/* Space 没有 justify，属性会直接漏到 DOM 上；右对齐要用 Flex */}
+          <Flex align="start" justify="space-between" gap="middle" wrap style={{ width: '100%' }}>
             <div>
               <Text type="secondary">ADMIN SETTINGS</Text>
               <Title level={3}>K线映射设置</Title>
@@ -293,7 +328,7 @@ function KlineMappingSettings() {
                 补齐默认映射
               </Button>
             </Space>
-          </Space>
+          </Flex>
 
           <Alert
             type="info"

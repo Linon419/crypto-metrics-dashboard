@@ -66,6 +66,8 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
   const [chartVersion, setChartVersion] = useState('new'); // 'new', 'legacy'
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const chartRef = useRef(null);
+  // 记录当前 metrics 属于哪枚币，避免把新币的值写进上一枚币的序列
+  const metricsSymbolRef = useRef(null);
   const fallbackEndDate = selectedDate || dayjs();
 
   const presetStartDate = useMemo(() => {
@@ -211,37 +213,43 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
   
   // 数据一致性：确保最新数据与传入的coin对象一致
   useEffect(() => {
-    if (coin && metrics.length > 0) {
-      const lastIndex = metrics.length - 1;
-      
-      // 创建一个新的数组，避免直接修改原数组
-      const updatedMetrics = [...metrics];
-      
-      // 始终使用传入的coin对象的当前值来更新最近的日期的数据
-      if (coin.explosionIndex !== undefined) {
-        updatedMetrics[lastIndex].blastIndex = coin.explosionIndex;
-      }
-      if (coin.otcIndex !== undefined) {
-        updatedMetrics[lastIndex].otcIndex = coin.otcIndex;
-      }
-      if (coin.schellingPoint !== undefined) {
-        updatedMetrics[lastIndex].schellingPoint = coin.schellingPoint;
-      }
-      if (coin.period_quality !== undefined) {
-        updatedMetrics[lastIndex].periodQuality = coin.period_quality;
-      }
-      
-      // 更新状态
-      setMetrics(updatedMetrics);
-      
-      // 如果当前显示的是原始数据的子集（缩放状态），也更新displayData
-      if (displayData.length > 0 && displayData[displayData.length - 1].timeKey === updatedMetrics[lastIndex].timeKey) {
-        const updatedDisplayData = [...displayData];
-        updatedDisplayData[updatedDisplayData.length - 1] = updatedMetrics[lastIndex];
-        setDisplayData(updatedDisplayData);
-      } else {
-        setDisplayData(updatedMetrics);
-      }
+    if (!coin || metrics.length === 0) return;
+    // metrics 仍是上一枚币的序列时不能往尾部写新币的值：
+    // BTC(≈110000) 切 DOGE(≈0.2) 会把整条曲线压扁
+    if (metricsSymbolRef.current !== coin.symbol) return;
+
+    const lastIndex = metrics.length - 1;
+
+    // 浅拷贝数组时元素还是同一批引用，必须再克隆一次才不会改到 state 里的对象
+    const updatedLastMetric = { ...metrics[lastIndex] };
+
+    // 始终使用传入的coin对象的当前值来更新最近的日期的数据
+    if (coin.explosionIndex !== undefined) {
+      updatedLastMetric.blastIndex = coin.explosionIndex;
+    }
+    if (coin.otcIndex !== undefined) {
+      updatedLastMetric.otcIndex = coin.otcIndex;
+    }
+    if (coin.schellingPoint !== undefined) {
+      updatedLastMetric.schellingPoint = coin.schellingPoint;
+    }
+    if (coin.period_quality !== undefined) {
+      updatedLastMetric.periodQuality = coin.period_quality;
+    }
+
+    const updatedMetrics = [...metrics];
+    updatedMetrics[lastIndex] = updatedLastMetric;
+
+    // 更新状态
+    setMetrics(updatedMetrics);
+
+    // 如果当前显示的是原始数据的子集（缩放状态），也更新displayData
+    if (displayData.length > 0 && displayData[displayData.length - 1].timeKey === updatedLastMetric.timeKey) {
+      const updatedDisplayData = [...displayData];
+      updatedDisplayData[updatedDisplayData.length - 1] = updatedLastMetric;
+      setDisplayData(updatedDisplayData);
+    } else {
+      setDisplayData(updatedMetrics);
     }
   // 有意仅依赖 coin：displayData/metrics 由本 effect 写入，加入依赖会形成循环
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -286,15 +294,21 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
 
   // 加载币种历史指标数据
   useEffect(() => {
+    // 两次请求的耗时不对称（第一次会连带刷新 latest），没有取消标记会出现
+    // "标题是 ETH、曲线还是 BTC" 的串数据
+    let cancelled = false;
+
     const loadMetricsData = async () => {
       if (!coin || !coin.symbol) {
+        metricsSymbolRef.current = null;
+        setMetrics([]);
         setDisplayData([]);
         return;
       }
-      
+
       setLoading(true);
       setError(null);
-      
+
       try {
         // 计算日期范围 - 如果有选中日期，使用选中日期作为结束日期
         // 使用 dayjs 而不是 Date 对象来避免时区问题
@@ -319,13 +333,15 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
           startDate: formattedStartDate,
           endDate: formattedEndDate
         });
-        
+
+        if (cancelled) return;
+
         if (!Array.isArray(data) || data.length === 0) {
-          // 如果没有数据返回，创建一些模拟数据供显示
-          console.log(`没有找到 ${coin.symbol} 的历史数据，创建模拟数据`);
-          const mockData = createMockData(coin, startDateDayjs.toDate(), endDateDayjs.toDate());
-          setMetrics(mockData);
-          setDisplayData(mockData);
+          // 真的没有数据就走空态提示，不再编造模拟曲线
+          console.log(`没有找到 ${coin.symbol} 的历史数据`);
+          metricsSymbolRef.current = coin.symbol;
+          setMetrics([]);
+          setDisplayData([]);
         } else {
         //  console.log(`获取到 ${data.length} 条历史指标数据`);
           
@@ -374,30 +390,36 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
           
           // 按发布时间排序
           processedData.sort((a, b) => a.sortTime - b.sortTime);
-          
+
+          metricsSymbolRef.current = coin.symbol;
           setMetrics(processedData);
           setDisplayData(processedData);
         }
       } catch (error) {
+        if (cancelled) return;
         console.error('加载指标数据失败:', error);
-        setError(`加载历史指标数据失败: ${error.message || '未知错误'}`);
-        // 创建一些模拟数据供显示
-        const mockData = createMockData(coin, 
-          new Date(new Date().setDate(new Date().getDate() - 30)), 
-          new Date());
-        setMetrics(mockData);
-        setDisplayData(mockData);
+        setError(`加载历史指标数据失败: ${error.displayMessage || error.message || '未知错误'}`);
+        // 失败时清空数据并展示错误，不再用模拟曲线糊弄
+        metricsSymbolRef.current = coin.symbol;
+        setMetrics([]);
+        setDisplayData([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-    
+
     loadMetricsData();
+
+    return () => {
+      cancelled = true;
+    };
   // 有意省略 coin/customDateRange 对象引用：以标量字段为准，避免对象身份变化导致的重复加载
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coin?.symbol, timeRange, effectiveStartDateStr, effectiveEndDateStr]); // 在coin.symbol、timeRange或日期范围变化时重新加载
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadLiquidityHistory = async () => {
       setLiquidityLoading(true);
       try {
@@ -405,74 +427,23 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
           startDate: effectiveStartDateStr,
           endDate: effectiveEndDateStr
         });
-        setLiquidityHistory(data);
+        if (!cancelled) setLiquidityHistory(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error('加载流动性历史失败:', error);
+        if (!cancelled) setLiquidityHistory([]);
       } finally {
-        setLiquidityLoading(false);
+        if (!cancelled) setLiquidityLoading(false);
       }
     };
 
     loadLiquidityHistory();
+
+    return () => {
+      cancelled = true;
+    };
   }, [effectiveStartDateStr, effectiveEndDateStr]);
-  
-  // 创建模拟数据函数 - 当API无法获取数据时使用
-  const createMockData = (coin, startDate, endDate) => {
-    const mockData = [];
-    const dayCount = Math.floor((endDate - startDate) / (24 * 60 * 60 * 1000));
-    
-    // 直接使用传入的coin对象的当前值作为基准
-    const baseExplosionIndex = coin.explosionIndex || 180;
-    const baseOtcIndex = coin.otcIndex || 1200;
-    const baseSchellingPoint = coin.schellingPoint || 1000;
-    const entryExitType = coin.entryExitType === 'entry' ? '进场' : 
-                          coin.entryExitType === 'exit' ? '退场' : '中性';
-    const entryExitDay = coin.entryExitDay || 0;
-    
-    // 生成每天的数据
-    for (let i = 0; i <= dayCount; i++) {
-      const currentDate = new Date(startDate);
-      currentDate.setDate(startDate.getDate() + i);
-      const dateStr = currentDate.toISOString().split('T')[0];
-      
-      // 最后一天使用精确的传入值，确保一致性
-      if (i === dayCount) {
-        mockData.push({
-          date: dateStr,
-          displayTime: dateStr,
-          timeKey: dateStr,
-          sortTime: new Date(dateStr).getTime(),
-          blastIndex: baseExplosionIndex,
-          otcIndex: baseOtcIndex,
-          schellingPoint: baseSchellingPoint,
-          actionType: entryExitType,
-          actionDay: entryExitDay,
-          nearThreshold: coin.nearThreshold || false,
-          periodQuality: coin.period_quality || null,
-        });
-        continue;
-      }
-      
-      // 其他天生成合理的随机值
-      const randomFactor = Math.sin(i / 10) * 20 + (Math.random() - 0.5) * 15;
-      const explosionChange = i === 0 ? 0 : mockData[i-1].blastIndex - baseExplosionIndex + randomFactor;
-      
-      mockData.push({
-        date: dateStr,
-        displayTime: dateStr,
-        timeKey: dateStr,
-        sortTime: new Date(dateStr).getTime(),
-        blastIndex: Math.max(100, Math.min(300, baseExplosionIndex + explosionChange * 0.2)),
-        otcIndex: Math.max(500, Math.min(2000, baseOtcIndex + randomFactor * 5)),
-        schellingPoint: Math.max(100, baseSchellingPoint * (1 + (randomFactor / 1000))),
-        actionType: entryExitType,
-        actionDay: entryExitType !== '中性' ? Math.max(0, entryExitDay - (dayCount - i)) : 0,
-        nearThreshold: Math.random() > 0.8, // 模拟数据中随机生成nearThreshold
-        periodQuality: coin.period_quality || null,
-      });
-    }
-    
-    return mockData;
-  };
-  
+
+
   // 获取Y轴域
   const getYAxisDomain = (dataKey) => {
     if (!displayData || displayData.length === 0) return [0, 100];

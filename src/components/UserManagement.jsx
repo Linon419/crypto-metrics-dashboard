@@ -42,7 +42,8 @@ import {
 
 const { Title, Text } = Typography;
 const { Option } = Select;
-const MIN_PASSWORD_LENGTH = 15;
+// 与 server/utils/authSecurity.js 的 MIN_PASSWORD_LENGTH 保持一致
+const MIN_PASSWORD_LENGTH = 6;
 
 const AUDIT_ACTION_LABELS = {
   'auth.login.success': '登录成功',
@@ -533,9 +534,10 @@ function UserManagement() {
             <Form.Item
               name="password"
               label="密码"
+              extra={`至少${MIN_PASSWORD_LENGTH}个字符，且不能是常见弱密码`}
               rules={[
                 { required: true, message: '请输入密码' },
-                { min: MIN_PASSWORD_LENGTH, message: `密码至少${MIN_PASSWORD_LENGTH}个字符` }
+                { min: MIN_PASSWORD_LENGTH, message: `密码长度至少为${MIN_PASSWORD_LENGTH}个字符` }
               ]}
             >
               <Input.Password placeholder="请输入密码" />

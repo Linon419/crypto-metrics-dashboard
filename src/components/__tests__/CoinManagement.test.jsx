@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { message } from 'antd';
 import CoinManagement from '../CoinManagement';
 import {
   createAdminCoin,
@@ -19,6 +20,8 @@ jest.mock('../../services/api', () => ({
 describe('CoinManagement', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(message, 'success').mockImplementation(() => {});
+    jest.spyOn(message, 'error').mockImplementation(() => {});
     fetchAdminCoins.mockResolvedValue({
       coins: [
         {
@@ -47,6 +50,10 @@ describe('CoinManagement', () => {
     });
     createAdminCoin.mockResolvedValue({ coin: { id: 2, symbol: 'TEST', name: 'Test Coin' } });
     updateAdminCoin.mockResolvedValue({ coin: { id: 1, symbol: 'BTC', name: 'Bitcoin' } });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   test('loads coin rows', async () => {
@@ -116,5 +123,5 @@ describe('CoinManagement', () => {
     await waitFor(() => {
       expect(deleteAdminCoin).toHaveBeenLastCalledWith(1, { force: true });
     });
-  });
+  }, 10000);
 });

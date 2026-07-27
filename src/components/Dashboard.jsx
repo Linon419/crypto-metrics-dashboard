@@ -70,6 +70,23 @@ const getSignalSummaryText = (signals) => {
     .join('、');
 };
 
+// 热门币种的唯一定义：筛选条件与数量上限都放在这里，
+// 计数、卡片列表和下方 OTC 表格都用同一份结果，避免"10 / 45"却只画 3 张卡。
+const POPULAR_COIN_LIMIT = 10;
+const POPULAR_OTC_INDEX_MIN = 1000;
+const POPULAR_EXPLOSION_INDEX_MIN = 180;
+
+export function selectPopularCoins(coins = []) {
+  return coins
+    .filter((coin) => {
+      const otcIndex = Number(coin.otcIndex) || 0;
+      const explosionIndex = Number(coin.explosionIndex) || 0;
+      return otcIndex > POPULAR_OTC_INDEX_MIN && explosionIndex > POPULAR_EXPLOSION_INDEX_MIN;
+    })
+    .sort((a, b) => (b.otcIndex || 0) - (a.otcIndex || 0))
+    .slice(0, POPULAR_COIN_LIMIT);
+}
+
 const VIEW_MODES = [
   {
     key: 'all',
@@ -153,6 +170,7 @@ function Dashboard() {
   const [latestAvailableDateStr, setLatestAvailableDateStr] = useState('');
   const [availableDates, setAvailableDates] = useState([]);
   const [availableDatesLoaded, setAvailableDatesLoaded] = useState(false);
+  const [availableDatesError, setAvailableDatesError] = useState(null);
   const [infoModalVisible, setInfoModalVisible] = useState(false);
   const [apiStatusModalVisible, setApiStatusModalVisible] = useState(false);
   const [apiStatus, setApiStatus] = useState({ ok: false, message: '正在检查API状态...' });
@@ -171,6 +189,7 @@ function Dashboard() {
   const notifiedStrategyDatesRef = useRef(new Set());
   const initialLoadCompleteRef = useRef(false);
   const activeDataRequestRef = useRef(0);
+  const viewingLatestRef = useRef(true);
   const klineBackfillPollRef = useRef(null);
   const selectedCoinDetailRef = useRef(null);
   const hideDashboardTopbar = useAutoHideOnScroll(true);
@@ -230,6 +249,7 @@ function Dashboard() {
       const normalizedDates = normalizeAvailableDates(result.dates);
       setAvailableDates(normalizedDates);
       setAvailableDatesLoaded(true);
+      setAvailableDatesError(null);
 
       const newestDate = result.newestDate && normalizedDates.includes(result.newestDate)
         ? result.newestDate
@@ -244,6 +264,7 @@ function Dashboard() {
       console.error('加载可用日期失败:', error);
       setAvailableDates([]);
       setAvailableDatesLoaded(true);
+      setAvailableDatesError(error.displayMessage || error.message || '未知错误');
       return [];
     }
   }, []);
@@ -251,6 +272,8 @@ function Dashboard() {
   const disabledCalendarDate = useCallback((date) => {
     if (!date) return true;
     if (!availableDatesLoaded) return true;
+    // 日期清单缺失时保留日历交互，让用户仍可切换日期
+    if (availableDates.length === 0) return false;
     return !isDateAvailable(date, availableDates);
   }, [availableDates, availableDatesLoaded]);
 
@@ -265,45 +288,61 @@ function Dashboard() {
   }, []);
 
   // Load data
-  const loadData = useCallback(async (forceRefresh = false) => {
-    const requestId = activeDataRequestRef.current + 1;
-    activeDataRequestRef.current = requestId;
-    setLoading(true);
-    setError(null);
+  // background=true 表示 5 分钟定时刷新：不抢占用户发起的请求槽位，
+  // 也不会把用户正在看的历史日期拽回最新一天。
+  const loadData = useCallback(async (forceRefresh = false, { background = false } = {}) => {
+    const requestId = background
+      ? activeDataRequestRef.current
+      : activeDataRequestRef.current + 1;
+    if (!background) {
+      activeDataRequestRef.current = requestId;
+      setLoading(true);
+      setError(null);
+    }
 
     try {
-      console.log('[Dashboard] Loading data, forceRefresh:', forceRefresh);
+      console.log('[Dashboard] Loading data, forceRefresh:', forceRefresh, 'background:', background);
       const result = await fetchLatestMetrics(forceRefresh); // This already contains previousDayData
       // console.log("[DASHBOARD - fetchLatestMetrics result]", JSON.stringify(result, null, 2));
 
       if (activeDataRequestRef.current !== requestId) return;
 
       if (result && result.coins) { // Check if result and result.coins are valid
-        // No need for an additional formatCoinsData if fetchLatestMetrics already prepares the data well
-        setAllCoins(result.coins); // Directly use coins from fetchLatestMetrics
+        // 后台刷新只在用户已经停在最新一天时才替换展示中的数据集
+        const shouldApplyDataset = !background || viewingLatestRef.current;
 
-        setSelectedCoin(currentSelectedCoin => {
-          if (currentSelectedCoin && result.coins.some(coin => coin.symbol === currentSelectedCoin)) {
-            return currentSelectedCoin;
+        if (shouldApplyDataset) {
+          // No need for an additional formatCoinsData if fetchLatestMetrics already prepares the data well
+          setAllCoins(result.coins); // Directly use coins from fetchLatestMetrics
+
+          setSelectedCoin(currentSelectedCoin => {
+            if (currentSelectedCoin && result.coins.some(coin => coin.symbol === currentSelectedCoin)) {
+              return currentSelectedCoin;
+            }
+
+            const btcCoin = result.coins.find(c => c.symbol === 'BTC');
+            return btcCoin ? btcCoin.symbol : result.coins[0]?.symbol || null;
+          });
+
+          if (result.date) {
+            console.log('[Dashboard] Setting date from API:', result.date);
+            setLatestDateStr(result.date);
+            setSelectedDate(dayjs(result.date));
+            console.log('[Dashboard] Selected date set to:', dayjs(result.date).format('YYYY-MM-DD'));
           }
 
-          const btcCoin = result.coins.find(c => c.symbol === 'BTC');
-          return btcCoin ? btcCoin.symbol : result.coins[0]?.symbol || null;
-        });
+          if (result.liquidity) {
+            setLiquidityData(result.liquidity);
+          }
+          setOptionTuningData(result.optionTuning || null);
+        }
 
+        // "最新一天是哪天"属于后台记账，任何情况下都要跟上
         if (result.date) {
-          console.log('[Dashboard] Setting date from API:', result.date);
-          setLatestDateStr(result.date);
           setLatestAvailableDateStr(result.date);
-          setSelectedDate(dayjs(result.date));
-          console.log('[Dashboard] Selected date set to:', dayjs(result.date).format('YYYY-MM-DD'));
         }
 
-        if (result.liquidity) {
-          setLiquidityData(result.liquidity);
-        }
-        setOptionTuningData(result.optionTuning || null);
-
+        setError(null);
         setApiStatus({ ok: true, message: '数据加载成功，API连接正常' });
         showStrategyNotification(result.coins, result.liquidity, result.date);
         refreshAvailableDates();
@@ -319,7 +358,7 @@ function Dashboard() {
       } else {
         // Handle case where result or result.coins is not as expected
         console.warn("loadData: fetchLatestMetrics did not return expected data structure.", result);
-        setAllCoins([]); // Set to empty array to avoid errors in child components
+        if (!background) setAllCoins([]); // Set to empty array to avoid errors in child components
         setError("获取到的数据格式不正确");
       }
     } catch (err) {
@@ -328,25 +367,29 @@ function Dashboard() {
       setError(`加载数据失败：${err.message || "未知错误"}`);
       setApiStatus({ ok: false, message: `API连接错误: ${err.message}` });
 
-      notification.error({
-        message: '数据加载失败',
-        description: err.message || '无法从服务器获取数据，请检查网络连接',
-        duration: 4,
-        btn: (
-          <Button type="primary" size="small" onClick={() => checkApiStatus()}>
-            检查API状态
-          </Button>
-        )
-      });
+      // 后台定时刷新失败只更新顶部提示，不每 5 分钟弹一次通知
+      if (!background) {
+        notification.error({
+          message: '数据加载失败',
+          description: err.message || '无法从服务器获取数据，请检查网络连接',
+          duration: 4,
+          btn: (
+            <Button type="primary" size="small" onClick={() => checkApiStatus()}>
+              检查API状态
+            </Button>
+          )
+        });
+      }
     } finally {
-      if (activeDataRequestRef.current === requestId) {
+      if (!background && activeDataRequestRef.current === requestId) {
         setLoading(false);
       }
     }
   }, [showStrategyNotification, refreshAvailableDates]); // Removed formatCoinsData from dependencies as it's defined inside or constant
 
   // Filter coins based on view mode
-  const getFilteredCoins = () => {
+  // 必须 memo：返回新数组会让 CoinList / OtcIndexTable 每次父级渲染都收到新引用
+  const filteredCoins = useMemo(() => {
     // Ensure allCoins is an array before filtering
     const currentAllCoins = Array.isArray(allCoins) ? allCoins : [];
 
@@ -355,8 +398,7 @@ function Dashboard() {
         return currentAllCoins.filter(coin => favorites.includes(coin.symbol));
 
       case 'popular':
-        // Ensure otcIndex is a number for sorting, provide a default if not
-        return [...currentAllCoins].sort((a, b) => (b.otcIndex || 0) - (a.otcIndex || 0)).slice(0, 10); // Increased to 10
+        return selectPopularCoins(currentAllCoins);
 
       case 'long': // Long strategy
         return currentAllCoins.filter(coin => hasStrategyDirection(coin, 'long', {
@@ -373,7 +415,7 @@ function Dashboard() {
       default:
         return currentAllCoins;
     }
-  };
+  }, [allCoins, favorites, liquidityData, viewMode]);
 
   // Load data on mount
   useEffect(() => {
@@ -381,7 +423,7 @@ function Dashboard() {
     loadData();
 
     const refreshInterval = setInterval(() => {
-      loadData();
+      loadData(false, { background: true });
     }, 5 * 60 * 1000);
 
     return () => clearInterval(refreshInterval);
@@ -503,7 +545,8 @@ function Dashboard() {
   };
 
   // Handle coin selection
-  const handleCoinSelect = (symbol, options = {}) => {
+  // 这些回调会传给已 memo 的列表组件，必须保持引用稳定
+  const handleCoinSelect = useCallback((symbol, options = {}) => {
     if (symbol) {
       setSelectedCoin(symbol);
       if (isMobile) {
@@ -518,14 +561,18 @@ function Dashboard() {
         });
       }
     }
-  };
+  }, [isMobile]);
+
+  const handleCoinSelectWithScroll = useCallback((symbol) => {
+    handleCoinSelect(symbol, { scrollToDetail: true });
+  }, [handleCoinSelect]);
 
   // Refresh data manually
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     console.log('[Dashboard] Force refreshing all data...');
     loadData(true); // 强制刷新，绕过缓存
     refreshFavorites();
-  };
+  }, [loadData, refreshFavorites]);
 
   const stopKlineBackfillPolling = useCallback(() => {
     if (klineBackfillPollRef.current) {
@@ -636,7 +683,7 @@ function Dashboard() {
   };
 
   // Handle favorite toggle
-  const handleToggleFavorite = async (symbol) => {
+  const handleToggleFavorite = useCallback(async (symbol) => {
     try {
       await toggleFavorite(symbol);
       // Optionally: show success notification or update UI immediately if not handled by useFavorites hook
@@ -646,7 +693,7 @@ function Dashboard() {
         description: error.message || '操作收藏时出错，请稍后重试'
       });
     }
-  };
+  }, [toggleFavorite]);
 
 
   // Get selected coin data
@@ -808,12 +855,15 @@ function Dashboard() {
     </Menu>
   );
 
-  const filteredCoins = getFilteredCoins();
   const marketCoins = useMemo(() => Array.isArray(allCoins) ? allCoins : [], [allCoins]);
   const selectedDateStr = selectedDate ? selectedDate.format('YYYY-MM-DD') : '';
   const isViewingLatest = latestAvailableDateStr
     ? latestDateStr === latestAvailableDateStr
     : Boolean(latestDateStr && selectedDateStr === latestDateStr);
+  // 后台刷新回调里读不到最新的渲染值，用 ref 同步一份
+  useEffect(() => {
+    viewingLatestRef.current = isViewingLatest;
+  }, [isViewingLatest]);
   const activeView = VIEW_MODES.find(mode => mode.key === viewMode) || VIEW_MODES[0];
   const signalCounts = useMemo(() => ({
     long: marketCoins.filter(coin => hasStrategyDirection(coin, 'long', {
@@ -1037,6 +1087,20 @@ function Dashboard() {
             }
           />
         )}
+        {availableDatesError && (
+          <Alert
+            message="可选日期列表加载失败"
+            description={`${availableDatesError}。日历暂不做可用性校验，选中无数据的日期会提示加载失败。`}
+            type="warning"
+            showIcon
+            className="mb-4"
+            action={
+              <Button size="small" onClick={refreshAvailableDates}>
+                重试
+              </Button>
+            }
+          />
+        )}
         {/* 在这里添加收藏错误的代码 */}
         {favoritesError && (
             <Alert
@@ -1128,7 +1192,9 @@ function Dashboard() {
 
             {selectedCoin && getSelectedCoinData() ? (
               <div ref={selectedCoinDetailRef}>
+                {/* key 保证换币时整块重新挂载，不会把上一枚币的历史曲线留在图上 */}
                 <CoinDetailChart
+                  key={selectedCoin}
                   coin={getSelectedCoinData()}
                   onRefresh={handleRefresh}
                   selectedDate={selectedDate}
@@ -1161,7 +1227,7 @@ function Dashboard() {
               loading={loading && (!allCoins || allCoins.length === 0)} // Show loading in Table only if allCoins is truly empty
               onRefresh={handleRefresh}
               selectedCoin={selectedCoin}
-              onCoinSelect={(symbol) => handleCoinSelect(symbol, { scrollToDetail: true })}
+              onCoinSelect={handleCoinSelectWithScroll}
             />
           </>
         )}

@@ -5,6 +5,7 @@ const path = require('path');
 require('dotenv').config();
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3001/api';
+const REQUEST_TIMEOUT_MS = Number(process.env.BOT_API_TIMEOUT_MS) || 20000;
 
 function resolveEncryptionKey() {
     if (process.env.ENCRYPTION_KEY) {
@@ -37,6 +38,52 @@ function resolveEncryptionKey() {
 // Persist the key to avoid invalidating stored credentials on restart.
 const ENCRYPTION_KEY = resolveEncryptionKey();
 const IV_LENGTH = 16;
+const GCM_IV_LENGTH = 12;
+// 与服务端 settingSecretEncryption.js 保持同一套格式约定
+const ENCRYPTED_VALUE_PREFIX = 'enc:v1';
+
+function getEncryptionKeyBuffer() {
+    return crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+}
+
+/**
+ * 复刻 OpenSSL 的 EVP_BytesToKey(MD5, 无 salt)。
+ *
+ * 历史凭据是用 crypto.createCipher 写的，而该 API 在 Node 22 已被移除，
+ * 直接调用会抛 TypeError，导致所有已绑定用户既无法使用也无法重新绑定。
+ * 这里手工还原它的密钥派生方式，使旧密文仍可解开并就地迁移到新格式。
+ * 已对照 `openssl enc -aes-256-cbc -md md5 -nosalt` 验证过 key/iv 完全一致。
+ */
+function legacyEvpBytesToKey(password, keyLength, ivLength) {
+    const passwordBuffer = Buffer.from(password, 'utf8');
+    let derived = Buffer.alloc(0);
+    let block = Buffer.alloc(0);
+    while (derived.length < keyLength + ivLength) {
+        block = crypto.createHash('md5').update(Buffer.concat([block, passwordBuffer])).digest();
+        derived = Buffer.concat([derived, block]);
+    }
+    return {
+        key: derived.subarray(0, keyLength),
+        iv: derived.subarray(keyLength, keyLength + ivLength),
+    };
+}
+
+/**
+ * 旧格式为 `<随机IV十六进制>:<密文十六进制>`。
+ * 其中那段随机 IV 是摆设——createCipher 并不接受外部 IV，
+ * key 与 iv 都由它自己从口令派生，所以解密时直接丢弃前缀即可。
+ */
+function decryptLegacyValue(storedValue) {
+    const parts = String(storedValue).split(':');
+    if (parts.length < 2) {
+        throw new Error('Malformed legacy credential');
+    }
+    parts.shift();
+    const encryptedHex = parts.join(':');
+    const { key, iv } = legacyEvpBytesToKey(ENCRYPTION_KEY, 32, IV_LENGTH);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    return decipher.update(encryptedHex, 'hex', 'utf8') + decipher.final('utf8');
+}
 
 class UserAuth {
     // 设置数据库连接
@@ -44,24 +91,40 @@ class UserAuth {
         this.db = database;
     }
 
-    // 加密密码
+    // 加密密码（AES-256-GCM，带认证标签，IV 每次随机且真正参与运算）
     static encrypt(text) {
-        const iv = crypto.randomBytes(IV_LENGTH);
-        const cipher = crypto.createCipher('aes-256-cbc', ENCRYPTION_KEY);
-        let encrypted = cipher.update(text, 'utf8', 'hex');
-        encrypted += cipher.final('hex');
-        return iv.toString('hex') + ':' + encrypted;
+        const iv = crypto.randomBytes(GCM_IV_LENGTH);
+        const cipher = crypto.createCipheriv('aes-256-gcm', getEncryptionKeyBuffer(), iv);
+        const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+        return [
+            ENCRYPTED_VALUE_PREFIX,
+            iv.toString('base64url'),
+            cipher.getAuthTag().toString('base64url'),
+            encrypted.toString('base64url'),
+        ].join(':');
     }
 
-    // 解密密码
+    // 判断是否为需要迁移的旧格式密文
+    static isLegacyCiphertext(text) {
+        return typeof text === 'string' && !text.startsWith(`${ENCRYPTED_VALUE_PREFIX}:`);
+    }
+
+    // 解密密码，兼容 createCipher 时代的旧密文
     static decrypt(text) {
-        const textParts = text.split(':');
-        const iv = Buffer.from(textParts.shift(), 'hex');
-        const encryptedText = textParts.join(':');
-        const decipher = crypto.createDecipher('aes-256-cbc', ENCRYPTION_KEY);
-        let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
-        return decrypted;
+        if (this.isLegacyCiphertext(text)) {
+            return decryptLegacyValue(text);
+        }
+        const [, , ivValue, authTagValue, encryptedValue] = String(text).split(':');
+        const decipher = crypto.createDecipheriv(
+            'aes-256-gcm',
+            getEncryptionKeyBuffer(),
+            Buffer.from(ivValue, 'base64url')
+        );
+        decipher.setAuthTag(Buffer.from(authTagValue, 'base64url'));
+        return Buffer.concat([
+            decipher.update(Buffer.from(encryptedValue, 'base64url')),
+            decipher.final(),
+        ]).toString('utf8');
     }
 
     // 存储用户凭据
@@ -93,6 +156,14 @@ class UserAuth {
                     else {
                         try {
                             const decryptedPassword = this.decrypt(row.dashboard_password_hash);
+                            // 旧密文解开后立即升级为新格式，避免长期依赖已被移除的算法
+                            if (this.isLegacyCiphertext(row.dashboard_password_hash)) {
+                                this.saveUserCredentials(chatId, row.dashboard_username, decryptedPassword)
+                                    .then(() => console.log(`Migrated stored credentials for user ${chatId} to ${ENCRYPTED_VALUE_PREFIX}`))
+                                    .catch(migrateError => console.error(
+                                        `Failed to migrate credentials for user ${chatId}:`, migrateError.message
+                                    ));
+                            }
                             resolve({
                                 username: row.dashboard_username,
                                 password: decryptedPassword,
@@ -148,7 +219,7 @@ class UserAuth {
             const response = await axios.post(`${API_BASE_URL}/auth/login`, {
                 username: username,
                 password: password
-            });
+            }, { timeout: REQUEST_TIMEOUT_MS });
 
             const token = response.data.token;
             const expiresAt = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000); // 6天后过期
@@ -207,6 +278,8 @@ class UserAuth {
 
         return axios.create({
             baseURL: API_BASE_URL,
+            // 不设超时会让单次卡住的请求永远悬着，定时任务随后不断叠加新执行
+            timeout: REQUEST_TIMEOUT_MS,
             headers: {
                 'Authorization': `Bearer ${tokenResult.token}`,
                 'Content-Type': 'application/json'

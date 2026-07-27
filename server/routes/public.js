@@ -123,8 +123,9 @@ router.get('/top-otc-crypto', async (req, res) => {
       items
     });
   } catch (error) {
+    // 匿名接口不回传 error.message，避免把内部实现细节暴露给未认证调用方
     console.error('[PUBLIC_TOP_OTC] Error:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch top OTC crypto', details: error.message });
+    res.status(500).json({ success: false, error: 'Failed to fetch top OTC crypto' });
   }
 });
 
@@ -204,8 +205,9 @@ router.get('/bottom-otc-crypto', async (req, res) => {
       items
     });
   } catch (error) {
+    // 同上：匿名接口只回传通用错误信息
     console.error('[PUBLIC_BOTTOM_OTC] Error:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch bottom OTC crypto', details: error.message });
+    res.status(500).json({ success: false, error: 'Failed to fetch bottom OTC crypto' });
   }
 });
 

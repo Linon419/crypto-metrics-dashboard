@@ -119,9 +119,29 @@ function ensureFrontendBuild() {
 
 function checkHealth(timeoutMs = 1500) {
   return new Promise(resolve => {
+    // 仅凭状态码判断会误判：端口上任何服务返回 404 都落在 200~499 内，
+    // 启动器就会认定"服务已在运行"并把浏览器指向别人的应用。
+    // 这里要求 200 且响应体是本服务 /api/test 的固定标记。
     const req = http.get(getHealthUrl(), { timeout: timeoutMs }, res => {
-      res.resume();
-      resolve(res.statusCode >= 200 && res.statusCode < 500);
+      if (res.statusCode !== 200) {
+        res.resume();
+        resolve(false);
+        return;
+      }
+
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => {
+        if (body.length < 2048) body += chunk;
+      });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(body).message === 'API is working!');
+        } catch (error) {
+          resolve(false);
+        }
+      });
+      res.on('error', () => resolve(false));
     });
 
     req.on('error', () => resolve(false));

@@ -29,7 +29,19 @@ function LiquidityChart({ liquidity, loading }) {
     );
   }
 
-  if (!liquidity || (!liquidity.btc_fund_change && !liquidity.eth_fund_change && !liquidity.sol_fund_change)) {
+  // 这些列可空，使用 nullish 判空可区分数值 0 与空值，
+  // 结果是只有总量和点评的日子被整块隐藏
+  const hasValue = (value) => value !== null && value !== undefined;
+  const hasAnyLiquidityField = liquidity && [
+    liquidity.btc_fund_change,
+    liquidity.eth_fund_change,
+    liquidity.sol_fund_change,
+    liquidity.total_market_fund_change,
+    liquidity.comments,
+    liquidity.daily_reminder,
+  ].some(hasValue);
+
+  if (!hasAnyLiquidityField) {
     return (
       <Card className="dashboard-panel mt-4 p-4 mb-4">
         <Title level={4} className="mb-4">流动性概况</Title>
@@ -37,6 +49,13 @@ function LiquidityChart({ liquidity, loading }) {
       </Card>
     );
   }
+
+  // 只有总量和点评的日子不画柱状图，避免展示三根 0 的假图
+  const hasCoinFundData = [
+    liquidity.btc_fund_change,
+    liquidity.eth_fund_change,
+    liquidity.sol_fund_change,
+  ].some(hasValue);
 
   const chartData = [
     {
@@ -111,30 +130,34 @@ function LiquidityChart({ liquidity, loading }) {
           />
           
           {/* Fund flow tags */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {chartData.map(item => (
-              <div 
-                key={item.name}
-                className={`inline-flex items-center px-3 py-1 rounded-full ${
-                  item.direction === 'inflow' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                }`}
-              >
-                {item.name}
-                {item.direction === 'inflow' ? <ArrowUpOutlined className="ml-1" /> : <ArrowDownOutlined className="ml-1" />}
-                <span className="ml-1">{Math.abs(item.value).toFixed(2)}亿</span>
-              </div>
-            ))}
-          </div>
-          
+          {hasCoinFundData && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {chartData.map(item => (
+                <div
+                  key={item.name}
+                  className={`inline-flex items-center px-3 py-1 rounded-full ${
+                    item.direction === 'inflow' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}
+                >
+                  {item.name}
+                  {item.direction === 'inflow' ? <ArrowUpOutlined className="ml-1" /> : <ArrowDownOutlined className="ml-1" />}
+                  <span className="ml-1">{Math.abs(item.value).toFixed(2)}亿</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Chart in collapsible panel */}
-          <Collapse ghost className="mb-3">
-            <Panel header="查看详细图表" key="1">
-              <div style={{ height: '250px' }}>
-                {BarChartGraph}
-              </div>
-            </Panel>
-          </Collapse>
-          
+          {hasCoinFundData && (
+            <Collapse ghost className="mb-3">
+              <Panel header="查看详细图表" key="1">
+                <div style={{ height: '250px' }}>
+                  {BarChartGraph}
+                </div>
+              </Panel>
+            </Collapse>
+          )}
+
           {/* Analysis section */}
           {liquidity.comments && (
             <Paragraph className="text-gray-700">
@@ -154,12 +177,14 @@ function LiquidityChart({ liquidity, loading }) {
       ) : (
         // Desktop layout with side-by-side chart and stats
         <Row gutter={[16, 16]}>
-          <Col xs={24} md={12}>
-            <div style={{ height: '300px' }}>
-              {BarChartGraph}
-            </div>
-          </Col>
-          <Col xs={24} md={12}>
+          {hasCoinFundData && (
+            <Col xs={24} md={12}>
+              <div style={{ height: '300px' }}>
+                {BarChartGraph}
+              </div>
+            </Col>
+          )}
+          <Col xs={24} md={hasCoinFundData ? 12 : 24}>
             <div className="flex flex-col justify-center h-full">
               <Statistic 
                 title="总市场资金变化"
@@ -175,21 +200,25 @@ function LiquidityChart({ liquidity, loading }) {
               />
               
               <div>
-                <Title level={5}>资金流向分析</Title>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {chartData.map(item => (
-                    <div 
-                      key={item.name}
-                      className={`inline-flex items-center px-3 py-1 rounded-full ${
-                        item.direction === 'inflow' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                      }`}
-                    >
-                      {item.name}
-                      {item.direction === 'inflow' ? <ArrowUpOutlined className="ml-1" /> : <ArrowDownOutlined className="ml-1" />}
+                {hasCoinFundData && (
+                  <>
+                    <Title level={5}>资金流向分析</Title>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {chartData.map(item => (
+                        <div
+                          key={item.name}
+                          className={`inline-flex items-center px-3 py-1 rounded-full ${
+                            item.direction === 'inflow' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          }`}
+                        >
+                          {item.name}
+                          {item.direction === 'inflow' ? <ArrowUpOutlined className="ml-1" /> : <ArrowDownOutlined className="ml-1" />}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-                
+                  </>
+                )}
+
                 {liquidity.comments && (
                   <Paragraph className="text-gray-700">
                     <Text strong>分析: </Text>

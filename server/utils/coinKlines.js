@@ -60,6 +60,8 @@ const YAHOO_SYMBOL_ALIASES = {
 };
 
 const DERIBIT_BTC_DVOL_COIN_SYMBOLS = new Set(['VEGA']);
+// 需要节流的第三方免费行情源
+const THROTTLED_SYNC_MARKETS = new Set([YAHOO_FINANCE_MARKET, CHINA_FUTURES_SINA_MARKET]);
 const yahooSyncCache = new Map();
 const YAHOO_FINANCE_COIN_SYMBOLS = new Set([
   ...Object.keys(YAHOO_SYMBOL_ALIASES),
@@ -245,12 +247,21 @@ function getPreferredKlineMarket(symbol, klineMapping) {
   return null;
 }
 
-function normalizeYahooInterval(interval = DEFAULT_INTERVAL) {
+// Yahoo 没有 4h 粒度，只能按 1h 拉取原始K线，再自行聚合成真正的 4h 蜡烛
+const YAHOO_AGGREGATED_SOURCE_INTERVALS = {
+  '4h': '1h',
+};
+
+function resolveYahooSourceInterval(interval = DEFAULT_INTERVAL) {
   const normalized = normalizeInterval(interval);
-  if (normalized === '4h') return '1h';
-  if (normalized === '1w') return '1wk';
-  if (normalized === '1M') return '1mo';
-  return normalized;
+  return YAHOO_AGGREGATED_SOURCE_INTERVALS[normalized] || normalized;
+}
+
+function normalizeYahooInterval(interval = DEFAULT_INTERVAL) {
+  const sourceInterval = resolveYahooSourceInterval(interval);
+  if (sourceInterval === '1w') return '1wk';
+  if (sourceInterval === '1M') return '1mo';
+  return sourceInterval;
 }
 
 function normalizeChinaFuturesSinaIntervalType(interval = DEFAULT_INTERVAL) {
@@ -297,7 +308,8 @@ function normalizeStoredKlineLimit({
   return Math.min(Math.max(baseLimit, rangeLimit), MAX_STORED_RANGE_LIMIT);
 }
 
-function buildYahooSyncCacheKey({
+function buildKlineSyncCacheKey({
+  market,
   coinSymbol,
   interval = DEFAULT_INTERVAL,
   limit = DEFAULT_LIMIT,
@@ -306,6 +318,7 @@ function buildYahooSyncCacheKey({
   includePrePost = false,
 } = {}) {
   return [
+    String(market || ''),
     String(coinSymbol || '').trim().toUpperCase(),
     normalizeInterval(interval),
     normalizeLimit(limit),
@@ -315,7 +328,19 @@ function buildYahooSyncCacheKey({
   ].join(':');
 }
 
-function shouldSkipYahooSync({
+// Yahoo 与新浪国内期货都是第三方免费接口，需要节流，避免每个请求都打真实 HTTP
+function resolveThrottledSyncMarket(coinSymbol, klineMapping) {
+  const market = getPreferredKlineMarket(coinSymbol, klineMapping);
+  return THROTTLED_SYNC_MARKETS.has(market) ? market : null;
+}
+
+function resolveThrottledMarketTradingSymbol(market, coinSymbol, klineMapping) {
+  if (klineMapping?.trading_symbol) return klineMapping.trading_symbol;
+  if (market === CHINA_FUTURES_SINA_MARKET) return getChinaFuturesSinaTradingSymbol(coinSymbol);
+  return resolveYahooSymbol(coinSymbol, klineMapping);
+}
+
+function shouldSkipMarketSync({
   coinSymbol,
   klineMapping,
   interval = DEFAULT_INTERVAL,
@@ -327,11 +352,13 @@ function shouldSkipYahooSync({
   now = Date.now(),
 } = {}) {
   const minInterval = Number(minSyncIntervalMs);
-  if (!shouldUseYahooFinance(coinSymbol, klineMapping) || !Number.isFinite(minInterval) || minInterval <= 0) {
-    return { skip: false };
+  const market = resolveThrottledSyncMarket(coinSymbol, klineMapping);
+  if (!market) {
+    return { skip: false, market: null };
   }
 
-  const key = buildYahooSyncCacheKey({
+  const key = buildKlineSyncCacheKey({
+    market,
     coinSymbol: klineMapping?.trading_symbol || coinSymbol,
     interval,
     limit,
@@ -339,21 +366,26 @@ function shouldSkipYahooSync({
     endTime,
     includePrePost,
   });
+  if (!Number.isFinite(minInterval) || minInterval <= 0) {
+    return { skip: false, market, key };
+  }
+
   const nowMs = toTimestampMs(now, 'now');
   const lastSyncedAt = yahooSyncCache.get(key);
   if (Number.isFinite(lastSyncedAt) && nowMs - lastSyncedAt < minInterval) {
     return {
       skip: true,
+      market,
       key,
       lastSyncedAt,
       nextAllowedAt: lastSyncedAt + minInterval,
     };
   }
 
-  return { skip: false, key };
+  return { skip: false, market, key };
 }
 
-function rememberYahooSync(cacheKey, now = Date.now()) {
+function rememberKlineSync(cacheKey, now = Date.now()) {
   if (!cacheKey) return;
   yahooSyncCache.set(cacheKey, toTimestampMs(now, 'now'));
 }
@@ -371,6 +403,30 @@ function shouldFilterYahooZeroVolumeRows(tradingSymbol) {
   return true;
 }
 
+// 各市场的K线相位不同（国内期货日线开在 UTC 16:00、美股日线开在 UTC 13:30），
+// 直接假设 UTC 整点对齐会把这些行情永远判成过期，这里按实际观测到的相位推算周期起点
+function resolveIntervalPhaseMs(rows = [], intervalMs) {
+  const phaseCounts = new Map();
+  let dominantPhase = 0;
+  let dominantCount = 0;
+
+  rows.forEach((row) => {
+    const value = row?.open_time ?? row?.openTime;
+    const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
+    if (!Number.isFinite(time)) return;
+
+    const phase = ((time % intervalMs) + intervalMs) % intervalMs;
+    const count = (phaseCounts.get(phase) || 0) + 1;
+    phaseCounts.set(phase, count);
+    if (count > dominantCount) {
+      dominantCount = count;
+      dominantPhase = phase;
+    }
+  });
+
+  return dominantPhase;
+}
+
 function shouldRefreshStoredCoinKlines({
   rows = [],
   interval = DEFAULT_INTERVAL,
@@ -384,7 +440,8 @@ function shouldRefreshStoredCoinKlines({
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) return false;
 
   const nowMs = toTimestampMs(now, 'now');
-  const currentBucketStart = Math.floor(nowMs / intervalMs) * intervalMs;
+  const phaseMs = resolveIntervalPhaseMs(rows, intervalMs);
+  const currentBucketStart = Math.floor((nowMs - phaseMs) / intervalMs) * intervalMs + phaseMs;
   const latestOpenTime = rows.reduce((latest, row) => {
     const value = row?.open_time ?? row?.openTime;
     const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
@@ -599,7 +656,10 @@ function buildCoinKlineBackfillChunks({
   while (cursor <= end && chunks.length < chunkLimit) {
     const chunkEnd = Math.min(end, cursor + intervalMs * normalizedLimit - 1);
     chunks.push({ startTime: cursor, endTime: chunkEnd });
-    cursor = alignTimestampToIntervalStart(chunkEnd + 1, normalizedInterval);
+    // chunkEnd + 1 未落在周期边界时向下对齐会倒退到 chunkEnd 之前，
+    // 导致游标原地打转、同一分片一直重复到 maxChunks，这里强制单调前进
+    const alignedCursor = alignTimestampToIntervalStart(chunkEnd + 1, normalizedInterval);
+    cursor = Math.max(alignedCursor, chunkEnd + 1);
   }
 
   return chunks;
@@ -1027,6 +1087,73 @@ async function fetchDeribitBtcDvolKlines({
     .slice(-normalizedLimit);
 }
 
+// 把细粒度K线按目标周期边界合并成真实蜡烛：开=首根开，高=最高，低=最低，收=末根收，量=求和
+function aggregateKlineRowsToInterval(rows = [], interval = DEFAULT_INTERVAL) {
+  const normalizedInterval = normalizeInterval(interval);
+  const intervalMs = INTERVAL_MS[normalizedInterval];
+  const buckets = new Map();
+
+  [...rows]
+    .filter(row => Number.isFinite(getStoredKlineOpenTimeMs(row)))
+    .sort((left, right) => getStoredKlineOpenTimeMs(left) - getStoredKlineOpenTimeMs(right))
+    .forEach((row) => {
+      const bucketStart = Math.floor(getStoredKlineOpenTimeMs(row) / intervalMs) * intervalMs;
+      const bucket = buckets.get(bucketStart);
+
+      if (!bucket) {
+        buckets.set(bucketStart, {
+          ...row,
+          interval: normalizedInterval,
+          open_time: new Date(bucketStart),
+          close_time: new Date(bucketStart + intervalMs - 1),
+        });
+        return;
+      }
+
+      bucket.high_price = Math.max(bucket.high_price, row.high_price);
+      bucket.low_price = Math.min(bucket.low_price, row.low_price);
+      bucket.close_price = row.close_price;
+      bucket.volume += row.volume;
+      bucket.quote_volume += row.quote_volume;
+      bucket.trade_count += row.trade_count;
+    });
+
+  return Array.from(buckets.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([, row]) => row);
+}
+
+// Yahoo 会把正在形成的最后一根K线的时间戳返回为当前报价时间（秒级毛刺），
+// 这里按上一根K线的相位对齐回它所属的周期，避免每次同步都新增一行脏数据
+function alignYahooInProgressRow(rows, intervalMs, regularMarketTimeMs) {
+  if (!Array.isArray(rows) || rows.length < 2) return rows;
+
+  const lastRow = rows[rows.length - 1];
+  const lastOpenTime = lastRow.open_time.getTime();
+  const previousOpenTime = rows[rows.length - 2].open_time.getTime();
+  // 正常K线起点一定落在整分钟上，缺少 meta.regularMarketTime 时以此兜底判断
+  const isQuoteTimestamp = Number.isFinite(regularMarketTimeMs)
+    ? regularMarketTimeMs === lastOpenTime
+    : lastOpenTime % 60000 !== 0;
+
+  if (!isQuoteTimestamp) return rows;
+
+  const alignedOpenTime = previousOpenTime
+    + Math.floor((lastOpenTime - previousOpenTime) / intervalMs) * intervalMs;
+  if (alignedOpenTime === lastOpenTime) return rows;
+  // 对齐后与上一根重合时直接丢弃，交给下一次同步刷新那根K线
+  if (alignedOpenTime === previousOpenTime) return rows.slice(0, -1);
+
+  return [
+    ...rows.slice(0, -1),
+    {
+      ...lastRow,
+      open_time: new Date(alignedOpenTime),
+      close_time: new Date(alignedOpenTime + intervalMs - 1),
+    },
+  ];
+}
+
 function parseYahooChartResult(result, {
   coinId,
   coinSymbol,
@@ -1040,8 +1167,11 @@ function parseYahooChartResult(result, {
   }
 
   const normalizedInterval = normalizeInterval(interval);
-  const intervalMs = INTERVAL_MS[normalizedInterval] || INTERVAL_MS['1d'];
+  // Yahoo 实际返回的是 sourceInterval 粒度（4h 请求会拿到 1h），先按真实粒度落行再聚合
+  const sourceInterval = resolveYahooSourceInterval(normalizedInterval);
+  const intervalMs = INTERVAL_MS[sourceInterval] || INTERVAL_MS['1d'];
   const resolvedTradingSymbol = tradingSymbol || result?.meta?.symbol || resolveYahooSymbol(coinSymbol);
+  const regularMarketTime = Number(result?.meta?.regularMarketTime);
   const rows = [];
 
   timestamps.forEach((timestampSeconds, index) => {
@@ -1059,7 +1189,7 @@ function parseYahooChartResult(result, {
       coin_symbol: String(coinSymbol || '').toUpperCase(),
       trading_symbol: resolvedTradingSymbol,
       market: YAHOO_FINANCE_MARKET,
-      interval: normalizedInterval,
+      interval: sourceInterval,
       open_time: new Date(openTimeMs),
       close_time: new Date(openTimeMs + intervalMs - 1),
       open_price: toNumber(open, 'open'),
@@ -1072,7 +1202,15 @@ function parseYahooChartResult(result, {
     });
   });
 
-  return rows;
+  const alignedRows = alignYahooInProgressRow(
+    rows,
+    intervalMs,
+    Number.isFinite(regularMarketTime) ? regularMarketTime * 1000 : null
+  );
+
+  return sourceInterval === normalizedInterval
+    ? alignedRows
+    : aggregateKlineRowsToInterval(alignedRows, normalizedInterval);
 }
 
 async function fetchMarketKlinesWithFallback(options) {
@@ -1223,7 +1361,7 @@ async function syncCoinKlines({
   const effectiveMapping = klineMapping
     ? resolveEffectiveKlineMapping(coin, klineMapping)
     : null;
-  const yahooSyncCheck = shouldSkipYahooSync({
+  const marketSyncCheck = shouldSkipMarketSync({
     coinSymbol: coin.symbol,
     klineMapping: effectiveMapping,
     interval: normalizedInterval,
@@ -1235,18 +1373,22 @@ async function syncCoinKlines({
     now,
   });
 
-  if (!force && yahooSyncCheck.skip) {
+  if (!force && marketSyncCheck.skip) {
     return {
       coinId: coin.id,
       coinSymbol: String(coin.symbol).toUpperCase(),
-      tradingSymbol: resolveYahooSymbol(coin.symbol, effectiveMapping),
-      market: YAHOO_FINANCE_MARKET,
+      tradingSymbol: resolveThrottledMarketTradingSymbol(
+        marketSyncCheck.market,
+        coin.symbol,
+        effectiveMapping
+      ),
+      market: marketSyncCheck.market,
       fallbackReason: null,
       interval: normalizedInterval,
       fetched: 0,
       saved: 0,
       skipped: true,
-      nextAllowedAt: new Date(yahooSyncCheck.nextAllowedAt).toISOString(),
+      nextAllowedAt: new Date(marketSyncCheck.nextAllowedAt).toISOString(),
     };
   }
 
@@ -1314,16 +1456,8 @@ async function syncCoinKlines({
     await CoinKlineModel.upsert(payload);
   }
 
-  if (shouldUseYahooFinance(coin.symbol, effectiveMapping)) {
-    const cacheKey = yahooSyncCheck.key || buildYahooSyncCacheKey({
-      coinSymbol: effectiveMapping?.trading_symbol || coin.symbol,
-      interval: normalizedInterval,
-      limit: normalizedLimit,
-      startTime,
-      endTime,
-      includePrePost,
-    });
-    rememberYahooSync(cacheKey, now);
+  if (marketSyncCheck.market) {
+    rememberKlineSync(marketSyncCheck.key, now);
   }
 
   return {

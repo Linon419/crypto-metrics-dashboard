@@ -88,27 +88,6 @@ function OptionsVolatilityChart() {
     }],
   }), [candles]);
 
-  if (loading && !history) {
-    return (
-      <section className="options-vol-panel">
-        <Spin size="small" /> <Text>BTC 隐含波动率加载中</Text>
-      </section>
-    );
-  }
-
-  if (error) {
-    return (
-      <Alert
-        className="options-vol-panel"
-        type="warning"
-        showIcon
-        message="BTC 隐含波动率 K 线加载失败"
-        description={error}
-        action={<Button size="small" icon={<ReloadOutlined />} onClick={() => loadHistory({ refresh: true })}>重试</Button>}
-      />
-    );
-  }
-
   return (
     <section className="options-vol-panel">
       <div className="options-vol-panel__header">
@@ -117,6 +96,7 @@ function OptionsVolatilityChart() {
           <h2>BTC 隐含波动率 K 线</h2>
         </div>
         <div className="options-vol-panel__meta">
+          {/* 周期切换器要一直挂着：某个周期加载失败时整块替换成 Alert，用户就被困在坏周期上了 */}
           <div className="options-vol-periods" aria-label="K 线周期">
             {VOLATILITY_PERIODS.map(period => (
               <button
@@ -135,7 +115,24 @@ function OptionsVolatilityChart() {
           <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => loadHistory({ refresh: true })}>刷新</Button>
         </div>
       </div>
-      <ReactECharts option={option} style={{ height: 320, width: '100%' }} notMerge lazyUpdate />
+
+      {error ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="BTC 隐含波动率 K 线加载失败"
+          description={error}
+          action={<Button size="small" icon={<ReloadOutlined />} onClick={() => loadHistory({ refresh: true })}>重试</Button>}
+        />
+      ) : loading && !history ? (
+        <div className="options-vol-panel__loading">
+          <Spin size="small" /> <Text>BTC 隐含波动率加载中</Text>
+        </div>
+      ) : candles.length === 0 ? (
+        <Text type="secondary">当前周期暂无 DVOL 数据</Text>
+      ) : (
+        <ReactECharts option={option} style={{ height: 320, width: '100%' }} notMerge lazyUpdate />
+      )}
     </section>
   );
 }

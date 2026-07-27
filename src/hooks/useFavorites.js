@@ -80,17 +80,12 @@ export const useFavorites = () => {
     } catch (err) {
       console.error(`[收藏操作] 服务器API调用失败: ${symbol}`, err);
 
-      // 如果是网络错误或服务器错误，保持UI状态但显示警告
-      if (err.message.includes('500') || err.message.includes('Network')) {
-        console.warn(`[收藏操作] 服务器暂时不可用，收藏状态已保存到本地: ${symbol}`);
-        // 保持UI状态，不回滚
-      } else {
-        // 其他错误，回滚UI状态
-        console.log(`[收藏操作] 回滚UI状态: ${symbol}`);
-        setFavorites(originalFavorites);
-        localStorage.setItem('favoriteCrypto', JSON.stringify(originalFavorites));
-        throw err;
-      }
+      // 一律回滚：保留乐观结果会让本地和服务端（dataCache.favorites）分叉，
+      // 下一次切换会算错方向，"取消收藏"会被当成"添加收藏"发出去
+      console.log(`[收藏操作] 回滚UI状态: ${symbol}`);
+      setFavorites(originalFavorites);
+      localStorage.setItem('favoriteCrypto', JSON.stringify(originalFavorites));
+      throw err;
     }
 
   }, [favorites]);

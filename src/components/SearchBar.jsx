@@ -234,7 +234,7 @@ function SearchBar({ coins, onSelect, favorites = [], onToggleFavorite, loading 
         height="80vh"
         onClose={() => setIsDrawerOpen(false)}
         open={isMobile && isDrawerOpen}
-        destroyOnClose={false}
+        destroyOnHidden={false}
         bodyStyle={{ padding: 0 }}
         headerStyle={{ padding: '10px 16px' }}
       >

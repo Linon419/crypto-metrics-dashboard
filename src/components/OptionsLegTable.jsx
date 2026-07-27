@@ -1,5 +1,6 @@
 import React from 'react';
 import { Empty, Tag } from 'antd';
+import DecimalNumberInput from './DecimalNumberInput';
 
 function formatNumber(value, digits = 4) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
@@ -53,14 +54,11 @@ function OptionsLegTable({ legs = [], onQuantityChange }) {
               <td>{formatNumber(leg.strike, 0)}</td>
               <td>
                 {onQuantityChange ? (
-                  <input
-                    aria-label={`数量 ${leg.instrumentName || leg.role || leg.id}`}
+                  <DecimalNumberInput
+                    ariaLabel={`数量 ${leg.instrumentName || leg.role || leg.id}`}
                     className="options-leg-quantity-input"
-                    min="0.01"
-                    step="0.1"
-                    type="number"
+                    onCommit={nextQuantity => onQuantityChange(leg, nextQuantity)}
                     value={leg.quantity}
-                    onChange={event => onQuantityChange(leg, event.target.value)}
                   />
                 ) : formatNumber(leg.quantity, 2)}
               </td>

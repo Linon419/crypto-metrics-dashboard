@@ -13,6 +13,9 @@ let openaiClientCache = null;
 
 const MOMENTUM_INDICATORS = ['$', '*', '※', '‼', '↑', 'w'];
 const DEFAULT_SYSTEM_PROMPT = '你是一个数据清洗专家，请将加密货币指标数据转换为结构化JSON格式。';
+// 大批量数据清洗耗时较长，超时放到 6 分钟；同时收紧重试，避免超时后 SDK 再自动重试两轮
+const OPENAI_REQUEST_TIMEOUT_MS = 360000;
+const OPENAI_MAX_RETRIES = 1;
 
 function getOpenAIClient(settings) {
   if (!settings.apiKey) {
@@ -26,6 +29,8 @@ function getOpenAIClient(settings) {
       client: new OpenAI({
         apiKey: settings.apiKey,
         baseURL: settings.baseURL,
+        maxRetries: OPENAI_MAX_RETRIES,
+        timeout: OPENAI_REQUEST_TIMEOUT_MS,
       }),
     };
   }
@@ -395,41 +400,60 @@ async function processRawData(rawText) {
     console.log('数据大小:', rawText.length, '字符');
 
     // 设置OpenAI API调用超时（6分钟）
-    const timeoutMs = 360000; // 6分钟超时
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`OpenAI API 调用超时（${timeoutMs/1000}秒）`)), timeoutMs);
-    });
+    // Promise.race 本身取消不了 HTTP 请求，这里用 AbortController 真正中断，
+    // 并在 finally 里清掉定时器，避免每次成功调用都在事件循环里留 6 分钟的悬挂 timer
+    const timeoutMs = OPENAI_REQUEST_TIMEOUT_MS;
+    const abortController = new AbortController();
+    let timeoutTimer = null;
+    let response = null;
 
-    const apiPromise = openaiClient.chat.completions.create({
-      model: model,
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      response_format: { type: "json_object" }
-      // 注意: timeout 参数已移除,因为OpenAI API不接受此参数
-      // 我们使用 Promise.race 来实现超时控制
-    });
+    try {
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutTimer = setTimeout(() => {
+          abortController.abort();
+          reject(new Error(`OpenAI API 调用超时（${timeoutMs/1000}秒）`));
+        }, timeoutMs);
+      });
 
-    const response = await Promise.race([apiPromise, timeoutPromise]);
+      const apiPromise = openaiClient.chat.completions.create({
+        model: model,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        response_format: { type: "json_object" }
+      }, { signal: abortController.signal });
+
+      response = await Promise.race([apiPromise, timeoutPromise]);
+    } finally {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+    }
 
     const apiEndTime = Date.now();
     const apiDuration = ((apiEndTime - apiStartTime) / 1000).toFixed(2);
 
     console.log('============ API响应 ============');
     console.log(`⏱️ OpenAI API 调用耗时: ${apiDuration} 秒`);
-    console.log(JSON.stringify(response.choices[0].message, null, 2));
-    
-    const responseContent = response.choices[0].message.content;
+
+    // 供应商返回结构异常时直接报错，避免伪装成"解析失败"误导排查
+    const responseMessage = response?.choices?.[0]?.message;
+    if (!responseMessage || typeof responseMessage.content !== 'string' || !responseMessage.content.trim()) {
+      console.error('供应商响应结构异常:', JSON.stringify(response, null, 2));
+      throw new Error('AI 供应商未返回有效的响应内容');
+    }
+
+    console.log(JSON.stringify(responseMessage, null, 2));
+
+    const responseContent = responseMessage.content;
     console.log('============ 响应内容 ============');
     console.log(responseContent);
-    
+
     // 解析JSON响应
     try {
       const parsedData = JSON.parse(responseContent);

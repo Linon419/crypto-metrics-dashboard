@@ -16,6 +16,14 @@ function ChangePassword({ visible, onClose, mandatory = false }) {
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
+  // 强制修改密码时弹窗关闭了全部退出路径（closable/maskClosable/keyboard 皆为 false，
+  // 且没有取消按钮）。若用户不记得当前密码，界面上将无任何出口，
+  // 只能手工清除 localStorage。这里始终提供一个登出入口。
+  const handleSignOut = () => {
+    dispatch(logout());
+    navigate('/login', { replace: true });
+  };
+
   const handleSubmit = async (values) => {
     setError(null);
     setLoading(true);
@@ -46,8 +54,11 @@ function ChangePassword({ visible, onClose, mandatory = false }) {
       <Modal
         title="修改密码"
         open={visible}
-        onCancel={onClose}
-        footer={<Button onClick={onClose}>关闭</Button>}
+        onCancel={mandatory ? undefined : onClose}
+        closable={!mandatory}
+        footer={mandatory
+          ? <Button onClick={handleSignOut}>退出登录</Button>
+          : <Button onClick={onClose}>关闭</Button>}
       >
         <Alert
           message="用户信息不可用"
@@ -136,7 +147,9 @@ function ChangePassword({ visible, onClose, mandatory = false }) {
         <Form.Item className="mb-0">
           <div className="flex justify-end">
             <Space>
-              {!mandatory && <Button onClick={onClose}>取消</Button>}
+              {mandatory
+                ? <Button onClick={handleSignOut} disabled={loading}>退出登录</Button>
+                : <Button onClick={onClose}>取消</Button>}
               <Button type="primary" htmlType="submit" loading={loading}>修改密码</Button>
             </Space>
           </div>

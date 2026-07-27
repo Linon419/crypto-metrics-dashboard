@@ -3,7 +3,19 @@
 // 从 api.js 拆出，逻辑未改动；api.js 统一再导出，组件导入路径不变。
 import { api, dataCache, callApiWithRetry, effectiveApiBaseUrl } from './apiClient';
 
-export function buildKlineWebSocketUrl(symbol, interval = '1d', apiBaseUrl = effectiveApiBaseUrl) {
+function readAccessToken() {
+  try {
+    return typeof window !== 'undefined' ? String(window.localStorage?.getItem('token') || '') : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+export function buildKlineWebSocketUrl(
+  symbol,
+  interval = '1d',
+  apiBaseUrl = effectiveApiBaseUrl,
+) {
   const browserOrigin = typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin
     : 'http://localhost:3001';
@@ -30,7 +42,11 @@ export function subscribeCoinKlineStream(symbol, {
     return () => {};
   }
 
-  const socket = new SocketCtor(buildKlineWebSocketUrl(symbol, interval));
+  const token = readAccessToken();
+  const socket = new SocketCtor(
+    buildKlineWebSocketUrl(symbol, interval),
+    token ? ['bearer', token] : undefined,
+  );
 
   socket.onopen = () => {
     onStatus?.({ type: 'status', status: 'open' });
@@ -104,7 +120,8 @@ export const fetchCoinKlines = async (symbol, {
     return data;
   } catch (error) {
     console.error(`获取 ${symbol} K线失败:`, error.displayMessage || error.message);
-    return { symbol, interval, klines: [] };
+    // 静默返回空数组会让图表画出一张没有任何说明的空白图，这里把失败抛给调用方展示错误态
+    throw new Error(error.displayMessage || error.message || `获取 ${symbol} K线失败`);
   }
 };
 
@@ -140,4 +157,3 @@ export const fetchKlineBackfillStatus = async () => {
     throw new Error(error.displayMessage || '获取K线回补进度失败');
   }
 };
-

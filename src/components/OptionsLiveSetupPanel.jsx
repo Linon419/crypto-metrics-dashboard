@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button, Select } from 'antd';
+import DecimalNumberInput from './DecimalNumberInput';
 
 function formatPrice(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
@@ -56,13 +57,10 @@ function OptionsLiveSetupPanel({
         </label>
         <label>
           <span>整体倍率</span>
-          <input
-            aria-label="整体倍率"
-            min="0.1"
-            step="0.1"
-            type="number"
+          <DecimalNumberInput
+            ariaLabel="整体倍率"
+            onCommit={onQuantityMultiplierChange}
             value={quantityMultiplier}
-            onChange={event => onQuantityMultiplierChange(Number(event.target.value) || 1)}
           />
         </label>
         <div>

@@ -63,8 +63,10 @@ function createLoginAttemptLimiter({
       record(accountAttempts, normalizeKey(username), maxAccountFailures);
       record(ipAttempts, normalizeKey(ip), maxIpFailures);
     },
-    recordSuccess({ username }) {
+    recordSuccess({ username, ip }) {
       accountAttempts.delete(normalizeKey(username));
+      // 只清账号桶会让 fail/fail/success/fail 依旧把该地址锁死，IP 桶也要一并清掉
+      ipAttempts.delete(normalizeKey(ip));
     },
     reset() {
       accountAttempts.clear();

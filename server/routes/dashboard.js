@@ -4,6 +4,22 @@ const router = express.Router();
 const { Op } = require('sequelize');
 const { Coin, DailyMetric, LiquidityOverview, TrendingCoin } = require('../models');
 
+const MAX_TREND_LIMIT = 5000;
+
+/**
+ * 解析趋势查询的 limit：直接把原始值丢给 parseInt 会让 ?limit=abc 变成 LIMIT NaN（500）、
+ * ?limit=-1 被 SQLite 当成不限制（全表扫描）、?limit=1e10 被静默截成 1。
+ * 返回 undefined 表示不限制，null 表示参数非法。
+ */
+function parseTrendLimit(rawLimit) {
+  if (rawLimit === undefined || rawLimit === null || rawLimit === '') return undefined;
+  const raw = String(rawLimit).trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) return null;
+  return Math.min(parsed, MAX_TREND_LIMIT);
+}
+
 // 获取仪表盘数据
 router.get('/', async (req, res) => {
   try {
@@ -48,9 +64,10 @@ router.get('/', async (req, res) => {
       };
     });
     
-    // 获取流动性概况
+    // 获取流动性概况：同一天可能存在多个版本，取最新的一条，与 /api/liquidity、/api/data 保持一致
     const liquidity = await LiquidityOverview.findOne({
-      where: { date }
+      where: { date },
+      order: [['timestamp', 'DESC'], ['id', 'DESC']]
     });
     
     // 获取热点币种
@@ -102,19 +119,29 @@ router.get('/', async (req, res) => {
 // 获取历史数据趋势
 router.get('/trends', async (req, res) => {
   try {
-    const { symbol, metric, startDate, endDate, limit } = req.query;
-    
+    const { metric, startDate, endDate, limit } = req.query;
+
+    if (req.query.symbol !== undefined && typeof req.query.symbol !== 'string') {
+      return res.status(400).json({ error: 'symbol must be a string' });
+    }
+    const symbol = req.query.symbol;
+
+    const parsedLimit = parseTrendLimit(limit);
+    if (parsedLimit === null) {
+      return res.status(400).json({ error: `limit must be a positive integer (max ${MAX_TREND_LIMIT})` });
+    }
+
     // 构建查询条件
     const where = {};
     if (startDate) where.date = { [Op.gte]: startDate };
     if (endDate) where.date = { ...where.date, [Op.lte]: endDate };
-    
+
     // 查询所有币种还是特定币种
     let coinWhere = {};
     if (symbol) {
       coinWhere.symbol = symbol.toUpperCase();
     }
-    
+
     // 查询指标数据
     let metrics;
     if (symbol) {
@@ -130,7 +157,7 @@ router.get('/trends', async (req, res) => {
           coin_id: coin.id
         },
         order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']],
-        limit: limit ? parseInt(limit) : undefined
+        limit: parsedLimit
       });
     } else {
       // 查询所有币种的指标
@@ -143,10 +170,10 @@ router.get('/trends', async (req, res) => {
           where: coinWhere
         }],
         order: [['date', 'ASC'], ['timestamp', 'ASC'], ['id', 'ASC']],
-        limit: limit ? parseInt(limit) : undefined
+        limit: parsedLimit
       });
     }
-    
+
     // 格式化趋势数据
     const trends = {};
     

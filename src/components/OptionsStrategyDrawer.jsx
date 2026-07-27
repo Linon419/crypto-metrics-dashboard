@@ -88,6 +88,7 @@ function OptionsStrategyDrawer({ strategy, open, onClose }) {
     setLegQuantityOverrides({});
   }, [strategy?.id]);
 
+  // 入参已由 DecimalNumberInput 解析并校验过，这里只做一次兜底
   const handleLegQuantityChange = useCallback((leg, rawValue) => {
     const nextQuantity = Number(rawValue);
     if (!Number.isFinite(nextQuantity) || nextQuantity <= 0) return;

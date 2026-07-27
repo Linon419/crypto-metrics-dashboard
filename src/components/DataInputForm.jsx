@@ -23,6 +23,29 @@ const { TextArea } = Input;
 const { Title, Text } = Typography;
 const { Option } = Select;
 
+/**
+ * 取出可用于生成表单示例的“最新一天”数据。
+ *
+ * 数据库备份由 services/api.js 的 exportAllData 写出，字段名是 latestProcessedData；
+ * 旧文件里可能是 latestData，两个都兼容。简化格式本身就是 { date, coins }。
+ */
+export function resolveSampleLatestData(jsonPreview) {
+  const data = jsonPreview?.data;
+  if (!data) return null;
+
+  if (jsonPreview.type === 'database') {
+    const latestData = data.latestProcessedData || data.latestData;
+    return Array.isArray(latestData?.coins) ? latestData : null;
+  }
+
+  if (jsonPreview.type === 'simple') {
+    if (!Array.isArray(data.coins)) return null;
+    return { date: data.date || jsonPreview.date || null, coins: data.coins };
+  }
+
+  return null;
+}
+
 function DataInputForm({ onSuccess }) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false); // For raw data submission
@@ -62,12 +85,13 @@ function DataInputForm({ onSuccess }) {
     };
   }, []);
 
-  const preprocessData = (rawData) => {
+  const preprocessData = (rawData, overrides = {}) => {
     return preprocessRawDataForSubmit(rawData, {
       selectedDate,
       selectedTime,
       timePrecision,
       overrideTextTime,
+      ...overrides,
     });
   };
 
@@ -195,12 +219,12 @@ function DataInputForm({ onSuccess }) {
 
   const handleDateSelect = (date) => {
     setSelectedDate(date);
-    updateFormWithDateTime();
+    updateFormWithDateTime({ selectedDate: date });
   };
 
   const handleTimeSelect = (time) => {
     setSelectedTime(time);
-    updateFormWithDateTime();
+    updateFormWithDateTime({ selectedTime: time });
   };
 
   const handleTimePrecisionChange = (precision) => {
@@ -209,16 +233,18 @@ function DataInputForm({ onSuccess }) {
     if (precision === 'day') {
       setSelectedTime(null);
     }
-    updateFormWithDateTime();
+    updateFormWithDateTime({
+      timePrecision: precision,
+      ...(precision === 'day' ? { selectedTime: null } : {}),
+    });
   };
 
-  const updateFormWithDateTime = () => {
-    // 使用setTimeout确保状态更新后再处理
-    setTimeout(() => {
-      let rawData = form.getFieldValue('rawData') || '';
-      const processedData = preprocessData(rawData);
-      form.setFieldsValue({ rawData: processedData });
-    }, 0);
+  // 新选中的值直接透传；setState 异步落地，
+  // 原来的 setTimeout(0) 里读到的仍是上一次的 selectedDate/selectedTime。
+  const updateFormWithDateTime = (overrides = {}) => {
+    const rawData = form.getFieldValue('rawData') || '';
+    const processedData = preprocessData(rawData, overrides);
+    form.setFieldsValue({ rawData: processedData });
   };
 
   const handleExportFormJSON = () => {
@@ -392,47 +418,47 @@ if (jsonData.metadata && (jsonData.allCoinsInfo || jsonData.coins) && (jsonData.
   };
 
   const handleImportSampleToForm = () => {
-    if (!jsonPreview || jsonPreview.type !== 'database' || !jsonPreview.data.latestData) {
-      message.warn("无法从该文件导入示例数据到表单。");
+    const latestData = resolveSampleLatestData(jsonPreview);
+    if (!latestData) {
+      // antd 5 只有 message.warning，message.warn 已移除，调用会直接抛 TypeError
+      message.warning('无法从该文件导入示例数据到表单。');
       setPreviewVisible(false);
       return;
     }
-    
+
     let sampleText = '';
     try {
-      const latestData = jsonPreview.data.latestData;
-      if (latestData && latestData.date) {
-        sampleText += latestData.date.split('T')[0] + '\n'; // Ensure only date part
-        const coins = latestData.coins || [];
-        const mainCoins = ['BTC', 'ETH', 'SOL', 'BNB'].filter(
-          symbol => coins.some(coin => coin.symbol === symbol)
-        );
-        for (const coinSymbol of mainCoins) {
-          const coin = coins.find(c => c.symbol === coinSymbol);
-          if (coin) {
-            sampleText += `${coin.symbol} 场外指数${coin.otcIndex || 0}`;
-            if (coin.entryExitType === 'entry') {
-              sampleText += `场外进场期第${coin.entryExitDay || 0}天`;
-            } else if (coin.entryExitType === 'exit') {
-              sampleText += `场外退场期第${coin.entryExitDay || 0}天`;
-            }
-            sampleText += `\n爆破指数${coin.explosionIndex || 0}\n谢林点 ${coin.schellingPoint || 0}\n\n`;
+      const dateText = latestData.date ? String(latestData.date).split('T')[0] : '';
+      if (dateText) sampleText += `${dateText}\n`;
+      const coins = latestData.coins || [];
+      const mainCoins = ['BTC', 'ETH', 'SOL', 'BNB'].filter(
+        symbol => coins.some(coin => coin.symbol === symbol)
+      );
+      for (const coinSymbol of mainCoins) {
+        const coin = coins.find(c => c.symbol === coinSymbol);
+        if (coin) {
+          sampleText += `${coin.symbol} 场外指数${coin.otcIndex || 0}`;
+          if (coin.entryExitType === 'entry') {
+            sampleText += `场外进场期第${coin.entryExitDay || 0}天`;
+          } else if (coin.entryExitType === 'exit') {
+            sampleText += `场外退场期第${coin.entryExitDay || 0}天`;
           }
-        }
-        form.setFieldsValue({ rawData: sampleText.trim() }); // Trim trailing newlines
-        if (latestData.date) {
-            try {
-                setSelectedDate(dayjs(latestData.date.split('T')[0])); // Use dayjs for datepicker
-            } catch (e) {
-                console.error('无法解析日期用于Datepicker:', e, latestData.date);
-            }
+          sampleText += `\n爆破指数${coin.explosionIndex || 0}\n谢林点 ${coin.schellingPoint || 0}\n\n`;
         }
       }
+      form.setFieldsValue({ rawData: sampleText.trim() }); // Trim trailing newlines
+      if (dateText) {
+        try {
+          setSelectedDate(dayjs(dateText)); // Use dayjs for datepicker
+        } catch (e) {
+          console.error('无法解析日期用于Datepicker:', e, latestData.date);
+        }
+      }
+      message.success('已导入最新示例数据到表单。');
     } catch (error) {
       console.error('从数据库数据生成示例失败:', error);
-      message.warning('无法从数据库导入示例，请手动输入数据');
+      message.warning('无法从该文件导入示例，请手动输入数据');
     }
-    message.success('已从数据库数据导入最新示例到表单。');
     setPreviewVisible(false);
     setJsonDataForBatchImport(null);
   };
@@ -511,6 +537,7 @@ if (jsonData.metadata && (jsonData.allCoinsInfo || jsonData.coins) && (jsonData.
     <Card title="数据输入与管理" style={{ width: '100%' }}>
       <input 
         type="file" 
+        aria-label="导入 JSON 文件"
         ref={fileInputRef} 
         style={{ display: 'none' }} 
         accept=".json" 
@@ -769,7 +796,7 @@ Btc 场外指数1627场外进场期第26天
         }}
         footer={null} 
         width={700}
-        destroyOnClose // 确保每次打开都是新的内容
+        destroyOnHidden // 确保每次打开都是新的内容
       >
         {jsonPreview && jsonPreview.type === 'form' && (
           <div>
@@ -852,10 +879,6 @@ Btc 场外指数1627场外进场期第26天
               </Button>
             </Space>
           </div>
-        )}
-
-        {jsonPreview && jsonPreview.type !== 'form' && jsonPreview.type !== 'database' && (
-             <Button onClick={() => { setPreviewVisible(false); }} block style={{marginTop: '16px'}}>关闭预览</Button>
         )}
 
 {jsonPreview && jsonPreview.type === 'simple' && (

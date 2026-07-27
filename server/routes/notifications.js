@@ -9,6 +9,15 @@ function getUserId(req) {
   return Number.isInteger(userId) && userId > 0 ? userId : null;
 }
 
+// Number('abc') 会得到 NaN 并让查询变成 WHERE id = NaN（500）；
+// parseInt('1.5.2') 又会静默取到 1，落到别的通知上，所以只接受纯数字
+function parseRecordId(value) {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function normalizeText(value, maxLength) {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, maxLength);
@@ -100,9 +109,13 @@ async function createUserNotification(NotificationModel, userId, body) {
 }
 
 async function markUserNotificationRead(NotificationModel, userId, notificationId) {
-  const notification = await NotificationModel.findOne({
-    where: { id: Number(notificationId), user_id: userId },
-  });
+  // 非法 id 按 404 处理，不要带着 NaN 去查库
+  const parsedId = parseRecordId(notificationId);
+  const notification = parsedId === null
+    ? null
+    : await NotificationModel.findOne({
+      where: { id: parsedId, user_id: userId },
+    });
   if (!notification) {
     const error = new Error('Notification not found');
     error.statusCode = 404;

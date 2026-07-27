@@ -35,8 +35,11 @@ module.exports = (sequelize, DataTypes) => {
       comment: 'Precision level of the time data'
     }
   }, {
-    timestamps: true
+    timestamps: true,
+    indexes: [
+      { fields: ['date'], name: 'liquidity_overviews_date' },
+    ],
   });
-  
+
   return LiquidityOverview;
 };

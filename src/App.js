@@ -2,6 +2,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { Layout, Menu } from 'antd';
+import { StyleProvider } from '@ant-design/cssinjs';
 import { Provider } from 'react-redux';
 import { store } from './redux/store';
 import DataInputForm from './components/DataInputForm';
@@ -79,7 +80,18 @@ const NavigationMenu = () => {
 const AppWithRedux = () => {
   return (
     <Provider store={store}>
-      <AppContent />
+      {/*
+        hashPriority="high" 让 antd 生成 `.hash.ant-btn-*`（特异性 0,2,0）；
+        默认的 `:where(.hash).ant-btn-*` 实际特异性为 0,1,0。
+
+        Tailwind Preflight 的 `button, [type="button"], [type="reset"], [type="submit"]`
+        里，属性选择器同样是 0,1,0，且样式表在 antd 之后注入，平手时后来者胜，
+        于是主按钮的 background 被重置成 transparent；而 Preflight 不碰 color，
+        antd 的白色文字保留下来——白字透明底，全站主按钮（含登录按钮）直接隐形。
+      */}
+      <StyleProvider hashPriority="high">
+        <AppContent />
+      </StyleProvider>
     </Provider>
   );
 };

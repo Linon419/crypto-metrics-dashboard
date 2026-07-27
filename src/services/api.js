@@ -211,7 +211,7 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
 
     if (!response.data || typeof response.data !== 'object') {
       console.warn('fetchLatestMetrics: Invalid response data from /data/latest', response.data);
-      return getFallbackMetricsData();
+      throw new Error('服务端返回的最新指标数据格式无效');
     }
 
     const latestDate = response.data.date || new Date().toISOString().split('T')[0];
@@ -337,8 +337,10 @@ export const fetchLatestMetrics = async (forceRefresh = false) => {
 
     return result;
   } catch (error) {
+    // 不再返回占位数据：吞掉失败会让调用方把"空结果"当成加载成功，
+    // 顶栏据此显示"API连接正常"，用户无法察觉后端已经不可用。
     console.error('获取最新指标数据最终失败:', error.displayMessage || error.message);
-    return getFallbackMetricsData();
+    throw error;
   }
 };
 
@@ -364,11 +366,11 @@ async function ensureLatestCoinData(symbol, forceRefresh = false) {
 export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
   if (!symbol || symbol === 'UNKNOWN') {
     console.warn('fetchCoinMetrics called with invalid symbol:', symbol);
-    return createMockHistoricalData(symbol || 'UNKNOWN_SYMBOL');
+    return [];
   }
 
   try {
-    // 首先确保 coinDetails 缓存中有相对新的数据，这有助于 createMockHistoricalData
+    // 先确保 coinDetails 缓存中有相对新的数据，用于替换历史序列末尾的当天条目
     await ensureLatestCoinData(symbol);
 
     const params = {};
@@ -380,12 +382,13 @@ export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
 
     if (!Array.isArray(response.data)) {
       console.warn(`fetchCoinMetrics: API response for ${symbol} is not an array.`, response.data);
-      return createMockHistoricalData(symbol);
+      throw new Error(`服务端返回的 ${symbol} 历史指标格式无效`);
     }
-    
+
+    // 合法的空结果（例如刚新增、尚无历史的币种）如实返回空数组，
+    // 由调用方渲染"暂无数据"，绝不能用编造的数据顶替。
     if (response.data.length === 0) {
-        // console.log(`fetchCoinMetrics: No historical data from API for ${symbol}. Using mock.`);
-        return createMockHistoricalData(symbol);
+      return [];
     }
 
     const metrics = response.data.map(metric => ({
@@ -426,8 +429,9 @@ export const fetchCoinMetrics = async (symbol, { startDate, endDate } = {}) => {
     }
     return metrics;
   } catch (error) {
+    // 不再回退到模拟数据：图表把随机数当真实行情画出来，且界面没有任何提示。
     console.error(`获取 ${symbol} 指标历史数据失败:`, error.displayMessage || error.message);
-    return createMockHistoricalData(symbol); // 出错时返回模拟数据
+    throw error;
   }
 };
 
@@ -482,7 +486,7 @@ export const exportAllData = async (forceRefresh = false) => {
         historicalChartData[symbol] = chartMetrics;
       } catch (err) {
         console.warn(`[ExportAllData] Failed to fetch chart history for ${symbol}:`, err.displayMessage || err.message);
-        historicalChartData[symbol] = createMockHistoricalData(symbol); // 出错时也填充模拟数据
+        historicalChartData[symbol] = []; // 导出宁可缺失，也不能写入编造的数据
       }
     }
 
@@ -800,48 +804,6 @@ function getFallbackMetricsData() {
   };
 }
 
-function createMockHistoricalData(symbol = 'UNKNOWN') {
-  // console.log(`Creating mock historical data for ${symbol}`);
-  const latestCoinData = dataCache.coinDetails.get(symbol);
-
-  const baseData = {
-    otc_index: latestCoinData?.otcIndex ?? (1000 + Math.random() * 500),
-    explosion_index: latestCoinData?.explosionIndex ?? (150 + Math.random() * 100),
-    schelling_point: latestCoinData?.schellingPoint ?? (800 + Math.random() * 400),
-    entry_exit_type: latestCoinData?.entryExitType ?? 'neutral',
-    entry_exit_day: latestCoinData?.entryExitDay ?? 0,
-  };
-
-  const mockHistory = [];
-  const today = new Date();
-  for (let i = 30; i >= 0; i--) { // 生成过去30天的数据
-    const date = new Date(today);
-    date.setDate(today.getDate() - i);
-    const dateStr = date.toISOString().split('T')[0];
-
-    if (i === 0 && latestCoinData && latestCoinData.date === dateStr) { // 如果是今天且有最新数据
-      mockHistory.push({
-        date: dateStr,
-        otc_index: latestCoinData.otcIndex,
-        explosion_index: latestCoinData.explosionIndex,
-        schelling_point: latestCoinData.schellingPoint,
-        entry_exit_type: latestCoinData.entryExitType,
-        entry_exit_day: latestCoinData.entryExitDay,
-      });
-    } else {
-      const factor = Math.sin((30 - i) / 5) * 0.1 + (Math.random() - 0.5) * 0.15; // 模拟波动
-      mockHistory.push({
-        date: dateStr,
-        otc_index: Math.max(100, Math.round(baseData.otc_index * (1 + factor))),
-        explosion_index: Math.max(50, Math.round(baseData.explosion_index * (1 + factor * 0.5))),
-        schelling_point: Math.max(50, Math.round(baseData.schelling_point * (1 + factor * 0.2))),
-        entry_exit_type: baseData.entry_exit_type, // 简化模拟，不改变历史类型
-        entry_exit_day: baseData.entry_exit_type !== 'neutral' ? Math.max(0, baseData.entry_exit_day - i) : 0,
-      });
-    }
-  }
-  return mockHistory;
-}
 // --- 结束备用数据函数 ---
 
 // --- 8. 用户管理 API 调用 ---

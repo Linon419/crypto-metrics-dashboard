@@ -3,6 +3,8 @@ const DERIBIT_API_URL = 'https://www.deribit.com/api/v2/public/get_volatility_in
 const DEFAULT_ATR_PERIOD = 14;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const DERIBIT_DIRECT_DVOL_RESOLUTIONS = new Set(['1', '60', '3600', '43200', '1D']);
+// Deribit 每页最多 1000 个点，限制翻页次数避免极端区间打爆上游
+const DERIBIT_DVOL_MAX_PAGES = 20;
 
 function toNumber(value, fieldName) {
   const number = Number(value);
@@ -252,22 +254,53 @@ async function fetchDeribitDvolCandles({
   lookbackHours = 24 * 30,
   now = Date.now(),
   resolution = '60',
+  maxPages = DERIBIT_DVOL_MAX_PAGES,
 } = {}) {
-  const params = new URLSearchParams({
-    currency,
-    start_timestamp: String(now - lookbackHours * ONE_HOUR_MS),
-    end_timestamp: String(now),
-    resolution: String(resolution),
-  });
-  const url = `${DERIBIT_API_URL}?${params.toString()}`;
-  const payload = await fetchJson(url, fetchImpl);
-  const rows = payload?.result?.data;
+  const startTimestamp = now - lookbackHours * ONE_HOUR_MS;
+  const pageLimit = Number.isFinite(Number(maxPages)) && Number(maxPages) > 0
+    ? Math.floor(Number(maxPages))
+    : DERIBIT_DVOL_MAX_PAGES;
+  const candlesByTimestamp = new Map();
+  let endTimestamp = now;
 
-  if (!Array.isArray(rows) || rows.length === 0) {
+  // Deribit 单次最多返回 1000 个点，且丢掉的是靠前的一段，
+  // 必须顺着 continuation（下一页的 end_timestamp）往回翻，否则历史会被静默截断
+  for (let page = 0; page < pageLimit; page += 1) {
+    const params = new URLSearchParams({
+      currency,
+      start_timestamp: String(startTimestamp),
+      end_timestamp: String(endTimestamp),
+      resolution: String(resolution),
+    });
+    const payload = await fetchJson(`${DERIBIT_API_URL}?${params.toString()}`, fetchImpl);
+    const rows = payload?.result?.data;
+    if (!Array.isArray(rows) || rows.length === 0) break;
+
+    rows.forEach((row) => {
+      const candle = parseDeribitDvolCandle(row);
+      candlesByTimestamp.set(Date.parse(candle.timestamp), candle);
+    });
+
+    const continuation = Number(payload?.result?.continuation);
+    if (
+      payload?.result?.continuation === null
+      || payload?.result?.continuation === undefined
+      || !Number.isFinite(continuation)
+      || continuation <= startTimestamp
+      || continuation >= endTimestamp
+    ) {
+      break;
+    }
+    endTimestamp = continuation;
+  }
+
+  if (candlesByTimestamp.size === 0) {
     throw new Error('Deribit DVOL history response is empty');
   }
 
-  return rows.map(parseDeribitDvolCandle);
+  return Array.from(candlesByTimestamp.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([, candle]) => candle);
 }
 
 async function buildBtcVolatilityHistory({
@@ -341,6 +374,7 @@ async function buildBtcVolatilitySnapshot({ fetchImpl = global.fetch, period = D
 module.exports = {
   BINANCE_USDM_KLINES_URL,
   DERIBIT_API_URL,
+  DERIBIT_DVOL_MAX_PAGES,
   DEFAULT_ATR_PERIOD,
   buildBinanceDailyKlinesUrl,
   buildBtcVolatilityHistory,

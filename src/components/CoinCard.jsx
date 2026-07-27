@@ -250,4 +250,4 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
   );
 }
 
-export default CoinCard;
+export default React.memo(CoinCard);

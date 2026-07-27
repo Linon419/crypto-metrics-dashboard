@@ -691,4 +691,4 @@ function OtcIndexTable({
   );
 }
 
-export default OtcIndexTable;
+export default React.memo(OtcIndexTable);

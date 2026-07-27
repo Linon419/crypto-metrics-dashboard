@@ -124,6 +124,23 @@ test('switches BTC implied volatility candle periods', async () => {
   ));
 });
 
+test('keeps volatility period controls available after a load failure', async () => {
+  fetchBtcVolatilityHistory.mockRejectedValue(new Error('DVOL unavailable'));
+
+  render(<OptionsPage />);
+
+  expect(await screen.findByText('BTC 隐含波动率 K 线加载失败')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '15min' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '1h' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '4h' })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: '4h' }));
+
+  await waitFor(() => expect(fetchBtcVolatilityHistory).toHaveBeenCalledWith(
+    expect.objectContaining({ resolution: '14400' }),
+  ));
+});
+
 test('opens strategy drawer with live setup and payoff chart', async () => {
   fetchBtcVolatilityHistory.mockResolvedValue({
     data: {

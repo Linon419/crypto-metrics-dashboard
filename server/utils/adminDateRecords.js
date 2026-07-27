@@ -137,8 +137,33 @@ async function updateDateRecordTime(models, { date, time, timePrecision, transac
   };
 }
 
+/**
+ * BtcPricePoints.daily_metric_id 是 NOT NULL 外键且没有 ON DELETE 级联，
+ * 直接删 DailyMetrics 会触发外键约束让整个事务回滚。
+ * 删除当天 DailyMetrics 之前，先清掉挂在这些指标上的价格点。
+ */
+async function deleteBtcPricePointsForDate(models, date, transaction) {
+  const BtcPricePointModel = models.BtcPricePoint;
+  if (!BtcPricePointModel?.destroy || !models.DailyMetric?.findAll) return 0;
+
+  const metrics = await models.DailyMetric.findAll({
+    where: { date },
+    attributes: ['id'],
+    transaction,
+    raw: true,
+  });
+  const metricIds = metrics.map(metric => metric.id).filter(id => id !== undefined && id !== null);
+  if (metricIds.length === 0) return 0;
+
+  return BtcPricePointModel.destroy({
+    where: { daily_metric_id: metricIds },
+    transaction,
+  });
+}
+
 async function deleteDateRecords(models, { date, transaction }) {
   const normalizedDate = normalizeDateParam(date);
+  const btcPricePoints = await deleteBtcPricePointsForDate(models, normalizedDate, transaction);
   const [dailyMetrics, liquidityOverviews, trendingCoins] = await Promise.all([
     models.DailyMetric.destroy({ where: { date: normalizedDate }, transaction }),
     models.LiquidityOverview.destroy({ where: { date: normalizedDate }, transaction }),
@@ -151,7 +176,8 @@ async function deleteDateRecords(models, { date, transaction }) {
       dailyMetrics,
       liquidityOverviews,
       trendingCoins,
-      total: dailyMetrics + liquidityOverviews + trendingCoins,
+      btcPricePoints,
+      total: dailyMetrics + liquidityOverviews + trendingCoins + btcPricePoints,
     },
   };
 }

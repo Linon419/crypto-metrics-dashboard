@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -36,22 +36,33 @@ function DateDataManagement() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // 只有最后一次查询的结果可以落盘，否则慢响应会把已经切走的日期概况盖回来
+  const summaryRequestSeqRef = useRef(0);
 
   const selectedDateStr = selectedDate ? selectedDate.format('YYYY-MM-DD') : '';
-  const totalRecords = summary?.counts?.total || 0;
+  // 概况必须和当前选中的日期同源，删除按钮的可用性才不会指向另一天
+  const summaryDateStr = summary?.date || '';
+  const isSummaryForSelectedDate = Boolean(selectedDateStr) && summaryDateStr === selectedDateStr;
+  const totalRecords = isSummaryForSelectedDate ? (summary?.counts?.total || 0) : 0;
 
   const loadSummary = async (date = selectedDateStr) => {
     if (!date) return;
 
+    const requestSeq = summaryRequestSeqRef.current + 1;
+    summaryRequestSeqRef.current = requestSeq;
     setLoading(true);
     try {
       const response = await getDateRecordSummary(date);
-      setSummary(response.summary || null);
+      if (summaryRequestSeqRef.current !== requestSeq) return;
+      setSummary(response.summary ? { ...response.summary, date } : null);
     } catch (error) {
-      message.error(`加载日期概况失败: ${error.displayMessage || error.message}`);
+      if (summaryRequestSeqRef.current !== requestSeq) return;
+      message.error(`加载 ${date} 概况失败: ${error.displayMessage || error.message}`);
       setSummary(null);
     } finally {
-      setLoading(false);
+      if (summaryRequestSeqRef.current === requestSeq) {
+        setLoading(false);
+      }
     }
   };
 
@@ -104,15 +115,20 @@ function DateDataManagement() {
   };
 
   const handleDeleteDate = async () => {
-    if (!selectedDateStr) return;
+    // 只删概况上显示的那一天，概况和选中日期对不上时直接拒绝
+    if (!isSummaryForSelectedDate) {
+      message.error('请先查询当前日期的数据概况后再删除');
+      return;
+    }
 
+    const targetDateStr = selectedDateStr;
     setDeleting(true);
     try {
-      const response = await deleteDateRecordsByDate(selectedDateStr);
+      const response = await deleteDateRecordsByDate(targetDateStr);
       const deletedTotal = response.result?.deleted?.total || 0;
-      message.success(`已删除 ${selectedDateStr} 的 ${deletedTotal} 条记录`);
+      message.success(`已删除 ${targetDateStr} 的 ${deletedTotal} 条记录`);
       setSummary({
-        date: selectedDateStr,
+        date: targetDateStr,
         counts: {
           dailyMetrics: 0,
           liquidityOverviews: 0,
@@ -121,7 +137,7 @@ function DateDataManagement() {
         },
       });
     } catch (error) {
-      message.error(`删除日期数据失败: ${error.displayMessage || error.message}`);
+      message.error(`删除 ${targetDateStr} 数据失败: ${error.displayMessage || error.message}`);
     } finally {
       setDeleting(false);
     }
@@ -201,7 +217,7 @@ function DateDataManagement() {
 
           <Popconfirm
             title={`删除 ${selectedDateStr || '所选日期'} 整天数据`}
-            description="该操作会删除这一天的指标、流动性和热门币记录。"
+            description={`该操作会删除 ${selectedDateStr || '所选日期'} 的 ${totalRecords} 条指标、流动性和热门币记录，不可撤销。`}
             okText="确认删除"
             cancelText="取消"
             okType="danger"

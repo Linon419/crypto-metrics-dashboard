@@ -472,6 +472,121 @@ async function run() {
   assert.strictEqual(hogUpserted[0].coin_symbol, 'CN_HOG');
   assert.strictEqual(hogUpserted[0].close_price, 13450);
 
+  // 回归：Yahoo 没有 4h 粒度，必须取 1h 再聚合成真正的 4h 蜡烛，不能把小时线打上 4h 标签
+  const yahoo4hUrls = [];
+  const yahoo4hUpserted = [];
+  const yahoo4hBars = [
+    [Date.UTC(2026, 0, 2, 0), 10, 12, 9, 11, 100],
+    [Date.UTC(2026, 0, 2, 1), 11, 13, 10, 12, 200],
+    [Date.UTC(2026, 0, 2, 2), 12, 14, 8, 9, 300],
+    [Date.UTC(2026, 0, 2, 3), 9, 15, 7, 14, 400],
+    [Date.UTC(2026, 0, 2, 4), 14, 16, 13, 15, 500],
+  ];
+  await syncCoinKlines({
+    coin: { id: 15, symbol: 'AAPL' },
+    interval: '4h',
+    limit: 10,
+    fetchImpl: async (url) => {
+      yahoo4hUrls.push(String(url));
+      return {
+        ok: true,
+        json: async () => ({
+          chart: {
+            result: [{
+              meta: { symbol: 'AAPL' },
+              timestamp: yahoo4hBars.map(bar => bar[0] / 1000),
+              indicators: {
+                quote: [{
+                  open: yahoo4hBars.map(bar => bar[1]),
+                  high: yahoo4hBars.map(bar => bar[2]),
+                  low: yahoo4hBars.map(bar => bar[3]),
+                  close: yahoo4hBars.map(bar => bar[4]),
+                  volume: yahoo4hBars.map(bar => bar[5]),
+                }],
+              },
+            }],
+            error: null,
+          },
+        }),
+      };
+    },
+    CoinKlineModel: {
+      async upsert(payload) {
+        yahoo4hUpserted.push(payload);
+      },
+    },
+  });
+
+  assert.match(yahoo4hUrls[0], /interval=1h/);
+  assert.strictEqual(yahoo4hUpserted.length, 2);
+  assert.deepStrictEqual(yahoo4hUpserted.map(item => item.interval), ['4h', '4h']);
+  assert.deepStrictEqual(yahoo4hUpserted[0].open_time, new Date(Date.UTC(2026, 0, 2, 0)));
+  assert.deepStrictEqual(
+    yahoo4hUpserted[0].close_time,
+    new Date(Date.UTC(2026, 0, 2, 4) - 1)
+  );
+  assert.strictEqual(yahoo4hUpserted[0].open_price, 10);
+  assert.strictEqual(yahoo4hUpserted[0].high_price, 15);
+  assert.strictEqual(yahoo4hUpserted[0].low_price, 7);
+  assert.strictEqual(yahoo4hUpserted[0].close_price, 14);
+  assert.strictEqual(yahoo4hUpserted[0].volume, 1000);
+  assert.deepStrictEqual(yahoo4hUpserted[1].open_time, new Date(Date.UTC(2026, 0, 2, 4)));
+  assert.strictEqual(yahoo4hUpserted[1].open_price, 14);
+  assert.strictEqual(yahoo4hUpserted[1].close_price, 15);
+  assert.strictEqual(yahoo4hUpserted[1].volume, 500);
+  // 相邻蜡烛不得重叠：上一根的 close_time 必须正好接在下一根 open_time 前 1ms
+  assert.strictEqual(
+    yahoo4hUpserted[1].open_time.getTime() - yahoo4hUpserted[0].close_time.getTime(),
+    1
+  );
+
+  // Yahoo 正在形成的最后一根K线会带当前报价时间戳，需要对齐回周期，避免每次同步都新增脏行
+  const yahooInProgressUpserted = [];
+  await syncCoinKlines({
+    coin: { id: 16, symbol: 'GOLD' },
+    interval: '1d',
+    limit: 10,
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        chart: {
+          result: [{
+            meta: {
+              symbol: 'XAU',
+              regularMarketTime: Date.UTC(2026, 0, 3, 5, 55, 46) / 1000,
+            },
+            timestamp: [
+              Date.UTC(2026, 0, 1, 5) / 1000,
+              Date.UTC(2026, 0, 2, 5) / 1000,
+              Date.UTC(2026, 0, 3, 5, 55, 46) / 1000,
+            ],
+            indicators: {
+              quote: [{
+                open: [10, 11, 12],
+                high: [12, 13, 14],
+                low: [9, 10, 11],
+                close: [11, 12, 13],
+                volume: [1, 2, 3],
+              }],
+            },
+          }],
+          error: null,
+        },
+      }),
+    }),
+    CoinKlineModel: {
+      async upsert(payload) {
+        yahooInProgressUpserted.push(payload);
+      },
+    },
+  });
+
+  assert.strictEqual(yahooInProgressUpserted.length, 3);
+  assert.deepStrictEqual(
+    yahooInProgressUpserted[2].open_time,
+    new Date(Date.UTC(2026, 0, 3, 5))
+  );
+
   const yahooUrls = [];
   const yahooUpserted = [];
   const yahooModel = {
@@ -974,6 +1089,97 @@ async function run() {
       endTime: Date.UTC(2026, 0, 11) - 1,
     },
   ]);
+
+  // 回归：endTime 未落在周期边界时（雅虎日线 13:30 UTC、新浪国内期货 16:00 UTC），
+  // 游标向下对齐会倒退，旧实现会一直推同一个分片直到撞上 maxChunks
+  const unalignedChunks = buildCoinKlineBackfillChunks({
+    startTime: Date.UTC(2023, 0, 1),
+    endTime: Date.UTC(2024, 0, 2, 14, 29, 59, 999),
+    interval: '1d',
+    limit: 1500,
+    maxChunks: 40,
+  });
+  const unalignedChunkKeys = new Set(
+    unalignedChunks.map(chunk => `${chunk.startTime}:${chunk.endTime}`)
+  );
+  assert.strictEqual(unalignedChunks.length, 1);
+  assert.strictEqual(unalignedChunkKeys.size, unalignedChunks.length);
+  assert.deepStrictEqual(unalignedChunks[0], {
+    startTime: Date.UTC(2023, 0, 1),
+    endTime: Date.UTC(2024, 0, 2, 14, 29, 59, 999),
+  });
+  unalignedChunks.slice(1).forEach((chunk, index) => {
+    assert.ok(chunk.startTime > unalignedChunks[index].startTime, '分片游标必须严格递增');
+  });
+
+  const unalignedSmallChunks = buildCoinKlineBackfillChunks({
+    startTime: Date.UTC(2026, 0, 1),
+    endTime: Date.UTC(2026, 0, 4, 14, 29, 59, 999),
+    interval: '1d',
+    limit: 1,
+    maxChunks: 40,
+  });
+  assert.deepStrictEqual(unalignedSmallChunks, [
+    { startTime: Date.UTC(2026, 0, 1), endTime: Date.UTC(2026, 0, 2) - 1 },
+    { startTime: Date.UTC(2026, 0, 2), endTime: Date.UTC(2026, 0, 3) - 1 },
+    { startTime: Date.UTC(2026, 0, 3), endTime: Date.UTC(2026, 0, 4) - 1 },
+    { startTime: Date.UTC(2026, 0, 4), endTime: Date.UTC(2026, 0, 4, 14, 29, 59, 999) },
+  ]);
+
+  // 回归：国内期货日线开在 UTC 16:00（CST 00:00），不能按 UTC 整日判断新鲜度
+  assert.strictEqual(shouldRefreshStoredCoinKlines({
+    rows: [
+      { open_time: new Date(Date.UTC(2026, 5, 21, 16)) },
+      { open_time: new Date(Date.UTC(2026, 5, 22, 16)) },
+    ],
+    interval: '1d',
+    now: Date.UTC(2026, 5, 23, 9),
+  }), false);
+
+  assert.strictEqual(shouldRefreshStoredCoinKlines({
+    rows: [
+      { open_time: new Date(Date.UTC(2026, 5, 21, 16)) },
+      { open_time: new Date(Date.UTC(2026, 5, 22, 16)) },
+    ],
+    interval: '1d',
+    now: Date.UTC(2026, 5, 23, 17),
+  }), true);
+
+  // 回归：新浪国内期货也要走同步节流，不能每个请求都真打一次 HTTP
+  clearYahooSyncCache();
+  const throttledHogUrls = [];
+  const throttledHogFetchImpl = async (url) => {
+    throttledHogUrls.push(String(url));
+    return {
+      ok: true,
+      text: async () => 'var _LH0_D_20260623000000=([{"d":"2026-06-22","o":"13500.000","h":"13520.000","l":"13445.000","c":"13450.000","v":"7930","p":"77198"}]);',
+    };
+  };
+  const hogSyncAt = Date.UTC(2026, 5, 23, 9);
+  const firstHogSync = await syncCoinKlines({
+    coin: { id: 17, symbol: 'CN_HOG' },
+    interval: '1d',
+    limit: 1,
+    fetchImpl: throttledHogFetchImpl,
+    CoinKlineModel: { async upsert() {} },
+    minSyncIntervalMs: YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
+    now: hogSyncAt,
+  });
+  const secondHogSync = await syncCoinKlines({
+    coin: { id: 17, symbol: 'CN_HOG' },
+    interval: '1d',
+    limit: 1,
+    fetchImpl: throttledHogFetchImpl,
+    CoinKlineModel: { async upsert() {} },
+    minSyncIntervalMs: YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS,
+    now: hogSyncAt + 60 * 1000,
+  });
+
+  assert.strictEqual(firstHogSync.skipped, false);
+  assert.strictEqual(secondHogSync.skipped, true);
+  assert.strictEqual(secondHogSync.market, CHINA_FUTURES_SINA_MARKET);
+  assert.strictEqual(secondHogSync.tradingSymbol, 'LH0');
+  assert.strictEqual(throttledHogUrls.length, 1);
 
   console.log('coinKlines.test.js passed');
 }

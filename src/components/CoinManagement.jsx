@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Card,
+  Flex,
   Form,
   Input,
   InputNumber,
@@ -62,6 +63,8 @@ function CoinManagement() {
   const [metricDateFilter, setMetricDateFilter] = useState('all');
   const [pendingDelete, setPendingDelete] = useState(null);
   const [forceDeleting, setForceDeleting] = useState(false);
+  // 用 Set 跟踪每一行的删除状态，多行并发时不会互相清掉 loading
+  const [deletingCoinIds, setDeletingCoinIds] = useState(() => new Set());
   const [form] = Form.useForm();
 
   const loadCoins = useCallback(async () => {
@@ -136,7 +139,17 @@ function CoinManagement() {
     }
   }, [closeModal, editingCoin, loadCoins]);
 
+  const markDeleting = useCallback((coinId, busy) => {
+    setDeletingCoinIds((current) => {
+      const next = new Set(current);
+      if (busy) next.add(coinId);
+      else next.delete(coinId);
+      return next;
+    });
+  }, []);
+
   const handleDelete = useCallback(async (coin) => {
+    markDeleting(coin.id, true);
     try {
       await deleteAdminCoin(coin.id);
       message.success(`${coin.symbol} 已删除`);
@@ -151,8 +164,10 @@ function CoinManagement() {
         return;
       }
       message.error(`删除失败：${error.displayMessage || error.message}`);
+    } finally {
+      markDeleting(coin.id, false);
     }
-  }, [loadCoins]);
+  }, [loadCoins, markDeleting]);
 
   const handleForceDelete = useCallback(async () => {
     if (!pendingDelete?.coin?.id) return;
@@ -236,19 +251,22 @@ function CoinManagement() {
             type="link"
             danger
             icon={<DeleteOutlined />}
+            loading={deletingCoinIds.has(record.id)}
+            disabled={deletingCoinIds.has(record.id)}
             onClick={() => handleDelete(record)}
           />
         </Space>
       ),
     },
-  ], [handleDelete, openModal]);
+  ], [deletingCoinIds, handleDelete, openModal]);
 
   const dependencyLines = formatDependencyLines(pendingDelete?.dependencies);
 
   return (
     <Card>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Space align="center" justify="space-between" style={{ width: '100%' }}>
+        {/* Space 没有 justify，属性会直接漏到 DOM 上；右对齐要用 Flex */}
+        <Flex align="center" justify="space-between" gap="middle" wrap style={{ width: '100%' }}>
           <div>
             <Text type="secondary">COIN DATABASE</Text>
             <Typography.Title level={3}>币种管理</Typography.Title>
@@ -283,7 +301,7 @@ function CoinManagement() {
               新增币种
             </Button>
           </Space>
-        </Space>
+        </Flex>
 
         <Table
           rowKey="id"

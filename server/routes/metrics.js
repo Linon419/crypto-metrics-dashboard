@@ -56,12 +56,14 @@ router.post('/', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Coin not found' });
     }
     
-    // 检查是否已存在同一天的记录
+    // 检查是否已存在同一天的记录：同一天可能有多个版本，
+    // GET 接口按 timestamp DESC 返回最新版本，这里也必须更新同一条
     const existingMetric = await DailyMetric.findOne({
       where: {
         coin_id,
         date
-      }
+      },
+      order: [['timestamp', 'DESC'], ['id', 'DESC']]
     });
     
     if (existingMetric) {

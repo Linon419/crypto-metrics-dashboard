@@ -482,6 +482,8 @@ router.post('/import-database', requireAdmin, async (req, res) => {
                 sol_fund_change: typeof lData.sol_fund_change === 'number' ? lData.sol_fund_change : null,
                 total_market_fund_change: typeof lData.total_market_fund_change === 'number' ? lData.total_market_fund_change : null,
                 comments: lData.comments || null,
+                // 导出侧一直带着 daily_reminder，导入侧漏掉会让「导出→导入」丢失全部每日提醒
+                daily_reminder: lData.daily_reminder || null,
             };
             const [instance, created] = await LiquidityOverview.findOrCreate({ where: buildVersionWhere({}, liquidityTimeInfo), defaults: liquidityPayload, transaction });
             if (!created) await instance.update(liquidityPayload, { transaction });
@@ -783,8 +785,8 @@ router.get('/available-dates', async (req, res) => {
   }
 });
 
-// --- 调试路由 ---
-router.get('/debug/date-range', async (req, res) => {
+// --- 调试路由（仅管理员可用）---
+router.get('/debug/date-range', requireAdmin, async (req, res) => {
   try {
     const dateRange = await DailyMetric.findOne({
       attributes: [
