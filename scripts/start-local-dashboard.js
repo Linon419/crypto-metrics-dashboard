@@ -2,6 +2,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
+const { ensureFrontendBuild: ensureCachedFrontendBuild } = require('./frontend-build-cache');
 
 const ROOT = path.join(__dirname, '..');
 const LOCAL_JWT_SECRET = 'local-one-click-dashboard-secret-change-me-2026';
@@ -102,19 +103,14 @@ function ensureDependencies() {
   }
 }
 
-function ensureFrontendBuild() {
-  const buildSource = path.join(ROOT, 'build');
-  const buildTarget = path.join(ROOT, 'server', 'client', 'build');
-  const targetIndex = path.join(buildTarget, 'index.html');
-
-  if (!fs.existsSync(targetIndex)) {
-    log('Building frontend for local use.');
-    run('npm', ['run', 'build']);
-    copyDirectory(buildSource, buildTarget);
-    return;
-  }
-
-  log('Using existing frontend build.');
+function ensureFrontendBuild({
+  root = ROOT,
+  env = process.env,
+  logMessage = log,
+  runBuild = () => run('npm', ['run', 'build']),
+  copyBuild = copyDirectory,
+} = {}) {
+  return ensureCachedFrontendBuild({ root, env, logMessage, runBuild, copyBuild });
 }
 
 function checkHealth(timeoutMs = 1500) {
@@ -256,8 +252,14 @@ async function main() {
   await new Promise(() => {});
 }
 
-main().catch(error => {
-  console.error(`[local-launcher] ${error.message}`);
-  stopServer();
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(error => {
+    console.error(`[local-launcher] ${error.message}`);
+    stopServer();
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  ensureFrontendBuild,
+};
