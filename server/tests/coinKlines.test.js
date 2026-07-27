@@ -1,4 +1,5 @@
 const assert = require('assert');
+const express = require('express');
 const { Op } = require('sequelize');
 
 const {
@@ -18,6 +19,7 @@ const {
   findStoredCoinKlines,
   getPreferredKlineMarket,
   mergePreferredAndYahooKlines,
+  normalizeInterval,
   parseBinanceKlineRow,
   parseChinaFuturesSinaKlineRows,
   resolveYahooSymbol,
@@ -29,11 +31,41 @@ const {
 const coinsRouter = require('../routes/coins');
 
 async function run() {
+  assert.throws(
+    () => normalizeInterval('15m'),
+    error => error?.code === 'KLINE_INTERVAL_DISABLED',
+    '底层 K 线同步必须拒绝已停用的 15m 周期'
+  );
+
   const defaultBackfillOptions = coinsRouter.__test.normalizeBackfillOptions({});
   // 15m 已停止采集，不再进入默认回补周期
   assert.deepStrictEqual(defaultBackfillOptions.intervals, ['1h', '4h', '1d']);
   assert.strictEqual(defaultBackfillOptions.interval, '1h');
   assert.strictEqual(defaultBackfillOptions.limit, 1500);
+
+  assert.throws(
+    () => coinsRouter.__test.normalizeBackfillOptions({ interval: '15m' }),
+    error => error?.code === 'KLINE_INTERVAL_DISABLED',
+    '管理后台不得重新提交 15m 回填任务'
+  );
+
+  const app = express();
+  app.use('/api/coins', coinsRouter);
+  const server = await new Promise(resolve => {
+    const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+  });
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/coins/BTC/klines?interval=15m`
+    );
+    const body = await response.json();
+    assert.strictEqual(response.status, 400);
+    assert.strictEqual(body.code, 'KLINE_INTERVAL_DISABLED');
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close(error => (error ? reject(error) : resolve()));
+    });
+  }
 
   const legacyBackfillOptions = coinsRouter.__test.normalizeBackfillOptions({
     interval: '4h',

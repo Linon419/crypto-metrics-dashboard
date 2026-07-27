@@ -25,6 +25,7 @@ const MAX_LIMIT = 1500;
 const MAX_STORED_RANGE_LIMIT = 60000;
 const YAHOO_FINANCE_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
 const { buildBtcVolatilityHistory } = require('./btcVolatility');
+const { ensureKlineIntervalEnabled } = require('./klineIntervalPolicy');
 
 const SUPPORTED_INTERVALS = new Set([
   '1m',
@@ -183,7 +184,7 @@ function isRateLimitStatusCode(status) {
 }
 
 function normalizeInterval(interval = DEFAULT_INTERVAL) {
-  const normalized = String(interval || DEFAULT_INTERVAL).trim();
+  const normalized = ensureKlineIntervalEnabled(interval, DEFAULT_INTERVAL);
   if (!SUPPORTED_INTERVALS.has(normalized)) {
     throw new Error(`Unsupported kline interval: ${interval}`);
   }

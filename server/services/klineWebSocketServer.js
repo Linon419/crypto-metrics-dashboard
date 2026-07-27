@@ -9,6 +9,7 @@ const {
   resolveEffectiveKlineMapping,
 } = require('../utils/coinKlineMappings');
 const { createAuthMiddleware, requirePasswordChange } = require('../middleware/auth');
+const { ensureKlineIntervalEnabled } = require('../utils/klineIntervalPolicy');
 
 const CLIENT_CONNECTING = 0;
 const CLIENT_OPEN = 1;
@@ -27,7 +28,7 @@ function readSubscriptionFromRequest(requestUrl) {
   const url = new URL(requestUrl || '/', 'http://localhost');
   return {
     symbol: String(url.searchParams.get('symbol') || 'BTC').trim().toUpperCase(),
-    interval: String(url.searchParams.get('interval') || '1d').trim(),
+    interval: ensureKlineIntervalEnabled(url.searchParams.get('interval'), '1d'),
   };
 }
 
@@ -198,7 +199,19 @@ function attachKlineWebSocketServer({
     }
     if (client.readyState !== CLIENT_OPEN) return;
 
-    const { symbol, interval } = readSubscriptionFromRequest(request.url);
+    let subscription;
+    try {
+      subscription = readSubscriptionFromRequest(request.url);
+    } catch (error) {
+      sendJson(client, {
+        type: 'error',
+        code: error.code,
+        message: error.message,
+      });
+      client.close?.(1008, 'Kline interval disabled');
+      return;
+    }
+    const { symbol, interval } = subscription;
     const state = {
       closed: false,
       alive: true,

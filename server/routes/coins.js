@@ -463,7 +463,11 @@ router.post('/klines/backfill', requireAdmin, async (req, res) => {
     });
   } catch (error) {
     console.error('Error starting kline backfill:', error);
-    res.status(500).json({ error: error.message || 'Failed to start kline backfill' });
+    const status = error.code === 'KLINE_INTERVAL_DISABLED' ? 400 : 500;
+    res.status(status).json({
+      error: error.message || 'Failed to start kline backfill',
+      code: error.code,
+    });
   }
 });
 
@@ -561,13 +565,14 @@ router.get('/:symbol/klines', async (req, res) => {
   try {
     const { symbol } = req.params;
     const {
-      interval = '1d',
+      interval: requestedInterval = '1d',
       limit = 365,
       startTime,
       endTime,
       refresh,
       includePrePost: includePrePostQuery,
     } = req.query;
+    const interval = normalizeInterval(requestedInterval);
     const includePrePost = includePrePostQuery === '1' || includePrePostQuery === 'true';
 
     const coin = await Coin.findOne({
@@ -705,7 +710,11 @@ router.get('/:symbol/klines', async (req, res) => {
     });
   } catch (error) {
     console.error(`Error fetching klines for ${req.params.symbol}:`, error);
-    res.status(500).json({ error: error.message || 'Failed to fetch klines' });
+    const status = error.code === 'KLINE_INTERVAL_DISABLED' ? 400 : 500;
+    res.status(status).json({
+      error: error.message || 'Failed to fetch klines',
+      code: error.code,
+    });
   }
 });
 

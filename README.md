@@ -103,6 +103,10 @@ node scripts/start-local-dashboard.js
 
 Open <http://localhost:3001>. The launcher also opens this address automatically.
 
+When `database.sqlite` is missing, the launcher downloads the sanitized starter market
+database from the latest GitHub Release, verifies its SHA-256 checksum, validates SQLite
+integrity, and installs it atomically. An existing database is always preserved.
+
 For a new local database created from `.env.example`, use:
 
 ```text
@@ -169,6 +173,9 @@ Copy `.env.example` to `.env` for local operation. Production templates live und
 | `REGISTRATION_ENABLED` | Optional | Initial registration fallback before Admin saves a setting | `false` in production |
 | `SQLITE_BUSY_TIMEOUT_MS` | Optional | How long a blocked SQLite connection waits before failing | `5000` |
 | `DASHBOARD_LOCAL_MODE` | Local launcher | Set to `1` by `scripts/start-local-dashboard.js`. Binds to `127.0.0.1`, downgrades secret errors to warnings, keeps the simple initial password | `1` |
+| `LOCAL_DATABASE_URL` | Local launcher | Override the starter database gzip URL | Latest GitHub Release asset |
+| `LOCAL_DATABASE_SHA256_URL` | Local launcher | Override the starter database checksum URL | `<LOCAL_DATABASE_URL>.sha256` |
+| `LOCAL_DATABASE_DOWNLOAD_DISABLED` | Local launcher | Set to `1` to create an empty database when `DB_STORAGE` is missing | `0` |
 | `DEV_AUTH_BYPASS` | Development only | Explicit local authentication bypass | `true` |
 
 Secret handling depends on the deployment mode:
@@ -234,6 +241,10 @@ Backup options:
 Restore JSON snapshots through the administration interface or `POST /api/data/import-database`. Validate backups in a separate environment before production restoration.
 
 Bundles created with `build:launchers:with-data` contain the complete database, including user records and password hashes. Handle them as sensitive backup artifacts.
+
+The GitHub Release starter database is a separate sanitized snapshot. It excludes users,
+password hashes, audit logs, favorites, notifications, application settings, database patch
+logs, and raw option-tuning input.
 
 ## API and integrations
 

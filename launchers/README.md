@@ -12,9 +12,13 @@ Requirement: install Node.js LTS from `https://nodejs.org/`.
 
 Configuration is shared through the repository root `.env` file. Copy `.env.example` to `.env`, then fill in `OPENAI_API_KEY` if AI parsing is needed.
 
-If the package includes `database.sqlite`, it starts with that database. For a new local
-database, sign in with `admin / 123456`. The dashboard opens the password dialog after
-login and asks you to replace the initial password.
+If the package includes `database.sqlite`, it starts with that database. When the file is
+missing, the launcher downloads the sanitized starter database from the latest GitHub
+Release and verifies its SHA-256 checksum before starting. Existing databases remain
+untouched. Set `LOCAL_DATABASE_DOWNLOAD_DISABLED=1` in `.env` to start from an empty database.
+
+For a new local administrator, sign in with `admin / 123456`. The dashboard opens the
+password dialog after login and asks you to replace the initial password.
 
 ## Windows
 

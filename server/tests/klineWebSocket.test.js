@@ -5,6 +5,7 @@ const {
   attachKlineWebSocketServer,
   authenticateKlineWebSocketRequest,
   readAuthorizationFromWebSocketRequest,
+  readSubscriptionFromRequest,
 } = require('../services/klineWebSocketServer');
 const { signAuthToken } = require('../utils/authSecurity');
 const {
@@ -58,6 +59,17 @@ class FakeWebSocketServer extends EventEmitter {
 }
 
 async function run() {
+  assert.throws(
+    () => readSubscriptionFromRequest('/ws/klines?symbol=BTC&interval=15m'),
+    error => error?.code === 'KLINE_INTERVAL_DISABLED',
+    'WebSocket 订阅必须拒绝已停用的 15m 周期'
+  );
+  assert.throws(
+    () => buildBinanceKlineStreamName({ symbol: 'BTC', interval: '15m' }),
+    error => error?.code === 'KLINE_INTERVAL_DISABLED',
+    'Binance 上游流不得创建 15m 订阅'
+  );
+
   assert.strictEqual(
     buildBinanceKlineStreamName({ symbol: 'BTC', interval: '4h' }),
     'btcusdt@kline_4h',
@@ -179,6 +191,38 @@ async function run() {
     code: 1008,
     reason: 'Authentication required',
   });
+
+  let disabledIntervalUpstreamCount = 0;
+  const disabledIntervalWss = attachKlineWebSocketServer({
+    server: {},
+    db: {
+      Coin: { findOne: async () => ({ id: 1, symbol: 'BTC' }) },
+      CoinKline: { upsert: async () => {} },
+    },
+    WebSocketCtor: class extends FakeUpstreamSocket {
+      constructor(url) {
+        super(url);
+        disabledIntervalUpstreamCount += 1;
+      }
+    },
+    WebSocketServerCtor: FakeWebSocketServer,
+    authenticateRequest: async () => ({ ok: true, user: authUser }),
+    logger: { warn: () => {} },
+  });
+  const disabledIntervalClient = new FakeClientSocket();
+  disabledIntervalWss.emit('connection', disabledIntervalClient, {
+    url: '/ws/klines?symbol=BTC&interval=15m',
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(disabledIntervalUpstreamCount, 0);
+  assert.deepStrictEqual(disabledIntervalClient.closeCalls[0], {
+    code: 1008,
+    reason: 'Kline interval disabled',
+  });
+  assert.strictEqual(
+    JSON.parse(disabledIntervalClient.sentMessages[0]).code,
+    'KLINE_INTERVAL_DISABLED'
+  );
 
   let upstreamSocket;
   const db = {

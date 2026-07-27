@@ -107,6 +107,7 @@ function writeMetadata() {
     name: PACKAGE_NAME,
     appUrl: 'http://localhost:3001',
     includesDatabase: INCLUDE_DATABASE,
+    downloadsStarterDatabase: !INCLUDE_DATABASE,
     createdAt: new Date().toISOString(),
     contents: [
       'launchers/windows/Start Crypto Dashboard.bat',

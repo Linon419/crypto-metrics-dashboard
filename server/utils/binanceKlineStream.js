@@ -1,5 +1,6 @@
 const DEFAULT_BINANCE_STREAM_BASE_URL = 'wss://fstream.binance.com/market';
 const DEFAULT_MARKET = 'binance_usdm_perpetual';
+const { ensureKlineIntervalEnabled } = require('./klineIntervalPolicy');
 
 function normalizeTradingSymbol(symbol) {
   const normalized = String(symbol || '').trim().toUpperCase();
@@ -14,7 +15,7 @@ function normalizeCoinSymbol(symbol) {
 }
 
 function normalizeInterval(interval = '1d') {
-  const normalized = String(interval || '1d').trim();
+  const normalized = ensureKlineIntervalEnabled(interval, '1d');
   if (!normalized) {
     throw new Error('Kline interval is required');
   }

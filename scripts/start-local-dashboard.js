@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { ensureFrontendBuild: ensureCachedFrontendBuild } = require('./frontend-build-cache');
+const { ensureLocalDatabase } = require('./local-database-bootstrap');
 
 const ROOT = path.join(__dirname, '..');
 const LOCAL_JWT_SECRET = 'local-one-click-dashboard-secret-change-me-2026';
@@ -236,6 +237,7 @@ async function main() {
 
   ensureDependencies();
   loadRootEnv();
+  await ensureLocalDatabase({ logMessage: log });
   ensureFrontendBuild();
 
   if (await checkHealth()) {
@@ -274,4 +276,5 @@ if (require.main === module) {
 module.exports = {
   ensureDependencies,
   ensureFrontendBuild,
+  ensureLocalDatabase,
 };
