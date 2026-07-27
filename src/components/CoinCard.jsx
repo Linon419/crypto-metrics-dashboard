@@ -32,11 +32,11 @@ const formatChangePercent = (percent) => {
       displayPercent = `${absPercent.toFixed(1)}%`;
   }
 
-  const color = isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-gray-500';
+  const tone = isPositive ? 'positive' : isNegative ? 'negative' : 'flat';
   const Icon = isPositive ? CaretUpOutlined : isNegative ? CaretDownOutlined : null;
 
   return (
-    <span className={`ml-1 text-xs ${color} whitespace-nowrap`}>
+    <span className={`coin-card__change coin-card__change--${tone}`}>
       {Icon && <Icon />}
       {displayPercent}
     </span>
@@ -73,15 +73,14 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
   const isExplosionSafe = safeNumber(explosionIndex) >= 200;
   
   const renderIcon = () => {
-    const iconSize = isMobile ? 'w-8 h-8' : 'w-10 h-10';
     const fallbackLogoUrl = getCoinLogoFallbackUrl(symbol);
 
     return (
-      <div className={`coin-token flex items-center justify-center ${iconSize} rounded-full bg-white overflow-hidden border border-gray-100 shadow-sm`}>
+      <div className={`coin-token coin-card__token${isMobile ? ' is-mobile' : ''}`}>
         <img
           src={getCoinLogoUrl(symbol, logoUrl || camelLogoUrl)}
           alt={`${symbol} logo`}
-          className="w-full h-full object-cover"
+          className="coin-card__token-image"
           loading="lazy"
           onError={(event) => {
             event.currentTarget.onerror = null;
@@ -99,7 +98,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     const color = isEntry ? 'success' : 'error';
     const text = isEntry ? `进${safeNumber(entryExitDay)}` : `退${safeNumber(entryExitDay)}`;
     return (
-      <Tag color={color} className="ml-2 border-0" style={{ fontSize: '12px' }}>
+      <Tag color={color} className="coin-card__tag coin-card__phase-tag" style={{ fontSize: '12px' }}>
         {text}
       </Tag>
     );
@@ -110,7 +109,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     if (!nearThreshold) return null;
     return (
       <Tooltip title="正在逼近关键阈值">
-        <Tag color="warning" className="ml-1 border-0" style={{ fontSize: '12px', backgroundColor: '#faad14', color: '#fff' }}>
+        <Tag color="warning" className="coin-card__tag" style={{ fontSize: '12px', backgroundColor: '#faad14', color: '#fff' }}>
           逼近
         </Tag>
       </Tooltip>
@@ -131,7 +130,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     };
     
     return (
-      <div className="flex items-center ml-1">
+      <div className="coin-card__momentum">
         {momentumIndicators.map((symbol, index) => {
           const config = indicatorConfig[symbol];
           if (!config) return null;
@@ -139,7 +138,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
           return (
             <Tooltip key={`${symbol}-${index}`} title={config.tooltip}>
               <span 
-                className="inline-block px-1 text-sm font-bold rounded mr-1"
+                className="coin-card__momentum-chip"
                 style={{ 
                   color: config.color,
                   backgroundColor: `${config.color}15`,
@@ -172,7 +171,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
   return (
     <Card
         className={`coin-card w-full transition-shadow relative ${isMobile ? 'mb-2' : ''}`}
-        bodyStyle={cardPadding}
+        styles={{ body: cardPadding }}
         onClick={handleCardBodyClick}
         size={isMobile ? "small" : "default"}
     >
@@ -182,23 +181,21 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
                     shape="circle"
                     icon={isFavorite ? <StarFilled style={{ color: '#FFD700' }} /> : <StarOutlined />}
                     onClick={handleFavoriteClick}
-                    className="absolute top-1 left-1 z-10"
+                    className="coin-card__favorite"
                     size="small"
-                    style={{ border: 'none', background: 'rgba(255,255,255,0.1)'}}
                 />
             </Tooltip>
         )}
 
-      <div className="flex items-start space-x-2">
-        <div className="pt-1 pl-5"> {/* Space for star icon */}
+      <div className={`coin-card__content${isMobile ? ' is-mobile' : ''}`}>
+        <div className="coin-card__logo">
             {renderIcon()}
         </div>
-        <div className="flex-1 min-w-0"> {/* min-w-0 for better truncation */}
-          <div className="flex items-center">
+        <div className="coin-card__details">
+          <div className="coin-card__identity">
             <Text 
               strong 
-              className={`truncate ${isMobile ? 'text-sm' : ''}`} 
-              style={{ maxWidth: 'calc(100% - 80px)' }}
+              className={`coin-card__symbol${isMobile ? ' is-mobile' : ''}`}
             >
               {symbol}
             </Text>
@@ -208,29 +205,29 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
           </div>
           
           {/* Highlight explosion index */}
-          <div className="mt-1">
-            <div className={`flex items-center ${isExplosionSafe ? 'text-green-600' : 'text-red-600'} font-medium ${isMobile ? 'text-xs' : 'text-sm'}`}>
-              <span className="mr-1">爆破:</span>
-              <span className="font-bold text-base mr-1">{safeNumber(explosionIndex)}</span>
+          <div className="coin-card__primary-metric">
+            <div className={`coin-card__explosion ${isExplosionSafe ? 'is-safe' : 'is-risk'}`}>
+              <span>爆破:</span>
+              <strong>{safeNumber(explosionIndex)}</strong>
               {formatChangePercent(explosionIndexChangePercent)}
               {!isExplosionSafe && (
                 <Tooltip title="低于安全阈值200">
-                    <WarningOutlined className="ml-1" />
+                    <WarningOutlined className="coin-card__warning" />
                 </Tooltip>
               )}
             </div>
           </div>
           
           {/* Other metrics */}
-          <div className={`grid grid-cols-2 gap-x-1 gap-y-0 ${isMobile ? 'text-xs' : 'text-xs'} mt-1`}>
-            <div className="flex items-center">
-              <span className="text-blue-600 font-medium">场外: </span>
+          <div className="coin-card__metrics">
+            <div className="coin-card__metric">
+              <span className="coin-card__metric-label coin-card__metric-label--otc">场外:</span>
               <span>{safeNumber(otcIndex)}</span>
               {formatChangePercent(otcIndexChangePercent)}
             </div>
-            <div>
-              <span className="text-purple-600 font-medium">谢林: </span>
-              <span className="truncate">
+            <div className="coin-card__metric">
+              <span className="coin-card__metric-label coin-card__metric-label--schelling">谢林:</span>
+              <span>
                 {typeof schellingPoint === 'number' ?
                   (schellingPoint > 1000 ?
                     isMobile ?

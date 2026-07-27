@@ -937,7 +937,7 @@ function Dashboard() {
               className="text-white mr-2"
             />
           )}
-          <div>
+          <div className="dashboard-brand__identity">
             <div className="dashboard-brand__title">加密指标</div>
             <div className="dashboard-brand__meta">
               <span className="dashboard-status-dot" />
@@ -955,9 +955,9 @@ function Dashboard() {
 
         {/* Desktop controls */}
         {!isMobile && (
-          <Space wrap>
+          <Space wrap className="dashboard-topbar__controls">
             {latestDateStr && (
-              <Text className="text-gray-300 mr-2 hidden sm:inline">
+              <Text className="dashboard-data-stamp hidden sm:inline">
                 {!isViewingLatest
                   ? `历史数据: ${latestDateStr}`
                   : `最新数据: ${latestDateStr}`}
@@ -983,7 +983,7 @@ function Dashboard() {
               icon={<ReloadOutlined />}
               onClick={handleRefresh}
               loading={loading}
-              className="dashboard-action"
+              className="dashboard-action dashboard-action--refresh"
             >
               刷新
             </Button>
@@ -993,7 +993,7 @@ function Dashboard() {
               <Button
                 icon={<UserOutlined />}
                 type="primary"
-                className="dashboard-action"
+                className="dashboard-action dashboard-action--user"
               >
                 {user?.username || '用户'} <span className="ml-1">▼</span>
               </Button>

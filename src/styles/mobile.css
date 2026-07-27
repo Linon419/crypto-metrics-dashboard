@@ -158,10 +158,16 @@
 
 /* 头部移动端优化 */
 @media (max-width: 768px) {
-  .ant-layout-header {
+  .ant-layout-header.global-nav {
     padding: 0 8px !important;
     height: 48px !important;
     line-height: 48px !important;
+  }
+
+  .ant-layout-header.dashboard-topbar {
+    height: auto !important;
+    min-height: 56px;
+    line-height: 1.2 !important;
   }
   
   .ant-layout-header .ant-btn {
