@@ -116,6 +116,37 @@ test('renders BTC cycle chart with TradingView-style panels', async () => {
   expect(screen.getByText('进1')).toBeInTheDocument();
 });
 
+test('preserves sub-dollar price precision when a low-priced symbol opens', async () => {
+  const dogeKlines = klines.map((kline, index) => ({
+    ...kline,
+    open: [0.08124, 0.08472, 0.08691][index],
+    high: [0.08315, 0.08726, 0.08804][index],
+    low: [0.07982, 0.08391, 0.08542][index],
+    close: [0.08273, 0.08635, 0.08723][index],
+  }));
+  fetchCoinKlines.mockResolvedValue({ symbol: 'DOGE', interval: '4h', klines: dogeKlines });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+
+  render(<OtcCycleChart symbol="DOGE" />);
+
+  expect(await screen.findByText('Close 0.08723')).toBeInTheDocument();
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+
+  const expectedPriceFormat = {
+    type: 'price',
+    precision: 5,
+    minMove: 0.00001,
+  };
+  expect(mockChartInstances[0].addSeries.mock.calls.slice(0, 4).map(([, options]) => (
+    options.priceFormat
+  ))).toEqual([
+    expectedPriceFormat,
+    expectedPriceFormat,
+    expectedPriceFormat,
+    expectedPriceFormat,
+  ]);
+});
+
 test('does not add a symbol title to the current price axis label', async () => {
   fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
   fetchCoinMetrics.mockResolvedValue(metrics);

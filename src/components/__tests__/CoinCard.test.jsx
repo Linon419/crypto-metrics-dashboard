@@ -19,7 +19,7 @@ const coin = {
   schellingPoint: 0,
 };
 
-test('renders the centered card content structure and metrics', () => {
+test('renders the aligned card content structure and metrics', () => {
   const { container } = render(<CoinCard coin={coin} />);
 
   expect(screen.getByText('BTC')).toBeInTheDocument();

@@ -43,7 +43,7 @@ import UserProfile from './UserProfile';
 import { useFavorites } from '../hooks/useFavorites'; // Keep this
 import { useAutoHideOnScroll } from '../hooks/useAutoHideOnScroll';
 import { PERIOD_QUALITY_GUIDE, PERIOD_QUALITY_METHOD } from '../utils/periodQualityMeta';
-import { evaluateStrategySignal, hasStrategyDirection } from '../utils/strategySignals';
+import { hasStrategyDirection } from '../utils/strategySignals';
 import {
   findNearestAvailableDate,
   isDateAvailable,
@@ -54,21 +54,6 @@ import { getOptionTuningLabel } from '../utils/optionTuningLabels';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
-
-const getRiskRank = (risk) => {
-  if (risk === 'low') return 0;
-  if (risk === 'medium') return 1;
-  return 2;
-};
-
-const getSignalSummaryText = (signals) => {
-  if (signals.length === 0) return '暂无';
-
-  return signals
-    .slice(0, 3)
-    .map(({ coin, signal }) => `${coin.symbol}(${signal.confirmed ? '已确认' : '候选'})`)
-    .join('、');
-};
 
 // 热门币种的唯一定义：筛选条件与数量上限都放在这里，
 // 计数、卡片列表和下方 OTC 表格都用同一份结果，避免"10 / 45"却只画 3 张卡。
@@ -186,8 +171,6 @@ function Dashboard() {
   const [menuDrawerVisible, setMenuDrawerVisible] = useState(false);
   const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const notifiedStrategyDatesRef = useRef(new Set());
-  const initialLoadCompleteRef = useRef(false);
   const activeDataRequestRef = useRef(0);
   const viewingLatestRef = useRef(true);
   const klineBackfillPollRef = useRef(null);
@@ -200,48 +183,6 @@ function Dashboard() {
   const { user } = useSelector(state => state.auth);
   // 写接口已在后端收敛为管理员专属，非管理员不展示对应入口
   const isAdmin = user?.role === 'admin';
-
-  const showStrategyNotification = useCallback((coins, liquidity, date) => {
-    if (!date || !Array.isArray(coins) || coins.length === 0) return;
-    if (notifiedStrategyDatesRef.current.has(date)) return;
-
-    const signals = coins
-      .map(coin => ({
-        coin,
-        signal: evaluateStrategySignal(coin, { marketCoins: coins, liquidity })
-      }))
-      .filter(item => item.signal.direction === 'long' || item.signal.direction === 'short')
-      .sort((a, b) => {
-        if (a.signal.confirmed !== b.signal.confirmed) return a.signal.confirmed ? -1 : 1;
-        return getRiskRank(a.signal.risk) - getRiskRank(b.signal.risk);
-      });
-
-    const longSignals = signals.filter(item => item.signal.direction === 'long');
-    const shortSignals = signals.filter(item => item.signal.direction === 'short');
-    const confirmedLongCount = longSignals.filter(item => item.signal.confirmed).length;
-    const confirmedShortCount = shortSignals.filter(item => item.signal.confirmed).length;
-
-    notifiedStrategyDatesRef.current.add(date);
-
-    notification.open({
-      key: `strategy-${date}`,
-      message: `策略信号更新 · ${date}`,
-      description: (
-        <div>
-          <div className="mb-2">
-            <Tag color="success">做多 {longSignals.length}</Tag>
-            <Text type="secondary">已确认 {confirmedLongCount}：{getSignalSummaryText(longSignals)}</Text>
-          </div>
-          <div>
-            <Tag color="error">做空 {shortSignals.length}</Tag>
-            <Text type="secondary">已确认 {confirmedShortCount}：{getSignalSummaryText(shortSignals)}</Text>
-          </div>
-        </div>
-      ),
-      placement: 'topRight',
-      duration: 10,
-    });
-  }, []);
 
   const refreshAvailableDates = useCallback(async () => {
     try {
@@ -344,17 +285,7 @@ function Dashboard() {
 
         setError(null);
         setApiStatus({ ok: true, message: '数据加载成功，API连接正常' });
-        showStrategyNotification(result.coins, result.liquidity, result.date);
         refreshAvailableDates();
-
-        if (!initialLoadCompleteRef.current) {
-          notification.success({
-            message: '数据加载成功',
-            description: `已获取最新的加密货币指标数据 (${result.date || '未知日期'})`,
-            duration: 3
-          });
-          initialLoadCompleteRef.current = true;
-        }
       } else {
         // Handle case where result or result.coins is not as expected
         console.warn("loadData: fetchLatestMetrics did not return expected data structure.", result);
@@ -385,7 +316,7 @@ function Dashboard() {
         setLoading(false);
       }
     }
-  }, [showStrategyNotification, refreshAvailableDates]); // Removed formatCoinsData from dependencies as it's defined inside or constant
+  }, [refreshAvailableDates]); // Removed formatCoinsData from dependencies as it's defined inside or constant
 
   // Filter coins based on view mode
   // 必须 memo：返回新数组会让 CoinList / OtcIndexTable 每次父级渲染都收到新引用

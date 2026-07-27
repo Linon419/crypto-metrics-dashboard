@@ -22,6 +22,7 @@ import {
   RIGHT_PRICE_SCALE_WIDTH,
   YAHOO_FINANCE_REFRESH_INTERVAL_MS,
   applyReviewRange,
+  buildPriceFormat,
   buildFallbackAnnotationLabels,
   buildMetricHoverValueLabels,
   buildPositionedAnnotationLabels,
@@ -345,6 +346,7 @@ function OtcCycleChart({
     const otcChart = createBaseChart(otcRootRef.current, indicatorChartHeight, false);
     const explosionChart = createBaseChart(explosionRootRef.current, indicatorChartHeight, true);
     const phaseLayer = phaseLayerRef.current;
+    const priceFormat = buildPriceFormat(chartContextRef.current.model.latest?.close);
 
     if (!priceChart || !otcChart || !explosionChart) {
       return undefined;
@@ -359,6 +361,7 @@ function OtcCycleChart({
       wickDownColor: RED,
       priceLineVisible: false,
       lastValueVisible: true,
+      priceFormat,
     });
 
     const bollUpperSeries = priceChart.addSeries(LineSeries, {
@@ -367,6 +370,7 @@ function OtcCycleChart({
       lineStyle: LineStyle.Dashed,
       priceLineVisible: false,
       lastValueVisible: false,
+      priceFormat,
     });
 
     const bollMiddleSeries = priceChart.addSeries(LineSeries, {
@@ -374,6 +378,7 @@ function OtcCycleChart({
       lineWidth: 1,
       priceLineVisible: false,
       lastValueVisible: false,
+      priceFormat,
     });
 
     const bollLowerSeries = priceChart.addSeries(LineSeries, {
@@ -382,6 +387,7 @@ function OtcCycleChart({
       lineStyle: LineStyle.Dashed,
       priceLineVisible: false,
       lastValueVisible: false,
+      priceFormat,
     });
 
     const otcSeries = otcChart.addSeries(LineSeries, {

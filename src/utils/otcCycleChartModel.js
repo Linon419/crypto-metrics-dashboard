@@ -114,12 +114,31 @@ function getMetricDate(metric) {
   return metric?.date || formatMetricDateKey(metric?.timestamp);
 }
 
+function getPricePrecision(value) {
+  const number = Math.abs(Number(value));
+  if (!Number.isFinite(number) || number === 0 || number >= 1) return 2;
+
+  // 低价币需要保留前导零后的有效价格位。默认 0.01 会把 DOGE 一类资产的
+  // 多根蜡烛压到同一价格线上；额外保留 3 位有效数字兼顾形态与刻度可读性。
+  return Math.min(8, Math.max(4, Math.ceil(-Math.log10(number)) + 3));
+}
+
+function buildPriceFormat(value) {
+  const precision = getPricePrecision(value);
+  return {
+    type: 'price',
+    precision,
+    minMove: 1 / (10 ** precision),
+  };
+}
+
 function formatPrice(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '--';
+  const { precision } = buildPriceFormat(number);
   return number.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: precision,
+    maximumFractionDigits: precision,
   });
 }
 
@@ -995,6 +1014,7 @@ export {
   RIGHT_PRICE_SCALE_WIDTH,
   YAHOO_FINANCE_REFRESH_INTERVAL_MS,
   applyReviewRange,
+  buildPriceFormat,
   buildFallbackAnnotationLabels,
   buildPositionedAnnotationLabels,
   createBaseChart,
