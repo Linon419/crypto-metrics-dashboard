@@ -92,14 +92,25 @@ function copyDirectory(source, destination) {
   fs.cpSync(source, destination, { recursive: true });
 }
 
-function ensureDependencies() {
-  if (!commandExists('node') || !commandExists('npm')) {
+function ensureDependencies({
+  root = ROOT,
+  hasCommand = commandExists,
+  installDependencies = () => run('npm', ['install']),
+  logMessage = log,
+} = {}) {
+  if (!hasCommand('node') || !hasCommand('npm')) {
     throw new Error('Node.js and npm are required. Install Node.js LTS from https://nodejs.org/ and run this launcher again.');
   }
 
-  if (!fs.existsSync(path.join(ROOT, 'node_modules'))) {
-    log('Installing dependencies. This can take several minutes on the first run.');
-    run('npm', ['install']);
+  const requiredDependency = path.join(
+    root,
+    'node_modules',
+    '@ant-design',
+    'v5-patch-for-react-19',
+  );
+  if (!fs.existsSync(path.join(root, 'node_modules')) || !fs.existsSync(requiredDependency)) {
+    logMessage('Installing missing dependencies. This can take several minutes on the first run.');
+    installDependencies();
   }
 }
 
@@ -261,5 +272,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ensureDependencies,
   ensureFrontendBuild,
 };
