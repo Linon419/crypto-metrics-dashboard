@@ -897,14 +897,19 @@ function buildFallbackAnnotationLabels(annotationTracks = {}, rows = [], visible
 
 function syncTimeRange(targets, syncingRef, onRangeChange) {
   return (range) => {
-    if (!range) return;
+    if (range?.from == null || range?.to == null || syncingRef.current) return;
     onRangeChange?.(range);
-    if (syncingRef.current) return;
     syncingRef.current = true;
-    targets.forEach((chart) => {
-      chart.timeScale().setVisibleRange(range);
-    });
-    syncingRef.current = false;
+    try {
+      targets.forEach((chart) => {
+        const timeScale = chart.timeScale();
+        // lightweight-charts 会在空图表上把时间转换成 null，随后抛出 "Value is null"。
+        if (timeScale.getVisibleLogicalRange?.() === null) return;
+        timeScale.setVisibleRange(range);
+      });
+    } finally {
+      syncingRef.current = false;
+    }
   };
 }
 

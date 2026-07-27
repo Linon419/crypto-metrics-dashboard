@@ -629,12 +629,19 @@ function OtcCycleChart({
     const handles = chartHandlesRef.current;
     if (!handles) return undefined;
 
-    handles.candleSeries.setData(model.candles);
-    handles.bollUpperSeries.setData(model.boll.upper);
-    handles.bollMiddleSeries.setData(model.boll.middle);
-    handles.bollLowerSeries.setData(model.boll.lower);
-    handles.otcSeries.setData(model.otcIndex);
-    handles.explosionSeries.setData(model.explosionIndex);
+    // 六个 series 依次写入时，前一个图表会先触发可视区间事件。
+    // 初始化期间暂停跨图同步，等三张图都有数据后再统一应用复盘区间。
+    syncingRef.current = true;
+    try {
+      handles.candleSeries.setData(model.candles);
+      handles.bollUpperSeries.setData(model.boll.upper);
+      handles.bollMiddleSeries.setData(model.boll.middle);
+      handles.bollLowerSeries.setData(model.boll.lower);
+      handles.otcSeries.setData(model.otcIndex);
+      handles.explosionSeries.setData(model.explosionIndex);
+    } finally {
+      syncingRef.current = false;
+    }
 
     handles.candleMarkers?.setMarkers?.(showMetricEvents ? model.markers : []);
     handles.otcMarkers?.setMarkers?.(showMetricEvents ? model.otcPointMarkers : []);

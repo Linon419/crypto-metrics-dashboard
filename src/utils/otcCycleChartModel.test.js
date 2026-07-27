@@ -10,6 +10,7 @@ import {
   formatChartTickMark,
   resolveIsYahooFinanceSource,
   shouldUseYahooFinanceKlines,
+  syncTimeRange,
 } from './otcCycleChartModel';
 
 describe('resolveIsYahooFinanceSource', () => {
@@ -66,5 +67,58 @@ describe('formatChartTickMark', () => {
   test('returns empty string for invalid input', () => {
     expect(formatChartTickMark(null, 3)).toBe('');
     expect(formatChartTickMark({ }, 3)).toBe('');
+  });
+});
+
+describe('syncTimeRange', () => {
+  const makeChart = (logicalRange, setVisibleRange = jest.fn()) => ({
+    timeScale: () => ({
+      getVisibleLogicalRange: () => logicalRange,
+      setVisibleRange,
+    }),
+  });
+
+  test('skips empty target charts while synchronizing a visible time range', () => {
+    const readySetVisibleRange = jest.fn();
+    const emptySetVisibleRange = jest.fn();
+    const syncingRef = { current: false };
+    const onRangeChange = jest.fn();
+    const synchronize = syncTimeRange([
+      makeChart({ from: 0, to: 2 }, readySetVisibleRange),
+      makeChart(null, emptySetVisibleRange),
+    ], syncingRef, onRangeChange);
+    const range = { from: 100, to: 200 };
+
+    synchronize(range);
+
+    expect(readySetVisibleRange).toHaveBeenCalledWith(range);
+    expect(emptySetVisibleRange).not.toHaveBeenCalled();
+    expect(onRangeChange).toHaveBeenCalledWith(range);
+    expect(syncingRef.current).toBe(false);
+  });
+
+  test('ignores ranges with null boundaries', () => {
+    const setVisibleRange = jest.fn();
+    const onRangeChange = jest.fn();
+    const synchronize = syncTimeRange(
+      [makeChart({ from: 0, to: 2 }, setVisibleRange)],
+      { current: false },
+      onRangeChange,
+    );
+
+    synchronize({ from: null, to: 200 });
+
+    expect(setVisibleRange).not.toHaveBeenCalled();
+    expect(onRangeChange).not.toHaveBeenCalled();
+  });
+
+  test('releases the synchronization guard when a chart update throws', () => {
+    const syncingRef = { current: false };
+    const synchronize = syncTimeRange([
+      makeChart({ from: 0, to: 2 }, () => { throw new Error('chart update failed'); }),
+    ], syncingRef);
+
+    expect(() => synchronize({ from: 100, to: 200 })).toThrow('chart update failed');
+    expect(syncingRef.current).toBe(false);
   });
 });
