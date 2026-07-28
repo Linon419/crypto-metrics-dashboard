@@ -156,7 +156,7 @@ npm run dev
 
 ## Configuration
 
-Copy `.env.example` to `.env` for local operation. Production templates live under `deploy/docker/`.
+Copy the root `.env.example` to `.env` for local operation and Docker deployment.
 
 ### Core server settings
 
@@ -284,19 +284,16 @@ Configure `TELEGRAM_BOT_TOKEN`, `API_BASE_URL`, and `ADMIN_CHAT_IDS`. The comple
 
 The repository publishes `linux/amd64` and `linux/arm64` images to GitHub Container Registry through GitHub Actions.
 
-Prepare the production template:
+Prepare the production environment:
 
 ```bash
-cp deploy/docker/.env.example deploy/docker/.env
+cp .env.example .env
 ```
 
-Set strong production secrets, then review `API_PUBLIC_HOST` and the host volume path in `deploy/docker/docker-compose.prod.yml` for the target server.
+Set strong production secrets, configure `API_PUBLIC_HOST` in `.env`, then review the host volume path in the root `docker-compose.yml` for the target server.
 
 ```bash
-docker compose \
-  --env-file deploy/docker/.env \
-  -f deploy/docker/docker-compose.prod.yml \
-  up -d
+docker compose up -d
 ```
 
 The included template exposes the application on port `3080` and persists SQLite under `/data/db` inside the container.
@@ -320,7 +317,6 @@ The included template exposes the application on port `3080` and persists SQLite
 ├── telegram-bot/            # Telegram notification bot
 ├── launchers/               # Windows and macOS launchers
 ├── scripts/                 # Build and local distribution scripts
-├── deploy/                  # Docker deployment manifests
 ├── Dockerfile
 └── docker-compose.yml
 ```

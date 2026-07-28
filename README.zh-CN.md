@@ -150,7 +150,7 @@ npm run dev
 
 ## 配置
 
-本地运行时，将 `.env.example` 复制为 `.env`。生产环境模板位于 `deploy/docker/`。
+本地运行与 Docker 部署统一使用根目录 `.env.example`，复制为 `.env` 后填写配置。
 
 ### 后端核心配置
 
@@ -268,19 +268,16 @@ npm run bot
 
 项目通过 GitHub Actions 向 GitHub Container Registry 发布 `linux/amd64` 与 `linux/arm64` 镜像。
 
-准备生产环境模板：
+准备生产环境变量：
 
 ```bash
-cp deploy/docker/.env.example deploy/docker/.env
+cp .env.example .env
 ```
 
-填写生产环境强密钥，并根据目标服务器调整 `deploy/docker/docker-compose.prod.yml` 中的 `API_PUBLIC_HOST` 与宿主机挂载路径。
+填写生产环境强密钥，在 `.env` 中配置 `API_PUBLIC_HOST`，并根据目标服务器调整根目录 `docker-compose.yml` 中的宿主机挂载路径。
 
 ```bash
-docker compose \
-  --env-file deploy/docker/.env \
-  -f deploy/docker/docker-compose.prod.yml \
-  up -d
+docker compose up -d
 ```
 
 模板默认通过 `3080` 端口提供服务，并将容器内 SQLite 持久化到 `/data/db`。
@@ -304,7 +301,6 @@ docker compose \
 ├── telegram-bot/            # Telegram 通知 Bot
 ├── launchers/               # Windows 与 macOS 启动器
 ├── scripts/                 # 构建与本地分发脚本
-├── deploy/                  # Docker 部署清单
 ├── Dockerfile
 └── docker-compose.yml
 ```

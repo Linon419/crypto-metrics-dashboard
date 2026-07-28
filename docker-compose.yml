@@ -1,5 +1,3 @@
-version: '3.3'
-
 services:
   crypto-dashboard:
     image: ghcr.io/linon419/crypto-metrics-dashboard:main
@@ -22,15 +20,17 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - REGISTRATION_ENABLED=${REGISTRATION_ENABLED:-false}
+      - DEMO_USERNAMES=${DEMO_USERNAMES:-}
+      - DEMO_READONLY=${DEMO_READONLY:-true}
       # 前端运行时通过 /app-config.js 读取该地址，必须是浏览器可达的公网/局域网地址。
       # 此前这里硬编码了一台特定主机的 IP，别人拉下来直接跑会连到错误的后端。
       - API_PUBLIC_HOST=${API_PUBLIC_HOST:-http://localhost:3080}
       - BRANDFETCH_CLIENT_ID=${BRANDFETCH_CLIENT_ID:-}
       # Telegram Bot 配置
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - API_BASE_URL=http://localhost:3001/api
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:3001/api}
       - ADMIN_CHAT_IDS=${ADMIN_CHAT_IDS}
-      - TZ=Asia/Shanghai
+      - TZ=${TZ:-Asia/Shanghai}
     volumes:
       - /root/crypto-dashboard/data:/data/db
       - ./telegram-bot/data:/app/telegram-bot/data

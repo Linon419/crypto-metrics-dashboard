@@ -1,6 +1,6 @@
 /**
  * 生产部署密钥校验：
- * - 拒绝仍是模板占位值的密钥（deploy/docker/.env.example 里的 please_generate_* 等）
+ * - 拒绝仍是根目录 .env.example 中的模板占位值
  * - 拒绝历史版本硬编码过的弱密钥
  * - 校验范围覆盖 JWT_SECRET 与 AI_SETTINGS_ENCRYPTION_KEY
  *
