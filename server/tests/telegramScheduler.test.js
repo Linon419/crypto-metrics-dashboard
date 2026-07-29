@@ -11,6 +11,8 @@ const {
   isExplosionDropBelow200,
   isExplosionTurnPositive,
   isImportantMomentumIndicator,
+  getSchedulerJobDefinitions,
+  shouldProcessDataUpdate,
 } = scheduler.__testUtils || {};
 
 async function run() {
@@ -19,6 +21,47 @@ async function run() {
   assert.strictEqual(typeof analyzeStrategySignals, 'function');
   assert.strictEqual(typeof buildWebNotificationPayload, 'function');
   assert.strictEqual(typeof formatComprehensiveNotification, 'function');
+  assert.strictEqual(typeof getSchedulerJobDefinitions, 'function');
+  assert.strictEqual(typeof shouldProcessDataUpdate, 'function');
+
+  const baselineSnapshot = {
+    date: '2026-07-29',
+    totalCoins: 1,
+    coins: [{
+      symbol: 'BTC',
+      otc_index: 1000,
+      explosion_index: 200,
+      entry_exit_type: 'entry',
+      period_quality: '高质量进场',
+      near_threshold: false,
+      momentumIndicators: [],
+      strategy_signal_level: null,
+    }],
+  };
+  const unchangedSnapshot = JSON.parse(JSON.stringify(baselineSnapshot));
+  const updatedSnapshot = JSON.parse(JSON.stringify(baselineSnapshot));
+  updatedSnapshot.coins[0].otc_index = 1051;
+
+  assert.strictEqual(
+    shouldProcessDataUpdate(null, baselineSnapshot),
+    false,
+    'the first poll should establish a silent baseline'
+  );
+  assert.strictEqual(
+    shouldProcessDataUpdate(baselineSnapshot, unchangedSnapshot),
+    false,
+    'unchanged data should stay silent'
+  );
+  assert.strictEqual(
+    shouldProcessDataUpdate(baselineSnapshot, updatedSnapshot),
+    true,
+    'a meaningful data change should enter notification analysis'
+  );
+  assert.deepStrictEqual(
+    getSchedulerJobDefinitions().map(job => job.jobName),
+    ['checkDataUpdates', 'checkDataUpdates'],
+    'all automatic notification jobs should flow through data update detection'
+  );
 
   const notificationTime = new Date('2026-07-26T08:30:00.000Z');
   const webNotification = buildWebNotificationPayload(

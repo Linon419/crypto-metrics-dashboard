@@ -24,6 +24,24 @@ const runningJobs = new Set();
 // 综合通知的去重键，查询和写入必须共用同一个常量
 const DATA_UPDATE_NOTIFICATION_KEY = 'data_update';
 
+// 所有自动通知统一经过数据快照变化检测，避免规则轮询在静置期间单独推送。
+const SCHEDULER_JOB_DEFINITIONS = Object.freeze([
+    Object.freeze({
+        cronExpression: '*/5 * * * *',
+        jobName: 'checkDataUpdates',
+        logMessage: 'Running frequent data update check'
+    }),
+    Object.freeze({
+        cronExpression: '*/2 14-20 * * *',
+        jobName: 'checkDataUpdates',
+        logMessage: 'Running intensive data update check (core hours)'
+    })
+]);
+
+function getSchedulerJobDefinitions() {
+    return SCHEDULER_JOB_DEFINITIONS.map(job => ({ ...job }));
+}
+
 // 上一轮还没跑完就跳过本轮，避免请求卡住时执行堆积、两次运行同时推送
 async function runExclusiveJob(jobName, jobFn) {
     if (runningJobs.has(jobName)) {
@@ -128,6 +146,10 @@ function hasDataChanged(lastSnapshot, currentSnapshot) {
     }
 
     return false;
+}
+
+function shouldProcessDataUpdate(lastSnapshot, currentSnapshot) {
+    return Boolean(lastSnapshot) && hasDataChanged(lastSnapshot, currentSnapshot);
 }
 
 // 初始化函数
@@ -618,8 +640,14 @@ async function checkDataUpdates() {
                 const currentDataSnapshot = createDataSnapshot(data);
                 const lastSnapshot = lastDataSnapshot.get(chatId);
 
-                // 如果是第一次检查或者数据有变化，才进行通知检查
-                if (!lastSnapshot || hasDataChanged(lastSnapshot, currentDataSnapshot)) {
+                if (!lastSnapshot) {
+                    lastDataSnapshot.set(chatId, currentDataSnapshot);
+                    console.log(`Initial data baseline stored for user ${chatId}, skipping notifications`);
+                    continue;
+                }
+
+                // 自动通知只处理基线建立后的实际数据变化
+                if (shouldProcessDataUpdate(lastSnapshot, currentDataSnapshot)) {
                     console.log(`Data changes detected for user ${chatId}, checking notifications...`);
 
                     // 更新数据快照
@@ -1276,65 +1304,25 @@ function getTypeDisplay(type) {
 function initializeScheduler() {
     console.log('Initializing scheduler...');
 
-    // 1. 高频数据检测 - 每5分钟检查一次（全天24小时）
-    cron.schedule('*/5 * * * *', async () => {
-        console.log('Running frequent data update check');
-        await runExclusiveJob('checkDataUpdates', checkDataUpdates);
-    }, {
-        timezone: SCHEDULER_TIMEZONE,
-        noOverlap: true
-    });
-
-    // 2. 核心时段加强检测 - 下午2点到晚上8点，每2分钟检查一次
-    cron.schedule('*/2 14-20 * * *', async () => {
-        console.log('Running intensive data update check (core hours)');
-        await runExclusiveJob('checkDataUpdates', checkDataUpdates);
-    }, {
-        timezone: SCHEDULER_TIMEZONE,
-        noOverlap: true
-    });
-
-    // 3. 收藏币种特别关注 - 每分钟检查收藏币种的关键变化
-    cron.schedule('* 14-20 * * *', async () => {
-        console.log('Running favorite coins alerts check');
-        await runExclusiveJob('checkFavoriteCoinsAlerts', checkFavoriteCoinsAlerts);
-    }, {
-        timezone: SCHEDULER_TIMEZONE,
-        noOverlap: true
-    });
-
-    // 4. 全市场高质量进场期轮询 - 每2小时整点检查一次
-    cron.schedule('0 */2 * * *', async () => {
-        console.log('Running all coins quality entry check');
-        await runExclusiveJob('checkAllCoinsQualityEntry', checkAllCoinsQualityEntry);
-    }, {
-        timezone: SCHEDULER_TIMEZONE,
-        noOverlap: true
-    });
-
-    // 5. 动能指标检测 - 核心时段每15分钟检查一次
-    cron.schedule('*/15 14-20 * * *', async () => {
-        console.log('Running momentum indicators check');
-        await runExclusiveJob('checkMomentumIndicators', checkMomentumIndicators);
-    }, {
-        timezone: SCHEDULER_TIMEZONE,
-        noOverlap: true
+    getSchedulerJobDefinitions().forEach(job => {
+        cron.schedule(job.cronExpression, async () => {
+            console.log(job.logMessage);
+            await runExclusiveJob(job.jobName, checkDataUpdates);
+        }, {
+            timezone: SCHEDULER_TIMEZONE,
+            noOverlap: true
+        });
     });
 
     console.log('Scheduler initialized with the following jobs:');
     console.log('- Every 5 minutes (24/7): Regular data update checks');
     console.log('- Every 2 minutes (2:00 PM - 8:00 PM): Intensive monitoring during core hours');
-    console.log('- Every 1 minute (2:00 PM - 8:00 PM): Critical favorite coins alerts');
-    console.log('- Every 2 hours (24/7): All coins quality entry polling');
-    console.log('- Every 15 minutes (2:00 PM - 8:00 PM): Momentum indicators check');
 }
 
 // 立即执行一次检查（用于测试）
 async function runImmediateCheck() {
     console.log('Running immediate check...');
-    await checkAllCoinsQualityEntry();
-    await checkFavoriteCoinsAlerts();
-    await checkMomentumIndicators();
+    await runExclusiveJob('checkDataUpdates', checkDataUpdates);
     console.log('Immediate check completed');
 }
 
@@ -1357,6 +1345,8 @@ module.exports = {
         formatMomentumNotification,
         isExplosionDropBelow200,
         isExplosionTurnPositive,
-        isImportantMomentumIndicator
+        isImportantMomentumIndicator,
+        getSchedulerJobDefinitions,
+        shouldProcessDataUpdate
     }
 };

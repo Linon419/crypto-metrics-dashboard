@@ -160,12 +160,10 @@ npm run dev
 
 ## 定时任务
 
-- **每天早上8:00**: 全市场机会发现
-  - 高质量进场期机会轮询
-  - 爆破指数由负转正提醒
-- **每天晚上6:00**: 用户Dashboard收藏币种监控
-  - 爆破指数跌破200警告
-  - 退场期进入提醒
+- **全天每5分钟**: 检查 Dashboard 最新数据快照
+- **悉尼时间14:00–20:59每2分钟**: 加强数据更新检查
+- **首次检查**: 静默建立当前数据基线
+- **后续检查**: 仅在数据快照发生关键变化时汇总通知规则并发送一条 Telegram 消息
 
 ## 故障排除
 
@@ -198,9 +196,8 @@ npm run dev
 Crypto Metrics Telegram Bot started successfully!
 Initializing scheduler...
 Scheduler initialized with the following jobs:
-- Daily quality entry & explosion alerts: 8:00 AM
-- Evening explosion alerts: 6:00 PM  
-- Hourly exit alerts: Every hour
+- Every 5 minutes (24/7): Regular data update checks
+- Every 2 minutes (2:00 PM - 8:00 PM): Intensive monitoring during core hours
 ```
 
 ## 扩展开发
