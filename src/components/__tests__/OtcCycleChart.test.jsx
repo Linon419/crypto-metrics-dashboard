@@ -81,6 +81,21 @@ const metrics = [
   { date: '2026-01-03', otc_index: 800, explosion_index: 150, entry_exit_type: 'exit', entry_exit_day: 1 },
 ];
 
+function buildRangeTestKlines(count = 130) {
+  return Array.from({ length: count }, (_, index) => {
+    const openTime = new Date(Date.UTC(2026, 0, 1, index * 4));
+    return {
+      openTime: openTime.toISOString(),
+      closeTime: new Date(openTime.getTime() + 4 * 60 * 60 * 1000 - 1).toISOString(),
+      open: 500 + index,
+      high: 503 + index,
+      low: 498 + index,
+      close: 501 + index,
+      volume: 10,
+    };
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockChartInstances.length = 0;
@@ -645,6 +660,61 @@ test('builds visible range from real candle time instead of sparse indicator log
     from: model.rows[1].time,
     to: model.rows[2].time,
   });
+});
+
+test('ignores a late programmatic range event after an ordinary chart click', async () => {
+  const manyKlines = buildRangeTestKlines();
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BNB', interval: '4h', klines: manyKlines });
+  fetchCoinMetrics.mockResolvedValue([]);
+
+  render(<OtcCycleChart symbol="BNB" />);
+
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+  const model = buildTradingViewCycleModel({ klines: manyKlines, metrics: [] });
+  const expectedRange = buildReviewVisibleTimeRange(model.rows, 120);
+  const transientRange = {
+    from: model.rows.at(-3).time,
+    to: model.rows.at(-1).time,
+  };
+  const priceScale = mockChartInstances[0].timeScale();
+  await waitFor(() => expect(priceScale.setVisibleRange).toHaveBeenCalledWith(expectedRange));
+
+  const rangeHandlers = priceScale.subscribeVisibleTimeRangeChange.mock.calls
+    .map(([handler]) => handler);
+  fireEvent.mouseDown(document.querySelector('.tv-cycle-chart__plot--price'));
+  act(() => {
+    rangeHandlers.slice(0, 2).forEach(handler => handler(transientRange));
+    window.dispatchEvent(new Event('resize'));
+  });
+
+  expect(priceScale.setVisibleRange).toHaveBeenLastCalledWith(expectedRange);
+});
+
+test('preserves a range produced by an explicit user zoom', async () => {
+  const manyKlines = buildRangeTestKlines();
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BNB', interval: '4h', klines: manyKlines });
+  fetchCoinMetrics.mockResolvedValue([]);
+
+  render(<OtcCycleChart symbol="BNB" />);
+
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+  const model = buildTradingViewCycleModel({ klines: manyKlines, metrics: [] });
+  const userRange = {
+    from: model.rows.at(-24).time,
+    to: model.rows.at(-1).time,
+  };
+  const priceScale = mockChartInstances[0].timeScale();
+  const rangeHandlers = priceScale.subscribeVisibleTimeRangeChange.mock.calls
+    .map(([handler]) => handler);
+  const pricePlot = document.querySelector('.tv-cycle-chart__plot--price');
+
+  fireEvent.wheel(pricePlot, { deltaY: -100 });
+  act(() => {
+    rangeHandlers.slice(0, 2).forEach(handler => handler(userRange));
+    window.dispatchEvent(new Event('resize'));
+  });
+
+  expect(priceScale.setVisibleRange).toHaveBeenLastCalledWith(userRange);
 });
 
 test('keeps review range on the candle timeline when metrics publish inside a candle', () => {

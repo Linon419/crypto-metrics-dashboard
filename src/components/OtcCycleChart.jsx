@@ -21,11 +21,11 @@ import {
   RED,
   RIGHT_PRICE_SCALE_WIDTH,
   YAHOO_FINANCE_REFRESH_INTERVAL_MS,
-  applyReviewRange,
   buildPriceFormat,
   buildFallbackAnnotationLabels,
   buildMetricHoverValueLabels,
   buildPositionedAnnotationLabels,
+  buildSynchronizedVisibleTimeRange,
   buildTradingViewCycleModel,
   calculateDateRangeKlineLimit,
   createBaseChart,
@@ -98,6 +98,7 @@ function OtcCycleChart({
   const chartHandlesRef = useRef(null);
   const chartContextRef = useRef({});
   const manualVisibleRangeRef = useRef(null);
+  const userAdjustedVisibleRangeRef = useRef(false);
   const loadingOlderRef = useRef(false);
   const hasMoreLeftRef = useRef(true);
   const loadRequestSeqRef = useRef(0);
@@ -130,6 +131,17 @@ function OtcCycleChart({
     hasMoreLeftRef.current = value;
     setHasMoreLeft(value);
   }, []);
+  const resetVisibleRangeTracking = useCallback(() => {
+    manualVisibleRangeRef.current = null;
+    userAdjustedVisibleRangeRef.current = false;
+  }, []);
+  const applyAutomaticReviewRange = useCallback((charts, rows, bars, metricEvents) => {
+    const range = buildSynchronizedVisibleTimeRange(rows, metricEvents, bars);
+    if (!range) return;
+    charts.forEach((chart) => {
+      chart.timeScale().setVisibleRange(range);
+    });
+  }, []);
 
   const loadChartData = useCallback(async ({ refresh = false, silent = false } = {}) => {
     // 快速切换周期/日期时，只有最后一次请求可以写入状态
@@ -137,7 +149,7 @@ function OtcCycleChart({
     loadRequestSeqRef.current = requestSeq;
     if (!silent) setLoading(true);
     if (!silent) {
-      manualVisibleRangeRef.current = null;
+      resetVisibleRangeTracking();
       updateHasMoreLeft(true);
     }
     setError(null);
@@ -193,17 +205,17 @@ function OtcCycleChart({
     } finally {
       if (!silent && loadRequestSeqRef.current === requestSeq) setLoading(false);
     }
-  }, [endDate, includePrePost, isYahooFinanceSource, selectedPeriod.limit, selectedPeriod.value, setKlines, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
+  }, [endDate, includePrePost, isYahooFinanceSource, resetVisibleRangeTracking, selectedPeriod.limit, selectedPeriod.value, setKlines, startDate, symbol, updateHasMoreLeft, useLatestKlineWindow]);
 
   useEffect(() => {
     loadChartData();
   }, [loadChartData]);
 
   useEffect(() => {
-    manualVisibleRangeRef.current = null;
+    resetVisibleRangeTracking();
     loadingOlderRef.current = false;
     updateHasMoreLeft(true);
-  }, [includePrePost, interval, startDate, symbol, updateHasMoreLeft]);
+  }, [includePrePost, interval, resetVisibleRangeTracking, startDate, symbol, updateHasMoreLeft]);
 
   useEffect(() => {
     if (!isYahooFinanceSource) return () => {};
@@ -436,6 +448,20 @@ function OtcCycleChart({
 
     const charts = [priceChart, otcChart, explosionChart];
     chartsRef.current = charts;
+    const chartNodes = [priceRootRef.current, otcRootRef.current, explosionRootRef.current]
+      .filter(Boolean);
+    const markUserRangeInteraction = () => {
+      userAdjustedVisibleRangeRef.current = true;
+    };
+    const markMouseDragInteraction = (event) => {
+      if (event.buttons) markUserRangeInteraction();
+    };
+    chartNodes.forEach((node) => {
+      // 捕获阶段先于 lightweight-charts 的画布处理器执行，确保首个缩放回调已带用户标记。
+      node.addEventListener('wheel', markUserRangeInteraction, { capture: true, passive: true });
+      node.addEventListener('mousemove', markMouseDragInteraction, true);
+      node.addEventListener('touchmove', markUserRangeInteraction, { capture: true, passive: true });
+    });
 
     const updateMetricHover = (param) => {
       const context = chartContextRef.current;
@@ -473,12 +499,11 @@ function OtcCycleChart({
     explosionChart.subscribeCrosshairMove(updateMetricHover);
 
     const rememberVisibleRange = (range) => {
-      if (!range) return;
+      if (!range || !userAdjustedVisibleRangeRef.current) return;
       const from = Number(range.from);
       const to = Number(range.to);
-      if (Number.isFinite(from) && Number.isFinite(to)) {
-        manualVisibleRangeRef.current = { from, to };
-      }
+      if (!Number.isFinite(from) || !Number.isFinite(to)) return;
+      manualVisibleRangeRef.current = { from, to };
     };
     const maybeLoadOlderFromVisibleRange = (range) => {
       const context = chartContextRef.current;
@@ -581,8 +606,13 @@ function OtcCycleChart({
         charts.forEach((chart) => {
           chart.timeScale().setVisibleRange(manualRange);
         });
-      } else {
-        applyReviewRange(charts, context.model.rows, context.visibleBars, context.model.metricEvents);
+      } else if (!userAdjustedVisibleRangeRef.current) {
+        applyAutomaticReviewRange(
+          charts,
+          context.model.rows,
+          context.visibleBars,
+          context.model.metricEvents,
+        );
       }
       updatePhaseLayer();
       updateAnnotationLayer();
@@ -622,13 +652,18 @@ function OtcCycleChart({
       explosionChart.unsubscribeCrosshairMove(updateMetricHover);
       observer?.disconnect();
       window.removeEventListener('resize', resize);
+      chartNodes.forEach((node) => {
+        node.removeEventListener('wheel', markUserRangeInteraction, true);
+        node.removeEventListener('mousemove', markMouseDragInteraction, true);
+        node.removeEventListener('touchmove', markUserRangeInteraction, true);
+      });
       charts.forEach(chart => chart.remove());
       chartsRef.current = [];
       if (phaseLayer) phaseLayer.innerHTML = '';
       setHoverValueLabels(null);
       setHoverAxisLabel(null);
     };
-  }, [hasChartRows, indicatorChartHeight, priceChartHeight, updateHasMoreLeft]);
+  }, [applyAutomaticReviewRange, hasChartRows, indicatorChartHeight, priceChartHeight, updateHasMoreLeft]);
 
   // 数据更新只走 setData / setMarkers，不重建图表实例
   useEffect(() => {
@@ -688,9 +723,9 @@ function OtcCycleChart({
       }));
     }
 
-    // 用户拖动过（或已经应用过一次复盘区间）就不再抢镜头
-    if (!manualVisibleRangeRef.current) {
-      applyReviewRange(handles.charts, model.rows, visibleBars, model.metricEvents);
+    // 自动更新保持默认复盘窗口；用户主动缩放后由图表保留其当前视角。
+    if (!userAdjustedVisibleRangeRef.current) {
+      applyAutomaticReviewRange(handles.charts, model.rows, visibleBars, model.metricEvents);
     }
     handles.updatePhaseLayer();
     handles.updateAnnotationLayer();
@@ -700,7 +735,7 @@ function OtcCycleChart({
       if (chartHandlesRef.current !== handles) return;
       latestPriceLines.forEach(([series, line]) => series.removePriceLine?.(line));
     };
-  }, [hasChartRows, indicatorChartHeight, model, priceChartHeight, showMetricEvents, visibleBars]);
+  }, [applyAutomaticReviewRange, hasChartRows, indicatorChartHeight, model, priceChartHeight, showMetricEvents, visibleBars]);
 
   const latest = model.latest;
   const metricStatusText = showMetricEvents
