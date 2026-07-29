@@ -124,13 +124,14 @@ async function run() {
   );
 
   const created = await createManagedUser(models, actor, {
-    username: 'second-admin',
+    username: 'Second-Admin',
     email: 'second-admin@example.com',
     password: 'second admin passphrase',
     role: 'admin',
     status: 'active',
   });
   assert.strictEqual(created.user.role, 'admin');
+  assert.strictEqual(created.user.username, 'second-admin');
   assert.notStrictEqual(models.users[2].password, 'second admin passphrase');
 
   const updated = await updateManagedUser(models, actor, 2, {

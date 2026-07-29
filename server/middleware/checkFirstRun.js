@@ -7,7 +7,11 @@
 
 const bcrypt = require('bcryptjs');
 const { User, UserAuditLog } = require('../models');
-const { MIN_PASSWORD_LENGTH, validatePassword } = require('../utils/authSecurity');
+const {
+  MIN_PASSWORD_LENGTH,
+  normalizeUsername,
+  validatePassword,
+} = require('../utils/authSecurity');
 const { isLocalMode, isPlaceholderSecret } = require('../utils/productionSecrets');
 
 let isFirstRunChecked = false;
@@ -116,7 +120,7 @@ async function checkFirstRun(req, res, next) {
 
     console.warn('系统初始化检查：未发现管理员账号，准备创建管理员账号');
 
-    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminUsername = normalizeUsername(process.env.ADMIN_USERNAME || 'admin');
     const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
 
     const hardened = isHardenedDeployment();

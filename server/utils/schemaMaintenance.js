@@ -1,5 +1,5 @@
 /**
- * 启动时的索引收敛。
+ * 启动时的数据与索引收敛。
  *
  * 这个项目实际上并不跑 migration：SequelizeMeta 停在 2025 年，
  * 现网库的表是 db.sequelize.sync() 建出来的，且对现有库执行 db:migrate
@@ -10,9 +10,12 @@
  * 仍然存在，同一 market 下两个 trading_symbol 撞上同一 open_time 时
  * 依旧会抛 SQLITE_CONSTRAINT（例如 GOLD 的 GC=F 与 GLD）。
  *
- * 这里只做一件事：当替代索引已经存在时，删掉明确列出的过期索引。
- * 不改列、不改表、不删数据，因此对现网库是安全且幂等的。
+ * 当前负责删除已被取代的旧索引，以及把历史用户名规范为小写。
+ * 两项操作都具备幂等性；用户名存在大小写冲突时会在写入前停止。
  */
+
+const { QueryTypes } = require('sequelize');
+const { normalizeUsername } = require('./authSecurity');
 
 // { table, staleIndex, replacedBy }
 const STALE_INDEXES = [
@@ -63,7 +66,71 @@ async function reconcileIndexes(sequelize, logger = console) {
   return { dropped };
 }
 
+function normalizeStoredUsernames(rows) {
+  return rows.map(row => {
+    try {
+      return { id: row.id, before: row.username, normalized: normalizeUsername(row.username) };
+    } catch (error) {
+      throw new Error(`用户 ${row.id} 的用户名无法规范化：${error.message}`);
+    }
+  });
+}
+
+function findUsernameConflicts(rows) {
+  const groups = new Map();
+  rows.forEach(row => {
+    const group = groups.get(row.normalized) || [];
+    group.push({ id: row.id, username: row.before });
+    groups.set(row.normalized, group);
+  });
+  return Array.from(groups.entries())
+    .filter(([, users]) => users.length > 1)
+    .map(([normalized, users]) => (
+      `${normalized}: ${users.map(user => `${user.id}/${user.username}`).join(', ')}`
+    ));
+}
+
+/**
+ * 把旧库用户名收敛为统一的小写形式。
+ *
+ * 新写入由 normalizeUsername 和 User 模型 setter 保证；这里负责兼容升级前已经
+ * 保存的混合大小写用户名。发生 Alice/alice 这类历史冲突时停止启动，由管理员
+ * 明确决定保留哪个账号，避免静默合并两个不同身份。
+ */
+async function reconcileUsernames(sequelize, logger = console) {
+  const rows = await sequelize.query(
+    'SELECT "id", "username" FROM "Users" ORDER BY "id" ASC',
+    { type: QueryTypes.SELECT },
+  );
+  const normalizedRows = normalizeStoredUsernames(rows);
+  const conflicts = findUsernameConflicts(normalizedRows);
+  if (conflicts.length > 0) {
+    throw new Error(`用户名大小写冲突，请先处理重复账号：${conflicts.join('; ')}`);
+  }
+
+  const pending = normalizedRows.filter(row => row.before !== row.normalized);
+  if (pending.length === 0) return { updated: [] };
+
+  await sequelize.transaction(async transaction => {
+    for (const row of pending) {
+      await sequelize.query(
+        'UPDATE "Users" SET "username" = :username WHERE "id" = :id',
+        {
+          replacements: { id: row.id, username: row.normalized },
+          transaction,
+          type: QueryTypes.UPDATE,
+        },
+      );
+    }
+  });
+
+  const updated = pending.map(row => `${row.before} -> ${row.normalized}`);
+  logger.log(`[schema] 已规范化 ${updated.length} 个用户名：${updated.join(', ')}`);
+  return { updated };
+}
+
 module.exports = {
   reconcileIndexes,
+  reconcileUsernames,
   STALE_INDEXES,
 };

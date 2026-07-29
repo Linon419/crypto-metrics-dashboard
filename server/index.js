@@ -11,7 +11,7 @@ const { attachKlineWebSocketServer } = require('./services/klineWebSocketServer'
 const { buildRuntimeConfigScript } = require('./utils/runtimeConfig');
 const { assertProductionSecrets, isLocalMode } = require('./utils/productionSecrets');
 const { enforceDemoReadOnly } = require('./utils/demoAccounts');
-const { reconcileIndexes } = require('./utils/schemaMaintenance');
+const { reconcileIndexes, reconcileUsernames } = require('./utils/schemaMaintenance');
 const { closeApplicationResources } = require('./utils/serverShutdown');
 
 const app = express();
@@ -179,6 +179,9 @@ db.sequelize
   .sync()
   .then(async () => {
     console.log('Database synchronized');
+
+    // 用户名统一按小写比较；冲突时停止启动，避免把两个历史账号静默合并。
+    await reconcileUsernames(db.sequelize);
 
     // sync() 只补建索引、不删旧索引，这里收敛掉已被取代的过期唯一索引
     try {

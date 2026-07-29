@@ -5,6 +5,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: false,
         unique: true,
+        set(value) {
+          this.setDataValue(
+            'username',
+            typeof value === 'string' ? value.trim().toLowerCase() : value,
+          );
+        },
         validate: {
           len: [3, 64]
         }

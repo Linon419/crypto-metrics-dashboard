@@ -1,13 +1,16 @@
 const assert = require('assert');
 const bcrypt = require('bcryptjs');
+const { Op } = require('sequelize');
 
 const {
+  normalizeUsername,
   signAuthToken,
   validatePassword,
 } = require('../utils/authSecurity');
 const {
   authenticateUser,
   changeOwnPassword,
+  registerUser,
 } = require('../services/authService');
 const { createLoginAttemptLimiter } = require('../utils/loginAttemptLimiter');
 const { createAuthMiddleware } = require('../middleware/auth');
@@ -59,6 +62,8 @@ async function invokeMiddleware(middleware, token) {
 
 async function run() {
   const jwtSecret = 'test-secret-with-at-least-32-characters';
+  assert.strictEqual(normalizeUsername('  AdMiN  '), 'admin');
+
   let currentUser = createUser();
   const UserModel = {
     async findByPk(id) {
@@ -98,7 +103,7 @@ async function run() {
 
   currentUser = createUser();
   const loginResult = await authenticateUser({ UserModel }, {
-    username: 'admin',
+    username: 'AdMiN',
     password: 'correct horse battery staple',
     ip: '127.0.0.1',
   });
@@ -106,6 +111,26 @@ async function run() {
   assert.ok(currentUser.lastLogin instanceof Date);
   assert.strictEqual(loginResult.user.status, 'active');
   assert.strictEqual(loginResult.user.passwordChangeRecommended, false);
+
+  let duplicateWhere = null;
+  await assert.rejects(
+    () => registerUser({
+      UserModel: {
+        async findOne({ where }) {
+          duplicateWhere = where;
+          return currentUser;
+        },
+      },
+      jwtSecret,
+    }, {
+      username: 'ADMIN',
+      email: 'new-admin@example.com',
+      password: 'new admin secure passphrase',
+    }),
+    error => error.statusCode === 409 && /already exists/.test(error.message)
+  );
+  const duplicatePredicates = duplicateWhere[Op.or];
+  assert.strictEqual(duplicatePredicates[0].username, 'admin');
 
   currentUser.status = 'inactive';
   await assert.rejects(
@@ -178,6 +203,26 @@ async function run() {
       ip: '192.0.2.1',
     }),
     error => error.statusCode === 429
+  );
+
+  const caseInsensitiveLimiter = createLoginAttemptLimiter({
+    maxAccountFailures: 2,
+    maxIpFailures: 10,
+  });
+  for (const username of ['AdMiN', 'ADMIN']) {
+    await assert.rejects(
+      () => authenticateUser({ UserModel, limiter: caseInsensitiveLimiter }, {
+        username,
+        password: 'wrong password',
+        ip: '192.0.2.10',
+      }),
+      error => error.statusCode === 401
+    );
+  }
+  assert.strictEqual(
+    caseInsensitiveLimiter.check({ username: 'admin', ip: '192.0.2.11' }).allowed,
+    false,
+    '用户名大小写变体必须共享登录失败计数',
   );
 
   const boundedLimiter = createLoginAttemptLimiter({

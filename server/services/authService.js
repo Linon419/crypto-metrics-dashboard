@@ -59,7 +59,7 @@ async function authenticateUser({
   now = () => new Date(),
 } = {}, { username: rawUsername, password, ip } = {}) {
   const limiterUsername = typeof rawUsername === 'string'
-    ? rawUsername.trim().slice(0, 64)
+    ? rawUsername.trim().toLowerCase().slice(0, 64)
     : 'invalid-username';
 
   const limitState = limiter?.check({ username: limiterUsername, ip });

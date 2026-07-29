@@ -58,7 +58,7 @@ function normalizeUsername(value) {
   if (typeof value !== 'string') {
     throw createValidationError('用户名为必填项');
   }
-  const username = value.trim();
+  const username = value.trim().toLowerCase();
   if (username.length < 3 || username.length > MAX_USERNAME_LENGTH) {
     throw createValidationError(`用户名长度必须为3-${MAX_USERNAME_LENGTH}个字符`);
   }

@@ -11,7 +11,11 @@
 const assert = require('assert');
 const { Sequelize, DataTypes } = require('sequelize');
 
-const { reconcileIndexes, STALE_INDEXES } = require('../utils/schemaMaintenance');
+const {
+  reconcileIndexes,
+  reconcileUsernames,
+  STALE_INDEXES,
+} = require('../utils/schemaMaintenance');
 
 const STALE = 'coin_klines_unique_coin_market_interval_open_time';
 const REPLACEMENT = 'coin_klines_unique_coin_market_symbol_interval_open_time';
@@ -100,8 +104,34 @@ async function run() {
     '替代索引缺失时应保留旧索引'
   );
 
+  // 7. 旧库中的混合大小写用户名统一转成小写
+  const User = sequelize.define('User', {
+    username: { type: DataTypes.STRING, allowNull: false, unique: true },
+  }, { tableName: 'Users', timestamps: false });
+  await User.sync();
+  await User.bulkCreate([{ username: 'Alice' }, { username: 'BOB' }]);
+  const usernameResult = await reconcileUsernames(sequelize, silent);
+  assert.deepStrictEqual(usernameResult.updated.sort(), ['Alice -> alice', 'BOB -> bob']);
+  assert.deepStrictEqual(
+    (await User.findAll({ order: [['id', 'ASC']], raw: true })).map(row => row.username),
+    ['alice', 'bob'],
+  );
+
+  // 8. 历史库已存在大小写冲突时停止迁移，避免两个账号归属变得含糊
+  const sequelize3 = new Sequelize({ dialect: 'sqlite', storage: ':memory:', logging: false });
+  const ConflictingUser = sequelize3.define('User', {
+    username: { type: DataTypes.STRING, allowNull: false, unique: true },
+  }, { tableName: 'Users', timestamps: false });
+  await ConflictingUser.sync();
+  await ConflictingUser.bulkCreate([{ username: 'Alice' }, { username: 'alice' }]);
+  await assert.rejects(
+    () => reconcileUsernames(sequelize3, silent),
+    /用户名大小写冲突/,
+  );
+
   await sequelize.close();
   await sequelize2.close();
+  await sequelize3.close();
   console.log('schemaMaintenance.test.js passed');
 }
 
