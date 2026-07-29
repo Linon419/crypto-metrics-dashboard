@@ -237,8 +237,8 @@ npm run dev
 | 访问范围 | 方法 | 接口 | 用途 |
 | --- | --- | --- | --- |
 | 公开 | `GET` | `/api/test` | 健康检查 |
-| 公开 | `GET` | `/api/public/top-otc-crypto` | 最新场外指数前列标的 |
-| 公开 | `GET` | `/api/public/bottom-otc-crypto` | 最新场外指数末位标的 |
+| 管理员 | `GET` | `/api/public/top-otc-crypto` | 最新场外指数前列标的 |
+| 管理员 | `GET` | `/api/public/bottom-otc-crypto` | 最新场外指数末位标的 |
 | 公开 | `GET` | `/api/logos/:symbol` | 缓存或自动生成的标的 Logo |
 | 鉴权 | `POST` | `/api/auth/login` | 获取 JWT |
 | 管理员 | `POST` | `/api/data/input` | 解析并保存原文 |

@@ -253,8 +253,8 @@ Interactive HTML documentation is served from `/api/docs/html`; the JSON definit
 | Access | Method | Endpoint | Purpose |
 | --- | --- | --- | --- |
 | Public | `GET` | `/api/test` | Health check |
-| Public | `GET` | `/api/public/top-otc-crypto` | Latest top OTC assets |
-| Public | `GET` | `/api/public/bottom-otc-crypto` | Latest bottom OTC assets |
+| Admin | `GET` | `/api/public/top-otc-crypto` | Latest top OTC assets |
+| Admin | `GET` | `/api/public/bottom-otc-crypto` | Latest bottom OTC assets |
 | Public | `GET` | `/api/logos/:symbol` | Cached or generated asset logo |
 | Authentication | `POST` | `/api/auth/login` | Obtain a JWT |
 | Admin | `POST` | `/api/data/input` | Parse and persist source text |

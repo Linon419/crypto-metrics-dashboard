@@ -4,6 +4,7 @@ const router = express.Router();
 const { Op } = require('sequelize');
 const { Coin, DailyMetric } = require('../models');
 const dataRoutes = require('./data');
+const { verifyToken, requireAdmin } = require('../middleware/auth');
 const { getSystemSettings } = require('../utils/settings');
 const { buildPeriodRiskNotes } = require('../utils/periodRiskNotes');
 
@@ -47,7 +48,7 @@ async function getPreviousDateWithData(currentDate) {
   }
 }
 
-router.get('/top-otc-crypto', async (req, res) => {
+router.get('/top-otc-crypto', verifyToken, requireAdmin, async (req, res) => {
   try {
     const latestMetricDateEntry = await DailyMetric.findOne({
       attributes: ['date'],
@@ -123,13 +124,13 @@ router.get('/top-otc-crypto', async (req, res) => {
       items
     });
   } catch (error) {
-    // 匿名接口不回传 error.message，避免把内部实现细节暴露给未认证调用方
+    // 仅回传通用错误信息，避免把内部实现细节暴露给客户端
     console.error('[PUBLIC_TOP_OTC] Error:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch top OTC crypto' });
   }
 });
 
-router.get('/bottom-otc-crypto', async (req, res) => {
+router.get('/bottom-otc-crypto', verifyToken, requireAdmin, async (req, res) => {
   try {
     const latestMetricDateEntry = await DailyMetric.findOne({
       attributes: ['date'],
@@ -205,7 +206,7 @@ router.get('/bottom-otc-crypto', async (req, res) => {
       items
     });
   } catch (error) {
-    // 同上：匿名接口只回传通用错误信息
+    // 同上：只回传通用错误信息
     console.error('[PUBLIC_BOTTOM_OTC] Error:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch bottom OTC crypto' });
   }

@@ -86,7 +86,7 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working!', timestamp: new Date().toISOString() });
 });
 
-// Public, unauthenticated routes
+// 公共工具路由；其中榜单接口在路由内部执行管理员鉴权
 app.use('/api/public', require('./routes/public'));
 app.use('/api/docs', require('./routes/docs'));
 app.use('/api/logos', require('./routes/logos'));

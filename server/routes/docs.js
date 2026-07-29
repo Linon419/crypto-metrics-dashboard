@@ -10,12 +10,15 @@ const apiDocs = {
   baseUrl: "/api",
   endpoints: [
     {
-      category: "Public (No Auth)",
+      category: "管理员 (Admin)",
       endpoints: [
         {
           method: "GET",
           path: "/public/top-otc-crypto",
-          description: "Top 5 crypto by OTC index for the latest date (no auth).",
+          description: "Top 5 crypto by OTC index for the latest date (admin only).",
+          headers: {
+            Authorization: "Bearer <token> - 需要管理员权限"
+          },
           response: {
             success: "boolean",
             date: "string - data date",
@@ -26,7 +29,10 @@ const apiDocs = {
         {
           method: "GET",
           path: "/public/bottom-otc-crypto",
-          description: "Bottom 5 crypto by OTC index for the latest date (no auth).",
+          description: "Bottom 5 crypto by OTC index for the latest date (admin only).",
+          headers: {
+            Authorization: "Bearer <token> - 需要管理员权限"
+          },
           response: {
             success: "boolean",
             date: "string - data date",
