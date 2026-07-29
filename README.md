@@ -94,6 +94,32 @@ Requirements:
 - Node.js 18 or a newer LTS release
 - npm
 
+> [!TIP]
+> The launcher first checks whether Node.js and npm are available. An existing installation is used automatically.
+> When they are missing, Windows offers automatic installation through `winget`, while macOS offers automatic installation when Homebrew is available.
+> When automatic installation is unavailable, install the LTS release from the [Node.js website](https://nodejs.org/), close the launcher window, and open it again.
+
+#### Windows: download and double-click
+
+1. Open the project [GitHub page](https://github.com/Linon419/crypto-metrics-dashboard).
+2. Click the green **Code** button near the top-right of the page.
+3. Click **Download ZIP** and wait for the download to finish.
+4. Open Downloads, right-click the ZIP archive, and select **Extract All**.
+5. Open the extracted project folder, then open `launchers` → `windows`.
+6. Double-click **Start Crypto Dashboard.bat**. When Windows displays a security warning, click **More info** → **Run anyway**.
+7. Keep the black terminal window open. The first run installs dependencies and builds the frontend; the dashboard opens automatically in the browser when ready.
+
+#### macOS: download and open from the context menu
+
+1. Open the project [GitHub page](https://github.com/Linon419/crypto-metrics-dashboard).
+2. Click the green **Code** button, then click **Download ZIP**.
+3. Open Downloads and double-click the ZIP archive to extract it.
+4. Open the extracted project folder, then open `launchers` → `mac`.
+5. Control-click **Start Crypto Dashboard.command**, choose **Open**, then click **Open** in the confirmation dialog.
+6. Keep the Terminal window open. The first run installs dependencies and builds the frontend; the dashboard opens automatically in the browser when ready.
+
+Command-line users can also run:
+
 ```bash
 git clone https://github.com/Linon419/crypto-metrics-dashboard.git
 cd crypto-metrics-dashboard
@@ -123,11 +149,6 @@ dialog stays dismissible. None of these conveniences apply to Docker or any othe
 see [Configuration](#configuration).
 
 AI parsing becomes available after `OPENAI_API_KEY` is configured; dashboards and local data management remain available through the launcher with an empty key.
-
-Platform launchers are also available:
-
-- Windows: `launchers/windows/Start Crypto Dashboard.bat`
-- macOS: `launchers/mac/Start Crypto Dashboard.command`
 
 See [Local launcher documentation](launchers/README.md) for packaging and platform notes.
 

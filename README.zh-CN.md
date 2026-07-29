@@ -94,6 +94,32 @@ flowchart LR
 - Node.js 18 或更新的 LTS 版本
 - npm
 
+> [!TIP]
+> 启动器打开后会先检查电脑里是否已有 Node.js 和 npm。环境已安装时会直接继续；环境缺失时，
+> Windows 会通过 `winget` 询问是否自动安装，macOS 会在检测到 Homebrew 时询问是否自动安装。
+> 自动安装不可用时，按照窗口提示前往 [Node.js 官网](https://nodejs.org/)安装 LTS 版本，然后关闭窗口并重新打开启动器。
+
+#### Windows：下载后双击打开
+
+1. 打开项目的 [GitHub 页面](https://github.com/Linon419/crypto-metrics-dashboard)。
+2. 点击页面右上方绿色的 **Code** 按钮。
+3. 点击 **Download ZIP**，等待下载完成。
+4. 打开“下载”文件夹，右键 ZIP 压缩包并选择 **全部解压缩**。
+5. 进入解压后的项目文件夹，依次打开 `launchers` → `windows`。
+6. 双击 **Start Crypto Dashboard.bat**。Windows 出现安全提示时，点击 **更多信息** → **仍要运行**。
+7. 保持弹出的黑色窗口开启。首次运行会安装依赖并构建页面，完成后浏览器会自动打开看板。
+
+#### macOS：下载后右键打开
+
+1. 打开项目的 [GitHub 页面](https://github.com/Linon419/crypto-metrics-dashboard)。
+2. 点击绿色的 **Code** 按钮，再点击 **Download ZIP**。
+3. 打开“下载”文件夹并双击 ZIP，系统会自动解压。
+4. 进入解压后的项目文件夹，依次打开 `launchers` → `mac`。
+5. 按住 Control 键点击 **Start Crypto Dashboard.command**，选择 **打开**，再在确认窗口中点击 **打开**。
+6. 保持弹出的终端窗口开启。首次运行会安装依赖并构建页面，完成后浏览器会自动打开看板。
+
+熟悉命令行的用户也可以执行：
+
 ```bash
 git clone https://github.com/Linon419/crypto-metrics-dashboard.git
 cd crypto-metrics-dashboard
@@ -117,11 +143,6 @@ node scripts/start-local-dashboard.js
 修改密码窗口保持可关闭。以上便利仅限本地模式，不适用于 Docker 等其他部署方式，详见[配置](#配置)。
 
 配置 `OPENAI_API_KEY` 后即可使用 AI 解析；密钥为空时，本地启动器仍可用于看板浏览与本地数据管理。
-
-项目还提供平台启动入口：
-
-- Windows：`launchers/windows/Start Crypto Dashboard.bat`
-- macOS：`launchers/mac/Start Crypto Dashboard.command`
 
 分发包构建与平台说明见[本地启动器文档](launchers/README.md)。
 
