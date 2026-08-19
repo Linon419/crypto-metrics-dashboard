@@ -1,6 +1,7 @@
 const assert = require('assert');
 
 const scheduler = require('../../telegram-bot/scheduler');
+const UserAuth = require('../../telegram-bot/user-auth');
 
 const {
   analyzeDataChanges,
@@ -12,6 +13,8 @@ const {
   isExplosionTurnPositive,
   isImportantMomentumIndicator,
   getSchedulerJobDefinitions,
+  getPendingDataDates,
+  normalizeDateDataResponse,
   shouldProcessDataUpdate,
 } = scheduler.__testUtils || {};
 
@@ -22,6 +25,8 @@ async function run() {
   assert.strictEqual(typeof buildWebNotificationPayload, 'function');
   assert.strictEqual(typeof formatComprehensiveNotification, 'function');
   assert.strictEqual(typeof getSchedulerJobDefinitions, 'function');
+  assert.strictEqual(typeof getPendingDataDates, 'function');
+  assert.strictEqual(typeof normalizeDateDataResponse, 'function');
   assert.strictEqual(typeof shouldProcessDataUpdate, 'function');
 
   const baselineSnapshot = {
@@ -61,6 +66,150 @@ async function run() {
     getSchedulerJobDefinitions().map(job => job.jobName),
     ['checkDataUpdates', 'checkDataUpdates'],
     'all automatic notification jobs should flow through data update detection'
+  );
+
+  assert.deepStrictEqual(
+    getPendingDataDates(
+      '2026-08-17',
+      '2026-08-19',
+      ['2026-08-19', '2026-08-18', '2026-08-17']
+    ),
+    ['2026-08-18', '2026-08-19'],
+    'all data dates added between polls should be processed in chronological order'
+  );
+  assert.deepStrictEqual(
+    getPendingDataDates('2026-08-19', '2026-08-19', ['2026-08-19']),
+    ['2026-08-19'],
+    'the latest date should still be checked for same-date data changes'
+  );
+
+  const normalizedHistoricalData = normalizeDateDataResponse({
+    success: true,
+    date: '2026-08-18',
+    coins: [{
+      id: 1,
+      symbol: 'BTC',
+      name: 'Bitcoin',
+      otcIndex: 1200,
+      explosionIndex: 210,
+      schellingPoint: 1.5,
+      entryExitType: 'entry',
+      entryExitDay: 2,
+      momentumIndicators: ['$'],
+      previousDayData: { date: '2026-08-17', explosion_index: 180 },
+      strategy_signal: { level: 'otc_up_3' },
+    }],
+  });
+  assert.strictEqual(normalizedHistoricalData.metrics[0].coin.symbol, 'BTC');
+  assert.strictEqual(normalizedHistoricalData.metrics[0].otc_index, 1200);
+  assert.strictEqual(normalizedHistoricalData.metrics[0].previous_day_data.date, '2026-08-17');
+  assert.deepStrictEqual(normalizedHistoricalData.metrics[0].momentum_indicators, ['$']);
+
+  const originalGetUserCredentials = UserAuth.getUserCredentials;
+  const originalMakeUserAuthenticatedRequest = UserAuth.makeUserAuthenticatedRequest;
+  const sentMessages = [];
+  const notificationHistory = new Set();
+  let latestRequestCount = 0;
+  const makeLatestData = (date, entryExitDay, previousExplosion) => ({
+    success: true,
+    date,
+    metrics: [{
+      coin: { id: 1, symbol: 'BTC', name: 'Bitcoin' },
+      date,
+      otc_index: 1200 + entryExitDay,
+      explosion_index: 210 + entryExitDay,
+      entry_exit_type: entryExitDay > 0 ? 'entry' : 'neutral',
+      entry_exit_day: entryExitDay,
+      period_quality: entryExitDay > 0 ? '高质量进场' : '数据不足',
+      momentum_indicators: [],
+      previous_day_data: previousExplosion === null ? null : {
+        date: '2026-08-17',
+        explosion_index: previousExplosion,
+      },
+    }],
+  });
+  const baselineData = makeLatestData('2026-08-17', 0, null);
+  const latestData = makeLatestData('2026-08-19', 2, 211);
+  const fakeDb = {
+    all(sql, params, callback) {
+      callback(null, [{ chat_id: 7 }]);
+    },
+    get(sql, params, callback) {
+      callback(null, notificationHistory.has(params.join('|')) ? { id: 1 } : undefined);
+    },
+    run(sql, params, callback) {
+      notificationHistory.add(params.join('|'));
+      callback.call({ lastID: notificationHistory.size }, null);
+    },
+  };
+
+  try {
+    UserAuth.getUserCredentials = async () => ({ username: 'test' });
+    UserAuth.makeUserAuthenticatedRequest = async (chatId, method, endpoint) => {
+      if (endpoint === '/data/latest') {
+        latestRequestCount += 1;
+        return latestRequestCount === 1 ? baselineData : latestData;
+      }
+      if (endpoint === '/data/available-dates') {
+        return {
+          success: true,
+          dates: ['2026-08-19', '2026-08-18', '2026-08-17'],
+        };
+      }
+      if (endpoint === '/data/by-date/2026-08-18') {
+        return {
+          success: true,
+          date: '2026-08-18',
+          coins: [{
+            id: 1,
+            symbol: 'BTC',
+            name: 'Bitcoin',
+            otcIndex: 1201,
+            explosionIndex: 211,
+            entryExitType: 'entry',
+            entryExitDay: 1,
+            period_quality: '高质量进场',
+            momentumIndicators: [],
+            previousDayData: {
+              date: '2026-08-17',
+              explosion_index: 210,
+            },
+          }],
+        };
+      }
+      if (endpoint === '/favorites') return [];
+      if (endpoint === '/notifications' && method === 'post') return { success: true };
+      throw new Error(`Unexpected request: ${method} ${endpoint}`);
+    };
+    scheduler.initializeDependencies({
+      async sendMessage(chatId, message) {
+        sentMessages.push({ chatId, message });
+        return { message_id: sentMessages.length };
+      },
+    }, fakeDb);
+
+    await scheduler.checkDataUpdates();
+    await scheduler.checkDataUpdates();
+    await scheduler.checkDataUpdates();
+  } finally {
+    UserAuth.getUserCredentials = originalGetUserCredentials;
+    UserAuth.makeUserAuthenticatedRequest = originalMakeUserAuthenticatedRequest;
+  }
+
+  assert.deepStrictEqual(
+    sentMessages.map(item => item.message.match(/数据日期：<b>(\d{4}-\d{2}-\d{2})<\/b>/)?.[1]),
+    ['2026-08-18', '2026-08-19'],
+    'two dates added between polls should produce two independently dated summaries'
+  );
+  assert.strictEqual(
+    notificationHistory.has('7|SYSTEM|data_update|2026-08-18'),
+    true,
+    'the first summary should be deduplicated by its data date'
+  );
+  assert.strictEqual(
+    notificationHistory.has('7|SYSTEM|data_update|2026-08-19'),
+    true,
+    'the second summary should be deduplicated by its data date'
   );
 
   const notificationTime = new Date('2026-07-26T08:30:00.000Z');
@@ -256,9 +405,10 @@ async function run() {
       title: '策略关键信息',
       content: strategySignals,
     },
-  ]);
+  ], '2026-08-19');
 
   assert.ok(message.includes('<b>Crypto Metrics</b>'));
+  assert.ok(message.includes('数据日期：<b>2026-08-19</b>'));
   assert.ok(message.includes('<b>SOL</b>'));
   assert.ok(message.includes('场外三连升'));
   assert.ok(message.includes('场外三连降'));

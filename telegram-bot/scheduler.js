@@ -170,6 +170,108 @@ async function getUserLatestData(chatId) {
     }
 }
 
+function isDataDate(value) {
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function getPendingDataDates(lastDate, latestDate, availableDates) {
+    if (!isDataDate(latestDate)) {
+        return [];
+    }
+
+    if (!isDataDate(lastDate) || lastDate >= latestDate) {
+        return [latestDate];
+    }
+
+    const pendingDates = new Set(
+        (Array.isArray(availableDates) ? availableDates : [])
+            .filter(date => isDataDate(date) && date > lastDate && date <= latestDate)
+    );
+    pendingDates.add(latestDate);
+    return [...pendingDates].sort();
+}
+
+function normalizeDateDataResponse(data) {
+    const metrics = (Array.isArray(data?.coins) ? data.coins : []).map(coin => ({
+        id: coin.id,
+        coin_id: coin.id,
+        date: coin.date || data.date,
+        timestamp: coin.timestamp || null,
+        time_precision: coin.timePrecision || coin.time_precision || 'day',
+        coin: {
+            id: coin.id,
+            symbol: coin.symbol,
+            name: coin.name,
+            current_price: coin.current_price,
+            logo_url: coin.logo_url
+        },
+        otc_index: coin.otcIndex ?? coin.otc_index,
+        explosion_index: coin.explosionIndex ?? coin.explosion_index,
+        schelling_point: coin.schellingPoint ?? coin.schelling_point,
+        entry_exit_type: coin.entryExitType ?? coin.entry_exit_type,
+        entry_exit_day: coin.entryExitDay ?? coin.entry_exit_day,
+        near_threshold: coin.nearThreshold ?? coin.near_threshold,
+        momentum_indicators: coin.momentumIndicators ?? coin.momentum_indicators,
+        previous_day_data: coin.previousDayData ?? coin.previous_day_data ?? null,
+        otc_index_change_percent: coin.otcChangePercent ?? coin.otc_index_change_percent,
+        explosion_index_change_percent: coin.explosionChangePercent ?? coin.explosion_index_change_percent,
+        period_quality: coin.period_quality,
+        risk_notes: coin.riskNotes ?? coin.risk_notes ?? [],
+        strategy_signal: coin.strategySignal ?? coin.strategy_signal ?? null
+    }));
+
+    return {
+        success: Boolean(data?.success),
+        date: data?.date,
+        metrics,
+        liquidity: data?.liquidityOverview ?? data?.liquidity ?? null,
+        optionTuning: data?.optionTuning ?? null,
+        trendingCoins: Array.isArray(data?.trendingCoins) ? data.trendingCoins : []
+    };
+}
+
+async function getUserDataUpdates(chatId, lastSnapshot, latestData) {
+    if (!lastSnapshot || lastSnapshot.date >= latestData.date) {
+        return [latestData];
+    }
+
+    const availableData = await UserAuth.makeUserAuthenticatedRequest(
+        chatId,
+        'get',
+        '/data/available-dates'
+    );
+    if (!availableData?.success || !Array.isArray(availableData.dates)) {
+        throw new Error('Available data dates could not be loaded');
+    }
+
+    const pendingDates = getPendingDataDates(
+        lastSnapshot.date,
+        latestData.date,
+        availableData.dates
+    );
+    const updates = [];
+
+    for (const date of pendingDates) {
+        if (date === latestData.date) {
+            updates.push(latestData);
+            continue;
+        }
+
+        const dateData = await UserAuth.makeUserAuthenticatedRequest(
+            chatId,
+            'get',
+            `/data/by-date/${encodeURIComponent(date)}`
+        );
+        const normalizedData = normalizeDateDataResponse(dateData);
+        if (!normalizedData.success || normalizedData.metrics.length === 0) {
+            throw new Error(`Data for ${date} could not be loaded`);
+        }
+        updates.push(normalizedData);
+    }
+
+    return updates;
+}
+
 async function getUserFavoriteCoins(chatId) {
     try {
         const data = await UserAuth.makeUserAuthenticatedRequest(chatId, 'get', '/favorites');
@@ -613,16 +715,101 @@ async function checkFavoriteCoinsAlerts() {
     }
 }
 
-// 检查数据更新并推送通知
+async function collectDataUpdateNotifications(chatId, data, lastSnapshot, dataDate) {
+    const allNotifications = [];
+    const notificationGroups = [
+        {
+            type: 'market_changes',
+            title: '📊 市场重要变化',
+            content: analyzeDataChanges(data.metrics, lastSnapshot)
+        },
+        {
+            type: 'favorite_alerts',
+            title: '⭐ 收藏币种提醒',
+            content: await checkUserFavoriteAlerts(chatId, data.metrics)
+        },
+        {
+            type: 'quality_opportunities',
+            title: '🌟 优质机会发现',
+            content: await analyzeQualityOpportunities(data.metrics, chatId, dataDate)
+        },
+        {
+            type: 'strategy_signals',
+            title: '📌 策略关键信息',
+            content: await analyzeStrategySignals(data.metrics, chatId, dataDate)
+        },
+        {
+            type: 'momentum_alerts',
+            title: '⚡ 动能信号',
+            content: await analyzeMomentumIndicators(data.metrics, chatId, dataDate)
+        }
+    ];
+
+    notificationGroups.forEach(group => {
+        if (group.content.length > 0) {
+            allNotifications.push(group);
+        }
+    });
+    return allNotifications;
+}
+
+async function recordDataUpdateNotifications(chatId, notifications, dataDate) {
+    await recordNotification(chatId, 'SYSTEM', DATA_UPDATE_NOTIFICATION_KEY, dataDate);
+
+    for (const notification of notifications) {
+        for (const item of notification.content) {
+            if (item.notificationKey && item.coin?.symbol) {
+                await recordNotification(
+                    chatId,
+                    item.coin.symbol,
+                    item.notificationKey,
+                    dataDate
+                );
+            }
+        }
+    }
+}
+
+async function processDataUpdate(chatId, data, lastSnapshot, currentSnapshot) {
+    const dataDate = currentSnapshot.date;
+    const alreadyNotified = await hasNotificationSent(
+        chatId,
+        'SYSTEM',
+        DATA_UPDATE_NOTIFICATION_KEY,
+        dataDate
+    );
+    if (alreadyNotified) {
+        console.log(`Data summary for ${dataDate} already sent to ${chatId}`);
+        return;
+    }
+
+    const notifications = await collectDataUpdateNotifications(
+        chatId,
+        data,
+        lastSnapshot,
+        dataDate
+    );
+    if (notifications.length === 0) {
+        return;
+    }
+
+    const message = formatComprehensiveNotification(notifications, dataDate);
+    await sendTelegramNotification(chatId, message);
+    await recordDataUpdateNotifications(chatId, notifications, dataDate);
+    console.log(
+        `Comprehensive notification for ${dataDate} sent to ${chatId} with ${notifications.length} types`
+    );
+}
+
+// 检查数据更新并按数据日期逐日推送通知
 async function checkDataUpdates() {
     console.log('Checking for dashboard data updates...');
-    
+
     try {
         const subscribedUsers = await getAllSubscribedUsers();
         console.log(`Checking data updates for ${subscribedUsers.length} subscribed users`);
 
         for (const chatId of subscribedUsers) {
-            // 检查用户是否已认证
             const isAuthenticated = await isUserAuthenticated(chatId);
             if (!isAuthenticated) {
                 console.log(`User ${chatId} not authenticated, skipping data update check`);
@@ -630,142 +817,33 @@ async function checkDataUpdates() {
             }
 
             try {
-                const data = await getUserLatestData(chatId);
-                if (!data || !data.success) {
+                const latestData = await getUserLatestData(chatId);
+                if (!latestData || !latestData.success) {
                     console.log(`No latest data available for user ${chatId}`);
                     continue;
                 }
 
-                // 检查是否有实际数据变化
-                const currentDataSnapshot = createDataSnapshot(data);
-                const lastSnapshot = lastDataSnapshot.get(chatId);
-
+                let lastSnapshot = lastDataSnapshot.get(chatId);
                 if (!lastSnapshot) {
-                    lastDataSnapshot.set(chatId, currentDataSnapshot);
+                    lastDataSnapshot.set(chatId, createDataSnapshot(latestData));
                     console.log(`Initial data baseline stored for user ${chatId}, skipping notifications`);
                     continue;
                 }
 
-                // 自动通知只处理基线建立后的实际数据变化
-                if (shouldProcessDataUpdate(lastSnapshot, currentDataSnapshot)) {
-                    console.log(`Data changes detected for user ${chatId}, checking notifications...`);
-
-                    // 更新数据快照
-                    lastDataSnapshot.set(chatId, currentDataSnapshot);
-
-                    const currentDate = getSchedulerDate(); // 悉尼时区的 YYYY-MM-DD
-
-                    // 去重键必须和下面写入的键一致，否则重启后会重复推送同一条综合通知
-                    const alreadyNotified = await hasNotificationSent(chatId, 'SYSTEM', DATA_UPDATE_NOTIFICATION_KEY, currentDate);
-
-                    if (!alreadyNotified) {
-                        // 获取所有重要变化和通知
-                        const allNotifications = [];
-
-                        // 1. 分析全市场重要变化
-                        const significantChanges = analyzeDataChanges(data.metrics, lastSnapshot);
-                        if (significantChanges.length > 0) {
-                            allNotifications.push({
-                                type: 'market_changes',
-                                title: '📊 市场重要变化',
-                                content: significantChanges
-                            });
-                        }
-
-                        // 2. 检查收藏币种状态
-                        const favoriteAlerts = await checkUserFavoriteAlerts(chatId, data.metrics);
-                        if (favoriteAlerts.length > 0) {
-                            allNotifications.push({
-                                type: 'favorite_alerts',
-                                title: '⭐ 收藏币种提醒',
-                                content: favoriteAlerts
-                            });
-                        }
-
-                        // 3. 检查优质进场期机会
-                        const qualityOpportunities = await analyzeQualityOpportunities(data.metrics, chatId, currentDate);
-                        if (qualityOpportunities.length > 0) {
-                            allNotifications.push({
-                                type: 'quality_opportunities',
-                                title: '🌟 优质机会发现',
-                                content: qualityOpportunities
-                            });
-                        }
-
-                        // 4. 检查策略关键信息
-                        const strategySignals = await analyzeStrategySignals(data.metrics, chatId, currentDate);
-                        if (strategySignals.length > 0) {
-                            allNotifications.push({
-                                type: 'strategy_signals',
-                                title: '📌 策略关键信息',
-                                content: strategySignals
-                            });
-                        }
-
-                        // 5. 检查动能指标
-                        const momentumAlerts = await analyzeMomentumIndicators(data.metrics, chatId, currentDate);
-                        if (momentumAlerts.length > 0) {
-                            allNotifications.push({
-                                type: 'momentum_alerts',
-                                title: '⚡ 动能信号',
-                                content: momentumAlerts
-                            });
-                        }
-
-                        if (allNotifications.length > 0) {
-                            const message = formatComprehensiveNotification(allNotifications);
-
-                            try {
-                                await sendTelegramNotification(chatId, message);
-                                await recordNotification(chatId, 'SYSTEM', DATA_UPDATE_NOTIFICATION_KEY, currentDate);
-
-                                // 记录全市场变化通知，避免与单独的轮询任务重复推送
-                                const marketChanges = allNotifications.find(n => n.type === 'market_changes');
-                                if (marketChanges) {
-                                    for (const change of marketChanges.content) {
-                                        if (change.notificationKey) {
-                                            await recordNotification(chatId, change.coin.symbol, change.notificationKey, currentDate);
-                                        }
-                                    }
-                                }
-
-                                // 为进场期前3天的币种记录特殊的通知历史
-                                const qualityOpps = allNotifications.find(n => n.type === 'quality_opportunities');
-                                if (qualityOpps) {
-                                    for (const opp of qualityOpps.content) {
-                                        if (opp.notificationKey) {
-                                            await recordNotification(chatId, opp.coin.symbol, opp.notificationKey, currentDate);
-                                        }
-                                    }
-                                }
-
-                                const strategySignals = allNotifications.find(n => n.type === 'strategy_signals');
-                                if (strategySignals) {
-                                    for (const signal of strategySignals.content) {
-                                        if (signal.notificationKey) {
-                                            await recordNotification(chatId, signal.coin.symbol, signal.notificationKey, currentDate);
-                                        }
-                                    }
-                                }
-
-                                // 记录动能指标通知
-                                const momentumAlerts = allNotifications.find(n => n.type === 'momentum_alerts');
-                                if (momentumAlerts) {
-                                    for (const alert of momentumAlerts.content) {
-                                        if (alert.notificationKey) {
-                                            await recordNotification(chatId, alert.coin.symbol, alert.notificationKey, currentDate);
-                                        }
-                                    }
-                                }
-
-                                console.log(`Comprehensive notification sent to ${chatId} with ${allNotifications.length} types`);
-                            } catch (error) {
-                                console.error(`Failed to send comprehensive notification to ${chatId}:`, error);
-                            }
-                        }
+                const dataUpdates = await getUserDataUpdates(chatId, lastSnapshot, latestData);
+                for (const data of dataUpdates) {
+                    const currentSnapshot = createDataSnapshot(data);
+                    if (shouldProcessDataUpdate(lastSnapshot, currentSnapshot)) {
+                        console.log(
+                            `Data changes detected for user ${chatId} on ${currentSnapshot.date}, checking notifications...`
+                        );
+                        await processDataUpdate(chatId, data, lastSnapshot, currentSnapshot);
+                    } else {
+                        console.log(`No data changes detected for user ${chatId} on ${currentSnapshot.date}`);
                     }
-                } else {
-                    console.log(`No data changes detected for user ${chatId}, skipping notifications`);
+
+                    lastDataSnapshot.set(chatId, currentSnapshot);
+                    lastSnapshot = currentSnapshot;
                 }
             } catch (userError) {
                 console.error(`Error checking data updates for user ${chatId}:`, userError);
@@ -1194,9 +1272,12 @@ async function analyzeMomentumIndicators(metrics, chatId, currentDate) {
 }
 
 // 格式化综合通知消息
-function formatComprehensiveNotification(notifications) {
+function formatComprehensiveNotification(notifications, dataDate = null) {
     let message = `<b>Crypto Metrics</b>\n`;
     message += `重要时间提醒\n`;
+    if (isDataDate(dataDate)) {
+        message += `数据日期：<b>${escapeHtml(dataDate)}</b>\n`;
+    }
     message += `${new Date().toLocaleString('zh-CN', { timeZone: 'Australia/Sydney' })}\n\n`;
 
     notifications.forEach((notification, index) => {
@@ -1347,6 +1428,8 @@ module.exports = {
         isExplosionTurnPositive,
         isImportantMomentumIndicator,
         getSchedulerJobDefinitions,
+        getPendingDataDates,
+        normalizeDateDataResponse,
         shouldProcessDataUpdate
     }
 };
