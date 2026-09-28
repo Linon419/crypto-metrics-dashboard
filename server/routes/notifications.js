@@ -1,5 +1,9 @@
 const express = require('express');
+const { Op } = require('sequelize');
 const { Notification } = require('../models');
+
+// 只保留近 180 天，新通知写入时顺手清理该用户的过期记录
+const NOTIFICATION_RETENTION_DAYS = 180;
 
 const ALLOWED_CATEGORIES = new Set(['market', 'quality', 'strategy', 'momentum', 'favorite', 'system']);
 const ALLOWED_PRIORITIES = new Set(['normal', 'high', 'critical']);
@@ -25,13 +29,19 @@ function normalizeText(value, maxLength) {
 
 function parseMetadata(value) {
   if (!value) return null;
-  if (typeof value === 'object') return value;
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
+  let parsed = value;
+  if (typeof value !== 'object') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null;
+    }
   }
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  // 旧数据里存了整段 TG 原文（最长 12KB），前端和 Agent 都不用，列表里不再回传
+  const { telegramHtml, ...rest } = parsed;
+  return Object.keys(rest).length > 0 ? rest : null;
 }
 
 function serializeNotification(row) {
@@ -84,18 +94,43 @@ function validateCreatePayload(body = {}) {
   };
 }
 
-async function listUserNotifications(NotificationModel, userId, { limit = 30, unreadOnly = false } = {}) {
+function countUnreadNotifications(NotificationModel, userId) {
+  return NotificationModel.count({ where: { user_id: userId, read_at: null } });
+}
+
+// beforeId 为游标：返回 id 更小（更早）的一页；多取一条用来判断是否还有更多
+async function listUserNotifications(NotificationModel, userId, {
+  limit = 30,
+  unreadOnly = false,
+  beforeId = null,
+} = {}) {
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 30, 1), 100);
-  const where = { user_id: userId, ...(unreadOnly ? { read_at: null } : {}) };
-  const [notifications, unreadCount] = await Promise.all([
-    NotificationModel.findAll({ where, limit: safeLimit, order: [['createdAt', 'DESC']] }),
-    NotificationModel.count({ where: { user_id: userId, read_at: null } }),
+  const cursor = parseRecordId(beforeId);
+  const where = {
+    user_id: userId,
+    ...(unreadOnly ? { read_at: null } : {}),
+    ...(cursor ? { id: { [Op.lt]: cursor } } : {}),
+  };
+  const [rows, unreadCount] = await Promise.all([
+    NotificationModel.findAll({
+      where,
+      limit: safeLimit + 1,
+      order: [['createdAt', 'DESC'], ['id', 'DESC']],
+    }),
+    countUnreadNotifications(NotificationModel, userId),
   ]);
 
   return {
-    notifications: notifications.map(serializeNotification),
+    notifications: rows.slice(0, safeLimit).map(serializeNotification),
     unreadCount,
+    hasMore: rows.length > safeLimit,
   };
+}
+
+async function pruneExpiredNotifications(NotificationModel, userId, now = new Date()) {
+  if (!NotificationModel.destroy) return 0;
+  const cutoff = new Date(now.getTime() - NOTIFICATION_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  return NotificationModel.destroy({ where: { user_id: userId, createdAt: { [Op.lt]: cutoff } } });
 }
 
 async function createUserNotification(NotificationModel, userId, body) {
@@ -104,6 +139,15 @@ async function createUserNotification(NotificationModel, userId, body) {
     where: { user_id: userId, external_id: values.external_id },
     defaults: { user_id: userId, ...values },
   });
+
+  if (created) {
+    try {
+      await pruneExpiredNotifications(NotificationModel, userId);
+    } catch (error) {
+      // 清理失败不影响本次写入
+      console.error('Failed to prune expired notifications:', error);
+    }
+  }
 
   return { created, notification: serializeNotification(notification) };
 }
@@ -147,6 +191,7 @@ function createNotificationsRouter({ NotificationModel = Notification } = {}) {
       const result = await listUserNotifications(NotificationModel, userId, {
         limit: req.query.limit,
         unreadOnly: req.query.unreadOnly === 'true',
+        beforeId: req.query.beforeId,
       });
       return res.json({
         success: true,
@@ -155,6 +200,20 @@ function createNotificationsRouter({ NotificationModel = Notification } = {}) {
     } catch (error) {
       console.error('Failed to list notifications:', error);
       return res.status(500).json({ error: 'Failed to list notifications' });
+    }
+  });
+
+  // 抽屉关着时前端只轮询未读数，不拉整份列表
+  router.get('/unread-count', async (req, res) => {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+    try {
+      const unreadCount = await countUnreadNotifications(NotificationModel, userId);
+      return res.json({ success: true, unreadCount });
+    } catch (error) {
+      console.error('Failed to count unread notifications:', error);
+      return res.status(500).json({ error: 'Failed to count notifications' });
     }
   });
 
@@ -212,6 +271,7 @@ function createNotificationsRouter({ NotificationModel = Notification } = {}) {
 const router = createNotificationsRouter();
 router.createNotificationsRouter = createNotificationsRouter;
 router.__test = {
+  countUnreadNotifications,
   createUserNotification,
   listUserNotifications,
   markAllUserNotificationsRead,

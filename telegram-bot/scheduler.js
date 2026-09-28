@@ -24,6 +24,14 @@ const runningJobs = new Set();
 // 综合通知的去重键，查询和写入必须共用同一个常量
 const DATA_UPDATE_NOTIFICATION_KEY = 'data_update';
 
+// 发送记录与网页通知统一保留 180 天
+const NOTIFICATION_HISTORY_RETENTION_DAYS = 180;
+let lastHistoryPruneDate = null;
+
+// 网页通知待发表：写不进去的留到下次检查重试，超过这个时长仍失败才放弃
+const WEB_OUTBOX_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+const WEB_OUTBOX_BATCH_SIZE = 100;
+
 // 所有自动通知统一经过数据快照变化检测，避免规则轮询在静置期间单独推送。
 const SCHEDULER_JOB_DEFINITIONS = Object.freeze([
     Object.freeze({
@@ -360,32 +368,107 @@ function inferWebNotificationCategory(text) {
     return 'market';
 }
 
-function buildWebNotificationPayload(message, now = new Date()) {
+// 单条提醒只能从文案推断风险；"高质量"不是风险词，不能用来抬高优先级
+function inferWebNotificationPriority(text) {
+    return /⚠️|‼|撤出|跌破|进入退场/.test(text) ? 'high' : 'normal';
+}
+
+// options 里显式给出的字段优先，未给出的再从 TG 文案推断。
+// dedupeKey 用于摘要这类正文里带发送时刻的消息：重试时正文会变，去重键不能变。
+function buildWebNotificationPayload(message, options = {}) {
+    const now = options.now || new Date();
     const rawMessage = String(message || '');
     const content = telegramHtmlToText(rawMessage);
     const titleMatch = rawMessage.match(/^\s*<b>(.*?)<\/b>/is);
-    const title = telegramHtmlToText(titleMatch?.[1] || content.split('\n')[0] || '市场通知');
+    const title = options.title
+        || telegramHtmlToText(titleMatch?.[1] || content.split('\n')[0] || '市场通知');
     const coinMatch = rawMessage.match(/<b>([A-Z0-9][A-Z0-9._:-]{0,19})<\/b>\s*·/);
-    const notificationDate = now.toISOString().slice(0, 10);
+    const notificationDate = isDataDate(options.notificationDate)
+        ? options.notificationDate
+        : getSchedulerDate(now);
     const digest = crypto
         .createHash('sha256')
-        .update(`${notificationDate}\n${rawMessage}`)
+        .update(options.dedupeKey || `${notificationDate}\n${rawMessage}`)
         .digest('hex');
-    const priority = /⚠️|‼|撤出|跌破|退场|高质量/.test(content) ? 'high' : 'normal';
 
     return {
         externalId: `telegram:${digest}`,
         source: 'telegram',
-        title: title.slice(0, 160),
+        title: String(title).slice(0, 160),
         content: content.slice(0, 12000),
-        category: inferWebNotificationCategory(content),
-        priority,
-        coinSymbol: coinMatch?.[1] || null,
+        category: options.category || inferWebNotificationCategory(content),
+        priority: options.priority || inferWebNotificationPriority(content),
+        coinSymbol: options.coinSymbol !== undefined ? options.coinSymbol : (coinMatch?.[1] || null),
         notificationDate,
-        metadata: {
-            telegramHtml: rawMessage.slice(0, 12000)
-        }
+        metadata: options.metadata || null
     };
+}
+
+const DATA_UPDATE_GROUP_CATEGORIES = Object.freeze({
+    market_changes: 'market',
+    favorite_alerts: 'favorite',
+    quality_opportunities: 'quality',
+    strategy_signals: 'strategy',
+    momentum_alerts: 'momentum'
+});
+
+// 优先级按实际命中的信号判定：收藏币种出风险最紧急，其余风险信号为 high，机会类为 normal
+function getDataUpdateGroupPriority(group) {
+    const items = Array.isArray(group?.content) ? group.content : [];
+    switch (group?.type) {
+        case 'favorite_alerts':
+            return items.length > 0 ? 'critical' : 'normal';
+        case 'market_changes':
+            return items.some(item => ['explosion_drop_200', 'change_exit_day_1'].includes(item.notificationKey))
+                ? 'high' : 'normal';
+        case 'quality_opportunities':
+            return items.some(item => item.notificationKey === 'quality_exit_start') ? 'high' : 'normal';
+        case 'strategy_signals':
+            return items.some(item => item.direction === 'short') ? 'high' : 'normal';
+        case 'momentum_alerts':
+            return items.some(item => item.indicator === '‼') ? 'high' : 'normal';
+        default:
+            return 'normal';
+    }
+}
+
+function getDataUpdateGroupCoins(group) {
+    const symbols = (Array.isArray(group?.content) ? group.content : [])
+        .map(item => item?.coin?.symbol)
+        .filter(Boolean);
+    return [...new Set(symbols)];
+}
+
+const PRIORITY_RANK = Object.freeze({ normal: 0, high: 1, critical: 2 });
+
+// 一期一条网页通知：未读数每期只加 1；各组的分类、优先级、币种放进 metadata 供筛选和 Agent 使用。
+// 整条的优先级与分类取本期最高优先级那一组。
+function buildDataUpdateWebPayload(notifications, dataDate, now = new Date()) {
+    const groups = notifications.map(group => ({
+        type: group.type,
+        category: DATA_UPDATE_GROUP_CATEGORIES[group.type] || 'market',
+        priority: getDataUpdateGroupPriority(group),
+        coins: getDataUpdateGroupCoins(group)
+    }));
+    const topGroup = groups.reduce(
+        (top, group) => (!top || PRIORITY_RANK[group.priority] > PRIORITY_RANK[top.priority] ? group : top),
+        null
+    );
+    const coins = [...new Set(groups.flatMap(group => group.coins))];
+    const body = notifications
+        .map(group => `<b>${escapeHtml(group.title)}</b>\n${formatNotificationGroupBody(group)}`)
+        .join('\n\n');
+
+    return buildWebNotificationPayload(body, {
+        now,
+        title: `数据摘要 · ${dataDate}`,
+        notificationDate: dataDate,
+        dedupeKey: `${DATA_UPDATE_NOTIFICATION_KEY}:${dataDate}`,
+        category: topGroup?.category || 'market',
+        priority: topGroup?.priority || 'normal',
+        coinSymbol: coins.length === 1 ? coins[0] : null,
+        metadata: { dataDate, coins, groups }
+    });
 }
 
 function formatNumber(value) {
@@ -453,17 +536,165 @@ function getTelegramMessageOptions() {
     };
 }
 
-async function sendTelegramNotification(chatId, message) {
-    const webPayload = buildWebNotificationPayload(message);
-    const telegramResult = await bot.sendMessage(chatId, message, getTelegramMessageOptions());
+function dbRun(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.run(sql, params, function(err) {
+            if (err) reject(err);
+            else resolve(this);
+        });
+    });
+}
 
+function dbAll(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows || []);
+        });
+    });
+}
+
+function enqueueWebNotification(chatId, payload) {
+    return dbRun(
+        `INSERT OR IGNORE INTO web_notification_outbox (chat_id, external_id, payload) VALUES (?, ?, ?)`,
+        [chatId, payload.externalId, JSON.stringify(payload)]
+    );
+}
+
+// sqlite 的 CURRENT_TIMESTAMP 是不带时区的 UTC 文本
+function parseOutboxTimestamp(value) {
+    const text = String(value || '');
+    const normalized = /[zZ]|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text.replace(' ', 'T')}Z`;
+    const time = new Date(normalized).getTime();
+    return Number.isFinite(time) ? time : Date.now();
+}
+
+// 4xx（除鉴权类）说明载荷本身有问题，重试也没用
+function isPermanentWebSyncError(error) {
+    const status = error?.response?.status;
+    return Number.isInteger(status) && status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status);
+}
+
+// 逐条补写网页通知；成功即删除，失败累计次数，过期或永久性错误才放弃。不向外抛错。
+async function flushWebNotificationOutbox({ chatId = null } = {}) {
+    let rows;
     try {
-        await UserAuth.makeUserAuthenticatedRequest(chatId, 'post', '/notifications', webPayload);
+        rows = chatId === null
+            ? await dbAll(`SELECT id, chat_id, external_id, payload, attempts, created_at FROM web_notification_outbox ORDER BY id LIMIT ${WEB_OUTBOX_BATCH_SIZE}`)
+            : await dbAll(`SELECT id, chat_id, external_id, payload, attempts, created_at FROM web_notification_outbox WHERE chat_id = ? ORDER BY id LIMIT ${WEB_OUTBOX_BATCH_SIZE}`, [chatId]);
     } catch (error) {
-        console.error(`Failed to sync web notification for ${chatId}:`, error.message);
+        console.error('Failed to read web notification outbox:', error.message);
+        return;
     }
 
-    return telegramResult;
+    for (const row of rows) {
+        try {
+            const payload = JSON.parse(row.payload);
+            await UserAuth.makeUserAuthenticatedRequest(row.chat_id, 'post', '/notifications', payload);
+            await dbRun(`DELETE FROM web_notification_outbox WHERE id = ?`, [row.id]);
+        } catch (error) {
+            const expired = Date.now() - parseOutboxTimestamp(row.created_at) > WEB_OUTBOX_MAX_AGE_MS;
+            if (expired || isPermanentWebSyncError(error) || error instanceof SyntaxError) {
+                console.error(`Dropping web notification ${row.external_id} for ${row.chat_id}:`, error.message);
+                await dbRun(`DELETE FROM web_notification_outbox WHERE id = ?`, [row.id]).catch(() => {});
+            } else {
+                console.warn(`Web notification ${row.external_id} for ${row.chat_id} will retry:`, error.message);
+                await dbRun(
+                    `UPDATE web_notification_outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?`,
+                    [String(error.message || error).slice(0, 500), row.id]
+                ).catch(() => {});
+            }
+        }
+    }
+}
+
+// 用户屏蔽或删除了机器人：TG 永远发不出去，不能因此卡住整期的发送记录
+function isTelegramChatUnavailable(error) {
+    return error?.response?.statusCode === 403 || error?.response?.body?.error_code === 403;
+}
+
+// TG 与网页并行、互不牵连：网页先入待发表再立即尝试写入；
+// TG 失败时抛错让本期不记为已发送，下次检查重试（网页去重键稳定，不会重复）
+async function deliverNotification(chatId, telegramMessage, webPayloads) {
+    for (const payload of webPayloads) {
+        await enqueueWebNotification(chatId, payload);
+    }
+
+    const [telegramResult] = await Promise.allSettled([
+        bot.sendMessage(chatId, telegramMessage, getTelegramMessageOptions()),
+        flushWebNotificationOutbox({ chatId })
+    ]);
+
+    if (telegramResult.status === 'rejected') {
+        if (isTelegramChatUnavailable(telegramResult.reason)) {
+            console.warn(`Telegram chat ${chatId} unavailable, delivered to web only`);
+            return null;
+        }
+        throw telegramResult.reason;
+    }
+    return telegramResult.value;
+}
+
+async function sendTelegramNotification(chatId, message) {
+    return deliverNotification(chatId, message, [buildWebNotificationPayload(message)]);
+}
+
+function getLastDataUpdateDate(chatId) {
+    return new Promise((resolve, reject) => {
+        db.get(`SELECT MAX(notification_date) AS last_date FROM notification_history
+                WHERE chat_id = ? AND coin_symbol = 'SYSTEM' AND notification_type = ?`,
+            [chatId, DATA_UPDATE_NOTIFICATION_KEY], (err, row) => {
+                if (err) reject(err);
+                else resolve(row?.last_date || null);
+            });
+    });
+}
+
+// 内存基线在重启后为空：用上次已发送那一期的数据当基线，之后的日期照常逐日补发。
+// 从没发过（新订阅）或已经发到最新一期时返回 null，保持静默建立基线。
+async function restoreBaselineSnapshot(chatId, latestData) {
+    const lastSentDate = await getLastDataUpdateDate(chatId);
+    if (!isDataDate(lastSentDate) || lastSentDate >= latestData.date) {
+        return null;
+    }
+
+    try {
+        const dateData = await UserAuth.makeUserAuthenticatedRequest(
+            chatId,
+            'get',
+            `/data/by-date/${encodeURIComponent(lastSentDate)}`
+        );
+        const normalizedData = normalizeDateDataResponse(dateData);
+        if (!normalizedData.success || normalizedData.metrics.length === 0) {
+            return null;
+        }
+        return createDataSnapshot(normalizedData);
+    } catch (error) {
+        console.error(`Failed to restore baseline for ${chatId} from ${lastSentDate}:`, error.message);
+        return null;
+    }
+}
+
+function shiftDataDate(date, days) {
+    const value = new Date(`${date}T00:00:00Z`);
+    value.setUTCDate(value.getUTCDate() + days);
+    return value.toISOString().slice(0, 10);
+}
+
+// 每天清理一次过期发送记录
+async function pruneNotificationHistory(now = new Date()) {
+    const today = getSchedulerDate(now);
+    if (lastHistoryPruneDate === today) return;
+    lastHistoryPruneDate = today;
+
+    try {
+        await dbRun(
+            `DELETE FROM notification_history WHERE notification_date < ?`,
+            [shiftDataDate(today, -NOTIFICATION_HISTORY_RETENTION_DAYS)]
+        );
+    } catch (error) {
+        console.error('Failed to prune notification history:', error.message);
+    }
 }
 
 function formatCoinHeader(coin) {
@@ -794,7 +1025,7 @@ async function processDataUpdate(chatId, data, lastSnapshot, currentSnapshot) {
     }
 
     const message = formatComprehensiveNotification(notifications, dataDate);
-    await sendTelegramNotification(chatId, message);
+    await deliverNotification(chatId, message, [buildDataUpdateWebPayload(notifications, dataDate)]);
     await recordDataUpdateNotifications(chatId, notifications, dataDate);
     console.log(
         `Comprehensive notification for ${dataDate} sent to ${chatId} with ${notifications.length} types`
@@ -806,6 +1037,9 @@ async function checkDataUpdates() {
     console.log('Checking for dashboard data updates...');
 
     try {
+        await flushWebNotificationOutbox();
+        await pruneNotificationHistory();
+
         const subscribedUsers = await getAllSubscribedUsers();
         console.log(`Checking data updates for ${subscribedUsers.length} subscribed users`);
 
@@ -825,9 +1059,13 @@ async function checkDataUpdates() {
 
                 let lastSnapshot = lastDataSnapshot.get(chatId);
                 if (!lastSnapshot) {
-                    lastDataSnapshot.set(chatId, createDataSnapshot(latestData));
-                    console.log(`Initial data baseline stored for user ${chatId}, skipping notifications`);
-                    continue;
+                    lastSnapshot = await restoreBaselineSnapshot(chatId, latestData);
+                    if (!lastSnapshot) {
+                        lastDataSnapshot.set(chatId, createDataSnapshot(latestData));
+                        console.log(`Initial data baseline stored for user ${chatId}, skipping notifications`);
+                        continue;
+                    }
+                    console.log(`Restored baseline for user ${chatId} from ${lastSnapshot.date}, catching up`);
                 }
 
                 const dataUpdates = await getUserDataUpdates(chatId, lastSnapshot, latestData);
@@ -1282,6 +1520,21 @@ function formatComprehensiveNotification(notifications, dataDate = null) {
 
     notifications.forEach((notification, index) => {
         message += `<b>${escapeHtml(notification.title)}</b>\n`;
+        message += formatNotificationGroupBody(notification);
+
+        if (index < notifications.length - 1) {
+            message += '\n\n';
+        }
+    });
+
+    message += `\n只推送关键节点；普通波动在 dashboard 查看。`;
+
+    return message;
+}
+
+// 单个分组的正文（不含组标题），TG 综合摘要和网页分组通知共用
+function formatNotificationGroupBody(notification) {
+    let message = '';
 
         if (notification.type === 'market_changes') {
             notification.content.forEach((change, i) => {
@@ -1348,13 +1601,6 @@ function formatComprehensiveNotification(notifications, dataDate = null) {
             });
         }
 
-        if (index < notifications.length - 1) {
-            message += '\n\n';
-        }
-    });
-
-    message += `\n只推送关键节点；普通波动在 dashboard 查看。`;
-
     return message;
 }
 
@@ -1420,8 +1666,11 @@ module.exports = {
         analyzeQualityOpportunities,
         analyzeStrategySignals,
         analyzeMomentumIndicators,
+        buildDataUpdateWebPayload,
         buildWebNotificationPayload,
         checkUserFavoriteAlerts,
+        deliverNotification,
+        flushWebNotificationOutbox,
         formatComprehensiveNotification,
         formatMomentumNotification,
         isExplosionDropBelow200,

@@ -297,6 +297,12 @@ body {
   --notification-accent: #b34c36;
 }
 
+/* 收藏币种出现风险：最醒目 */
+.notification-ledger__item.is-critical {
+  --notification-accent: #c0262d;
+  border-color: rgba(192, 38, 45, 0.28);
+}
+
 .notification-ledger__item.is-unread:hover,
 .notification-ledger__item.is-unread:focus-visible {
   border-color: rgba(214, 161, 58, 0.46);

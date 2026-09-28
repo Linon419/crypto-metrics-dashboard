@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Drawer, Empty, Spin, Tag, Tooltip, Typography } from 'antd';
 import {
   BellOutlined,
@@ -9,12 +9,14 @@ import {
 import dayjs from 'dayjs';
 import {
   fetchNotifications,
+  fetchUnreadNotificationCount,
   markAllNotificationsRead,
   markNotificationRead,
 } from '../services/api';
 
 const { Text } = Typography;
 const POLL_INTERVAL_MS = 60 * 1000;
+const PAGE_SIZE = 40;
 
 const CATEGORY_META = {
   market: { label: '市场', tone: 'gold' },
@@ -31,6 +33,19 @@ function getNotificationBody(notification) {
   return content.startsWith(title) ? content.slice(title.length).trim() : content;
 }
 
+// 一期摘要合并为一条，命中了哪些分组就各显示一个分类标签
+function getNotificationCategories(notification) {
+  const groups = Array.isArray(notification.metadata?.groups) ? notification.metadata.groups : [];
+  const categories = groups.map(group => group.category).filter(category => CATEGORY_META[category]);
+  return categories.length > 0 ? [...new Set(categories)] : [notification.category];
+}
+
+function getNotificationCoins(notification) {
+  if (notification.coinSymbol) return notification.coinSymbol;
+  const coins = Array.isArray(notification.metadata?.coins) ? notification.metadata.coins : [];
+  return coins.join('、');
+}
+
 function formatNotificationTime(value) {
   const timestamp = dayjs(value);
   if (!timestamp.isValid()) return '';
@@ -41,18 +56,30 @@ function NotificationCenter() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [hasMore, setHasMore] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState('');
+  const openRef = useRef(false);
+  const unreadCountRef = useRef(0);
 
+  const applyUnreadCount = useCallback((value) => {
+    const count = Number(value) || 0;
+    unreadCountRef.current = count;
+    setUnreadCount(count);
+  }, []);
+
+  // 列表只在抽屉打开时拉取第一页
   const loadNotifications = useCallback(async ({ silent = false } = {}) => {
     if (silent) setRefreshing(true);
     else setLoading(true);
 
     try {
-      const result = await fetchNotifications({ limit: 40 });
+      const result = await fetchNotifications({ limit: PAGE_SIZE });
       setNotifications(Array.isArray(result.notifications) ? result.notifications : []);
-      setUnreadCount(Number(result.unreadCount) || 0);
+      setHasMore(Boolean(result.hasMore));
+      applyUnreadCount(result.unreadCount);
       setError('');
     } catch {
       setError('通知暂时无法加载');
@@ -60,13 +87,54 @@ function NotificationCenter() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [applyUnreadCount]);
 
+  const loadMore = async () => {
+    const lastId = notifications[notifications.length - 1]?.id;
+    if (!lastId) return;
+
+    setLoadingMore(true);
+    try {
+      const result = await fetchNotifications({ limit: PAGE_SIZE, beforeId: lastId });
+      const olderItems = Array.isArray(result.notifications) ? result.notifications : [];
+      setNotifications(current => [...current, ...olderItems]);
+      setHasMore(Boolean(result.hasMore));
+      setError('');
+    } catch {
+      setError('更早的通知暂时无法加载');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // 抽屉关着时只轮询未读数；打开时未读数变了才重拉列表
+  const refreshUnreadCount = useCallback(async () => {
+    try {
+      const result = await fetchUnreadNotificationCount();
+      const nextCount = Number(result.unreadCount) || 0;
+      const changed = nextCount !== unreadCountRef.current;
+      applyUnreadCount(nextCount);
+      if (openRef.current && changed) loadNotifications({ silent: true });
+    } catch {
+      // 未读数刷新失败不打扰用户，下一轮再试
+    }
+  }, [applyUnreadCount, loadNotifications]);
+
+  // 标签页隐藏时不轮询；切回前台立即刷新一次
   useEffect(() => {
-    loadNotifications();
-    const timer = window.setInterval(() => loadNotifications({ silent: true }), POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [loadNotifications]);
+    refreshUnreadCount();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) refreshUnreadCount();
+    }, POLL_INTERVAL_MS);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) refreshUnreadCount();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshUnreadCount]);
 
   const ariaLabel = unreadCount > 0
     ? `打开通知中心，${unreadCount} 条未读`
@@ -83,7 +151,7 @@ function NotificationCenter() {
     setNotifications(current => current.map(item => (
       item.id === notification.id ? { ...item, readAt } : item
     )));
-    setUnreadCount(current => Math.max(0, current - 1));
+    applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
 
     try {
       await markNotificationRead(notification.id);
@@ -95,7 +163,7 @@ function NotificationCenter() {
   const handleReadAll = async () => {
     const readAt = new Date().toISOString();
     setNotifications(current => current.map(item => ({ ...item, readAt: item.readAt || readAt })));
-    setUnreadCount(0);
+    applyUnreadCount(0);
 
     try {
       await markAllNotificationsRead();
@@ -114,8 +182,9 @@ function NotificationCenter() {
             icon={<BellOutlined />}
             aria-label={ariaLabel}
             onClick={() => {
+              openRef.current = true;
               setOpen(true);
-              loadNotifications({ silent: true });
+              loadNotifications({ silent: notifications.length > 0 });
             }}
           />
         </Badge>
@@ -126,7 +195,10 @@ function NotificationCenter() {
         width="min(430px, 100vw)"
         placement="right"
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          openRef.current = false;
+          setOpen(false);
+        }}
         title={(
           <div className="notification-drawer__heading">
             <span className="notification-drawer__eyebrow">SIGNAL INBOX</span>
@@ -166,12 +238,14 @@ function NotificationCenter() {
         ) : hasNotifications ? (
           <div className="notification-ledger">
             {notifications.map((notification, index) => {
-              const category = CATEGORY_META[notification.category] || CATEGORY_META.market;
+              const categories = getNotificationCategories(notification)
+                .map(key => ({ key, ...(CATEGORY_META[key] || CATEGORY_META.market) }));
+              const coins = getNotificationCoins(notification);
               const unread = !notification.readAt;
               return (
                 <button
                   type="button"
-                  className={`notification-ledger__item${unread ? ' is-unread' : ''}${notification.priority === 'high' ? ' is-high' : ''}`}
+                  className={`notification-ledger__item${unread ? ' is-unread' : ''}${notification.priority === 'high' ? ' is-high' : ''}${notification.priority === 'critical' ? ' is-critical' : ''}`}
                   style={{ '--notification-index': index }}
                   key={notification.id}
                   aria-label={`标记 ${notification.title} 为已读`}
@@ -180,8 +254,10 @@ function NotificationCenter() {
                   <span className="notification-ledger__rail" aria-hidden="true" />
                   <span className="notification-ledger__content">
                     <span className="notification-ledger__meta">
-                      <Tag color={category.tone}>{category.label}</Tag>
-                      {notification.coinSymbol && <span>{notification.coinSymbol}</span>}
+                      {categories.map(category => (
+                        <Tag color={category.tone} key={category.key}>{category.label}</Tag>
+                      ))}
+                      {coins && <span>{coins}</span>}
                       <time>{formatNotificationTime(notification.createdAt)}</time>
                     </span>
                     <strong>{notification.title}</strong>
@@ -191,6 +267,11 @@ function NotificationCenter() {
                 </button>
               );
             })}
+            {hasMore && (
+              <Button block type="text" loading={loadingMore} onClick={loadMore}>
+                加载更多
+              </Button>
+            )}
           </div>
         ) : (
           <Empty

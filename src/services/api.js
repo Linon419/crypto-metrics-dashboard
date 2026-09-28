@@ -69,14 +69,25 @@ export const verifyToken = async () => {
   }
 };
 
-export const fetchNotifications = async ({ limit = 30, unreadOnly = false } = {}) => {
+export const fetchNotifications = async ({ limit = 30, unreadOnly = false, beforeId } = {}) => {
   try {
     const response = await api.get('/notifications', {
-      params: { limit, unreadOnly: unreadOnly ? 'true' : undefined },
+      params: { limit, unreadOnly: unreadOnly ? 'true' : undefined, beforeId },
     });
     return response.data;
   } catch (error) {
     console.error('[fetchNotifications] 获取站内通知失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+// 通知抽屉关着时只轮询未读数
+export const fetchUnreadNotificationCount = async () => {
+  try {
+    const response = await api.get('/notifications/unread-count');
+    return response.data;
+  } catch (error) {
+    console.error('[fetchUnreadNotificationCount] 获取未读通知数失败:', error.displayMessage || error.message);
     throw error;
   }
 };

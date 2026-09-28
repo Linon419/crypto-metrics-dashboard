@@ -87,6 +87,18 @@ db.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(chat_id, coin_symbol, notification_type, notification_date)
     )`);
+
+    // 网页通知待发表：写入失败的留到下次检查重试
+    db.run(`CREATE TABLE IF NOT EXISTS web_notification_outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id INTEGER NOT NULL,
+        external_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(chat_id, external_id)
+    )`);
 });
 
 // 设置机器人菜单
