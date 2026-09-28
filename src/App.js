@@ -1,18 +1,16 @@
 // src/App.jsx
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { Layout, Menu } from 'antd';
 import { StyleProvider } from '@ant-design/cssinjs';
 import { Provider } from 'react-redux';
 import { store } from './redux/store';
-import DataInputForm from './components/DataInputForm';
 import Dashboard from './components/Dashboard';
 import Login from './components/Login';
 import Register from './components/Register';
-import OptionsPage from './components/OptionsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
-import AdminSettings from './components/AdminSettings';
+import LoadingPlaceholder from './components/LoadingPlaceholder';
 import NotificationCenter from './components/NotificationCenter';
 import PasswordChangePrompt from './components/PasswordChangePrompt';
 import { useAutoHideOnScroll } from './hooks/useAutoHideOnScroll';
@@ -21,6 +19,11 @@ import './styles/mobile.css';
 import './styles/design-system.css';
 
 const { Header, Content, Footer } = Layout;
+
+// 期权页带 Plotly / ECharts，管理页只有管理员用：按需加载，不拖慢看板首屏
+const DataInputForm = lazy(() => import('./components/DataInputForm'));
+const OptionsPage = lazy(() => import('./components/OptionsPage'));
+const AdminSettings = lazy(() => import('./components/AdminSettings'));
 
 // 导航组件，只在用户已登录时显示
 const NavigationMenu = () => {
@@ -105,6 +108,7 @@ const AppContent = () => {
         <PasswordChangePrompt />
         
         <Content className="app-route-content">
+          <Suspense fallback={<LoadingPlaceholder />}>
           <Routes>
             {/* Public routes - accessible without authentication */}
             <Route path="/login" element={<Login />} />
@@ -164,6 +168,7 @@ const AppContent = () => {
             {/* Redirect unknown routes to dashboard */}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
+          </Suspense>
         </Content>
         
         <Footer className="app-footer">加密货币指标看板 ©2025</Footer>

@@ -12,6 +12,7 @@ COPY src/ ./src/
 
 # 安装依赖并构建前端
 RUN npm ci
+ENV GENERATE_SOURCEMAP=false
 RUN npm run build
 
 # 阶段 2: 设置API服务器和Telegram机器人

@@ -119,7 +119,10 @@ function ensureFrontendBuild({
   root = ROOT,
   env = process.env,
   logMessage = log,
-  runBuild = () => run('npm', ['run', 'build']),
+  // sourcemap 有近 20MB，本地用户用不到，只会拖慢构建
+  runBuild = () => run('npm', ['run', 'build'], {
+    env: { ...process.env, CI: 'false', GENERATE_SOURCEMAP: 'false' },
+  }),
   copyBuild = copyDirectory,
 } = {}) {
   return ensureCachedFrontendBuild({ root, env, logMessage, runBuild, copyBuild });
