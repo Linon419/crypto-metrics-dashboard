@@ -15,6 +15,10 @@ import { getCoinLogoFallbackUrl, getCoinLogoUrl } from '../utils/coinLogos';
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
 
+// 默认一页显示全部币种；仍可切回固定条数分页
+const PAGE_SIZE_ALL = 'all';
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+
 function OtcIndexTable({
   coins,
   marketCoins = coins,
@@ -29,7 +33,7 @@ function OtcIndexTable({
     order: 'descend',
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const [pageSize, setPageSize] = useState(10); // 添加分页大小状态
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_ALL);
 
   // Listen for window resize to adjust for mobile
   useEffect(() => {
@@ -41,14 +45,28 @@ function OtcIndexTable({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // 选中"全部"时 antd 回传的是当前总条数，这里还原成 PAGE_SIZE_ALL，
+  // 这样币种数量变化后仍然是全部显示
+  const handlePageSizeChange = (size) => {
+    setPageSize(size >= coins.length ? PAGE_SIZE_ALL : size);
+  };
+
   // Handle table sort change
   const handleChange = (pagination, filters, sorter) => {
     setSortedInfo(sorter);
     // 处理分页大小变化
-    if (pagination && pagination.pageSize !== pageSize) {
-      setPageSize(pagination.pageSize);
+    if (pagination && pagination.pageSize !== effectivePageSize) {
+      handlePageSizeChange(pagination.pageSize);
     }
   };
+
+  const effectivePageSize = pageSize === PAGE_SIZE_ALL ? Math.max(coins.length, 1) : pageSize;
+  const pageSizeSelectOptions = [
+    ...PAGE_SIZE_OPTIONS
+      .filter(size => size < coins.length)
+      .map(size => ({ value: size, label: `${size} 条/页` })),
+    { value: Math.max(coins.length, 1), label: '全部' },
+  ];
 
   // Prepare table data (moved before getSortedData to be accessible)
   const tableData = coins.map((coin, index) => ({
@@ -641,13 +659,12 @@ function OtcIndexTable({
           <Table
             columns={columns}
             dataSource={tableData}
-            pagination={tableData.length > pageSize ? {
-              pageSize: pageSize,
-              showSizeChanger: true,
+            pagination={tableData.length > PAGE_SIZE_OPTIONS[0] ? {
+              pageSize: effectivePageSize,
+              showSizeChanger: { options: pageSizeSelectOptions },
               showQuickJumper: true,
               showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-              pageSizeOptions: ['10', '20', '50', '100'],
-              onShowSizeChange: (current, size) => setPageSize(size)
+              onShowSizeChange: (current, size) => handlePageSizeChange(size)
             } : false}
             size="middle"
             className="overflow-x-auto"

@@ -37,13 +37,25 @@ describe('OtcIndexTable', () => {
     expect(document.querySelector('.ant-select-selector')).toBeInTheDocument();
   });
 
-  test('displays correct number of rows per page', () => {
+  test('shows every coin on one page by default', () => {
     render(<OtcIndexTable coins={mockCoins} />);
-    
-    // Should show 10 rows by default (plus header)
-    const tableRows = screen.getAllByRole('row');
-    // Header row + 10 data rows = 11 total
-    expect(tableRows).toHaveLength(11);
+
+    // Header row + 25 data rows
+    expect(screen.getAllByRole('row')).toHaveLength(26);
+    expect(screen.getByText('第 1-25 条，共 25 条')).toBeInTheDocument();
+    expect(document.querySelector('.ant-pagination-options .ant-select-selection-item'))
+      .toHaveTextContent('全部');
+  });
+
+  test('can switch from showing all back to paged rows', () => {
+    render(<OtcIndexTable coins={mockCoins} />);
+
+    fireEvent.mouseDown(document.querySelector('.ant-pagination-options .ant-select-selector'));
+    fireEvent.click(screen.getByTitle('10 条/页'));
+
+    // Header row + 10 data rows
+    expect(screen.getAllByRole('row')).toHaveLength(11);
+    expect(screen.getByText('第 1-10 条，共 25 条')).toBeInTheDocument();
   });
 
   test('handles empty data gracefully', () => {
