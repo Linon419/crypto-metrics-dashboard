@@ -9,6 +9,7 @@ require('dotenv').config();
 const checkFirstRun = require('./middleware/checkFirstRun');
 const { attachKlineWebSocketServer } = require('./services/klineWebSocketServer');
 const { buildRuntimeConfigScript } = require('./utils/runtimeConfig');
+const { resolveBrandfetchClientId } = require('./utils/logoSettings');
 const { assertProductionSecrets, isLocalMode } = require('./utils/productionSecrets');
 const { enforceDemoReadOnly } = require('./utils/demoAccounts');
 const { reconcileIndexes, reconcileUsernames } = require('./utils/schemaMaintenance');
@@ -56,7 +57,7 @@ if (typeof requirePasswordChange !== 'function') {
 
 // ======================================================================
 // 新增：动态生成前端运行时配置
-app.get('/app-config.js', (req, res) => {
+app.get('/app-config.js', async (req, res) => {
   const apiPublicHost = process.env.API_PUBLIC_HOST;
   const apiBasePath = '/api';
 
@@ -72,7 +73,8 @@ app.get('/app-config.js', (req, res) => {
 
   const configScript = buildRuntimeConfigScript({
     apiBaseUrl: `${apiPublicHost}${apiBasePath}`,
-    brandfetchClientId: process.env.BRANDFETCH_CLIENT_ID,
+    // Admin 设置里填写的优先，没填再用环境变量
+    brandfetchClientId: await resolveBrandfetchClientId({ AppSettingModel: db.AppSetting }),
   });
 
   res.type('application/javascript');

@@ -21,6 +21,7 @@ const {
 } = require('../models');
 const { verifyToken, requireAdmin } = require('../middleware/auth');
 const { getSystemSettings, updateSystemSettings } = require('../utils/settings');
+const { getLogoSettings, updateLogoSettings } = require('../utils/logoSettings');
 const {
   createAgentToken,
   getAgentTokenStatus,
@@ -1281,6 +1282,45 @@ router.put('/settings', async (req, res) => {
     res.status(error.statusCode || 500).json({
       success: false,
       error: '更新系统设置失败'
+    });
+  }
+});
+
+// Logo 设置：Brandfetch Client ID，留空则回到环境变量
+router.get('/logo-settings', async (req, res) => {
+  try {
+    const settings = await getLogoSettings({ AppSettingModel: AppSetting });
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error('获取 Logo 设置失败:', error);
+    res.status(500).json({ success: false, error: '获取 Logo 设置失败' });
+  }
+});
+
+router.put('/logo-settings', async (req, res) => {
+  try {
+    const settings = await updateLogoSettings(
+      { AppSettingModel: AppSetting },
+      { brandfetchClientId: req.body?.brandfetchClientId }
+    );
+    try {
+      await writeUserAuditLog(userManagementModels, {
+        actor: req.user,
+        target: req.user,
+        action: 'settings.logo.update',
+        details: { brandfetchClientId: settings.brandfetchClientId, source: settings.source },
+        ip: req.ip,
+      });
+    } catch (auditError) {
+      console.error('记录 Logo 设置审计日志失败:', auditError);
+    }
+    res.json({ success: true, settings });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    if (statusCode === 500) console.error('更新 Logo 设置失败:', error);
+    res.status(statusCode).json({
+      success: false,
+      error: statusCode === 500 ? '更新 Logo 设置失败' : error.message,
     });
   }
 });

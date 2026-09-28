@@ -219,7 +219,7 @@ npm run dev
 
 | 变量 | 集成 | 用途 |
 | --- | --- | --- |
-| `BRANDFETCH_CLIENT_ID` | 标的 Logo | 浏览器端官方 Logo 查询 |
+| `BRANDFETCH_CLIENT_ID` | 标的 Logo | 浏览器端官方 Logo 查询；也可在 Admin 设置 → Logo 中填写，网页配置优先 |
 | `LOGO_CACHE_DIR` | 标的 Logo | 服务端 Logo 缓存目录 |
 | `TELEGRAM_BOT_TOKEN` | Telegram | Bot Token |
 | `API_BASE_URL` | Telegram | Dashboard API Base URL |

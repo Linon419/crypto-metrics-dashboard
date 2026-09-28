@@ -12,6 +12,7 @@ jest.mock('../AgentTokenSettings', () => () => <div>Agent token panel</div>);
 jest.mock('../CoinManagement', () => () => <div>Coin panel</div>);
 jest.mock('../KlineCleanupSettings', () => () => <div>Kline cleanup panel</div>);
 jest.mock('../KlineMappingSettings', () => () => <div>Kline mapping panel</div>);
+jest.mock('../LogoSettings', () => () => <div>Logo panel</div>);
 jest.mock('../PromptSettings', () => () => <div>Prompt panel</div>);
 jest.mock('../UserManagement', () => () => <div>User management panel</div>);
 

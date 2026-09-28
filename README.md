@@ -231,7 +231,7 @@ Provider, Base URL, model, and API credentials can be maintained from **Admin â†
 
 | Variable | Integration | Purpose |
 | --- | --- | --- |
-| `BRANDFETCH_CLIENT_ID` | Asset logos | Browser-side official logo lookup |
+| `BRANDFETCH_CLIENT_ID` | Asset logos | Browser-side official logo lookup; can also be set in Admin Settings â†’ Logo, which takes precedence |
 | `LOGO_CACHE_DIR` | Asset logos | Server-side logo cache directory |
 | `TELEGRAM_BOT_TOKEN` | Telegram | Bot token |
 | `API_BASE_URL` | Telegram | Dashboard API base URL |

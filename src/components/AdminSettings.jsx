@@ -8,6 +8,7 @@ import {
   DeleteOutlined,
   FileTextOutlined,
   KeyOutlined,
+  PictureOutlined,
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -16,6 +17,7 @@ import AgentTokenSettings from './AgentTokenSettings';
 import CoinManagement from './CoinManagement';
 import KlineCleanupSettings from './KlineCleanupSettings';
 import KlineMappingSettings from './KlineMappingSettings';
+import LogoSettings from './LogoSettings';
 import PromptSettings from './PromptSettings';
 import UserManagement from './UserManagement';
 
@@ -32,6 +34,7 @@ function AdminSettings() {
     'ai-model-settings',
     'prompt-settings',
     'agent-token',
+    'logo-settings',
   ].includes(requestedTab) ? requestedTab : 'coins';
 
   return (
@@ -117,6 +120,16 @@ function AdminSettings() {
               </span>
             ),
             children: <AgentTokenSettings />,
+          },
+          {
+            key: 'logo-settings',
+            label: (
+              <span>
+                <PictureOutlined />
+                Logo
+              </span>
+            ),
+            children: <LogoSettings />,
           },
         ]}
       />

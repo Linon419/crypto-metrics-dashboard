@@ -332,6 +332,27 @@ export const deleteDateRecordsByDate = async (date) => {
     throw error;
   }
 };
+// Logo 设置：Brandfetch Client ID，留空回到服务端环境变量
+export const getLogoSettings = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/admin/logo-settings'));
+    return response.data;
+  } catch (error) {
+    console.error('[getLogoSettings] 获取 Logo 设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const updateLogoSettings = async (payload) => {
+  try {
+    const response = await api.put('/admin/logo-settings', payload);
+    return response.data;
+  } catch (error) {
+    console.error('[updateLogoSettings] 更新 Logo 设置失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
 // Agent 只读 Token：生成接口只返回一次明文
 export const getAgentTokenStatus = async () => {
   try {
