@@ -49,10 +49,6 @@ const getLiquidityBarColor = (value) => {
 };
 
 function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow = false }) {
-  console.log('[CoinDetailChart] Component rendered with props:', {
-    coinSymbol: coin?.symbol,
-    selectedDate: selectedDate ? selectedDate.format('YYYY-MM-DD') : 'null'
-  });
   const [metrics, setMetrics] = useState([]);
   const [liquidityHistory, setLiquidityHistory] = useState([]);
   const [liquidityLoading, setLiquidityLoading] = useState(false);
@@ -257,35 +253,19 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
 
   // 处理选中日期变化，过滤显示数据
   useEffect(() => {
-    console.log('[CoinDetailChart] Date filter effect triggered:', {
-      selectedDate: effectiveEndDateStr,
-      metricsLength: metrics.length,
-      coinSymbol: coin?.symbol
-    });
-
     if (effectiveEndDateStr && metrics.length > 0) {
       const filteredMetrics = metrics.filter(metric => {
         return metric.date <= effectiveEndDateStr;
-      });
-
-      console.log('[CoinDetailChart] Filtered metrics:', {
-        originalLength: metrics.length,
-        filteredLength: filteredMetrics.length,
-        selectedDate: effectiveEndDateStr,
-        firstDate: metrics[0]?.date,
-        lastDate: metrics[metrics.length - 1]?.date
       });
 
       if (filteredMetrics.length > 0) {
         setDisplayData(filteredMetrics);
       } else {
         // 如果没有数据在选中日期之前，显示所有数据
-        console.log('[CoinDetailChart] No data before selected date, showing all data');
         setDisplayData(metrics);
       }
     } else {
       // 如果没有选中日期，显示所有数据
-      console.log('[CoinDetailChart] No selected date or no metrics, showing all data');
       setDisplayData(metrics);
     }
   // 有意省略 coin?.symbol：symbol 变化时 metrics 必然随之刷新，避免重复触发

@@ -207,7 +207,6 @@ body {
   padding: 10px 16px;
   border-bottom: 1px solid rgba(69, 60, 46, 0.12);
   background: rgba(245, 239, 228, 0.94);
-  backdrop-filter: blur(14px);
 }
 
 .notification-drawer__status > div {
@@ -398,7 +397,6 @@ body {
     rgba(6, 26, 45, 0.97);
   border-bottom: 1px solid rgba(244, 213, 138, 0.18);
   box-shadow: 0 14px 34px rgba(3, 14, 26, 0.16);
-  backdrop-filter: blur(20px);
   transition: transform 180ms ease, opacity 180ms ease;
   will-change: transform;
 }
