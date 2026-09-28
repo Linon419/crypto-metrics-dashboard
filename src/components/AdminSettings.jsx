@@ -7,10 +7,12 @@ import {
   DatabaseOutlined,
   DeleteOutlined,
   FileTextOutlined,
+  KeyOutlined,
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import AIModelSettings from './AIModelSettings';
+import AgentTokenSettings from './AgentTokenSettings';
 import CoinManagement from './CoinManagement';
 import KlineCleanupSettings from './KlineCleanupSettings';
 import KlineMappingSettings from './KlineMappingSettings';
@@ -29,6 +31,7 @@ function AdminSettings() {
     'kline-cleanup',
     'ai-model-settings',
     'prompt-settings',
+    'agent-token',
   ].includes(requestedTab) ? requestedTab : 'coins';
 
   return (
@@ -104,6 +107,16 @@ function AdminSettings() {
               </span>
             ),
             children: <PromptSettings />,
+          },
+          {
+            key: 'agent-token',
+            label: (
+              <span>
+                <KeyOutlined />
+                Agent 访问
+              </span>
+            ),
+            children: <AgentTokenSettings />,
           },
         ]}
       />

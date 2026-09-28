@@ -12,6 +12,11 @@ const {
   isDemoAccountMisconfigured,
   isDemoReadOnly,
 } = require('../utils/demoAccounts');
+const {
+  isAgentRequestAllowed,
+  isAgentToken,
+  verifyAgentToken,
+} = require('../utils/agentToken');
 
 const JWT_SECRET = getJwtSecret();
 const DEV_AUTH_BYPASS = ['true', '1', 'yes'].includes(
@@ -22,8 +27,38 @@ function sendUnauthorized(res, message = 'Token is not valid') {
   return res.status(401).json({ error: message });
 }
 
+async function authenticateAgentRequest(req, res, next, token, { UserModel, AppSettingModel }) {
+  const requestPath = String(req.originalUrl || '').split('?')[0];
+  let ownerUserId;
+  try {
+    const verified = await verifyAgentToken(token, AppSettingModel ? { AppSettingModel } : undefined);
+    if (!verified) return sendUnauthorized(res, 'Agent token is not valid');
+
+    // Token 跟随生成它的管理员：账号被封禁、降级或删除后立即失效
+    const owner = verified.ownerUserId ? await UserModel.findByPk(verified.ownerUserId) : null;
+    if (!owner || owner.status !== 'active' || owner.role !== 'admin') {
+      return sendUnauthorized(res, 'Agent token owner is unavailable');
+    }
+    ownerUserId = owner.id;
+  } catch (error) {
+    console.error('Agent token verification error:', error);
+    return res.status(500).json({ error: 'Authentication service unavailable' });
+  }
+
+  if (!isAgentRequestAllowed(req.method, req.originalUrl)) {
+    console.warn(`[agent] 拒绝 ${req.method} ${requestPath}`);
+    return res.status(403).json({ error: 'Agent token is read-only and cannot access this endpoint' });
+  }
+
+  console.log(`[agent] ${req.method} ${requestPath}`);
+  // id 用于读取该管理员的通知；role 不是 admin，白名单外的接口也进不去
+  req.user = { id: ownerUserId, username: 'agent', role: 'agent', status: 'active', agent: true };
+  return next();
+}
+
 function createAuthMiddleware({
   UserModel = User,
+  AppSettingModel = null,
   jwtSecret = JWT_SECRET,
   allowDevBypass = process.env.NODE_ENV !== 'production' && DEV_AUTH_BYPASS,
 } = {}) {
@@ -38,6 +73,11 @@ function createAuthMiddleware({
         return next();
       }
       return sendUnauthorized(res, 'No token provided, authorization denied');
+    }
+
+    // Agent Token 不是 JWT，单独校验，且只放行白名单里的只读接口
+    if (isAgentToken(token)) {
+      return authenticateAgentRequest(req, res, next, token, { UserModel, AppSettingModel });
     }
 
     let decoded;

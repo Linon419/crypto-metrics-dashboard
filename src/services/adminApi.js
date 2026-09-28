@@ -332,4 +332,34 @@ export const deleteDateRecordsByDate = async (date) => {
     throw error;
   }
 };
+// Agent 只读 Token：生成接口只返回一次明文
+export const getAgentTokenStatus = async () => {
+  try {
+    const response = await callApiWithRetry(() => api.get('/admin/agent-token'));
+    return response.data;
+  } catch (error) {
+    console.error('[getAgentTokenStatus] 获取 Agent Token 状态失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const createAgentToken = async () => {
+  try {
+    const response = await api.post('/admin/agent-token');
+    return response.data;
+  } catch (error) {
+    console.error('[createAgentToken] 生成 Agent Token 失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
+
+export const revokeAgentToken = async () => {
+  try {
+    const response = await api.delete('/admin/agent-token');
+    return response.data;
+  } catch (error) {
+    console.error('[revokeAgentToken] 吊销 Agent Token 失败:', error.displayMessage || error.message);
+    throw error;
+  }
+};
 // --- 结束用户管理 API 调用 ---

@@ -8,6 +8,7 @@ jest.mock('react-router-dom', () => ({
 }), { virtual: true });
 
 jest.mock('../AIModelSettings', () => () => <div>AI model panel</div>);
+jest.mock('../AgentTokenSettings', () => () => <div>Agent token panel</div>);
 jest.mock('../CoinManagement', () => () => <div>Coin panel</div>);
 jest.mock('../KlineCleanupSettings', () => () => <div>Kline cleanup panel</div>);
 jest.mock('../KlineMappingSettings', () => () => <div>Kline mapping panel</div>);

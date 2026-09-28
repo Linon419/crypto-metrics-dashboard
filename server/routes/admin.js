@@ -22,6 +22,11 @@ const {
 const { verifyToken, requireAdmin } = require('../middleware/auth');
 const { getSystemSettings, updateSystemSettings } = require('../utils/settings');
 const {
+  createAgentToken,
+  getAgentTokenStatus,
+  revokeAgentToken,
+} = require('../utils/agentToken');
+const {
   getOpenAIPromptSettings,
   resetOpenAIPromptSettings,
   updateOpenAIPromptSettings,
@@ -1277,6 +1282,63 @@ router.put('/settings', async (req, res) => {
       success: false,
       error: '更新系统设置失败'
     });
+  }
+});
+
+// Agent 只读 Token：明文只在生成时返回一次
+router.get('/agent-token', async (req, res) => {
+  try {
+    const status = await getAgentTokenStatus({ AppSettingModel: AppSetting });
+    res.json({ success: true, status });
+  } catch (error) {
+    console.error('获取 Agent Token 状态失败:', error);
+    res.status(500).json({ success: false, error: '获取 Agent Token 状态失败' });
+  }
+});
+
+router.post('/agent-token', async (req, res) => {
+  try {
+    const { token, status } = await createAgentToken({
+      AppSettingModel: AppSetting,
+      ownerUserId: req.user?.id,
+      createdBy: req.user?.username || null,
+    });
+    try {
+      await writeUserAuditLog(userManagementModels, {
+        actor: req.user,
+        target: req.user,
+        action: 'settings.agent_token.create',
+        details: { last4: status.last4 },
+        ip: req.ip,
+      });
+    } catch (auditError) {
+      console.error('记录 Agent Token 审计日志失败:', auditError);
+    }
+    res.json({ success: true, token, status });
+  } catch (error) {
+    console.error('生成 Agent Token 失败:', error);
+    res.status(500).json({ success: false, error: '生成 Agent Token 失败' });
+  }
+});
+
+router.delete('/agent-token', async (req, res) => {
+  try {
+    const status = await revokeAgentToken({ AppSettingModel: AppSetting });
+    try {
+      await writeUserAuditLog(userManagementModels, {
+        actor: req.user,
+        target: req.user,
+        action: 'settings.agent_token.revoke',
+        details: {},
+        ip: req.ip,
+      });
+    } catch (auditError) {
+      console.error('记录 Agent Token 审计日志失败:', auditError);
+    }
+    res.json({ success: true, status });
+  } catch (error) {
+    console.error('吊销 Agent Token 失败:', error);
+    res.status(500).json({ success: false, error: '吊销 Agent Token 失败' });
   }
 });
 
