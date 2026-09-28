@@ -326,7 +326,11 @@ test('updates the latest candle while the live kline is still open', async () =>
     });
   });
 
-  await waitFor(() => expect(screen.getByText('Close 129.25')).toBeInTheDocument());
+  // 第二条落在节流窗口内，最多延后 1 秒写入
+  await waitFor(
+    () => expect(screen.getByText('Close 129.25')).toBeInTheDocument(),
+    { timeout: 2000 },
+  );
 });
 
 test('keeps the same chart instances while live klines stream in', async () => {
@@ -367,11 +371,62 @@ test('keeps the same chart instances while live klines stream in', async () => {
     });
   }
 
-  await waitFor(() => expect(screen.getByText('Close 123.00')).toBeInTheDocument());
+  await waitFor(
+    () => expect(screen.getByText('Close 123.00')).toBeInTheDocument(),
+    { timeout: 2000 },
+  );
   // 图表实例不重建，只通过 setData 推数据
   expect(createChart).toHaveBeenCalledTimes(3);
   expect(mockChartInstances.every(chart => chart.remove.mock.calls.length === 0)).toBe(true);
   expect(candleSeries.setData.mock.calls.length).toBeGreaterThan(setDataCallsBefore);
+});
+
+test('batches rapid live kline pushes instead of redrawing on every message', async () => {
+  let handleLiveKline;
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines });
+  fetchCoinMetrics.mockResolvedValue(metrics);
+  subscribeCoinKlineStream.mockImplementation((symbol, options) => {
+    handleLiveKline = options.onMessage;
+    return jest.fn();
+  });
+
+  render(<OtcCycleChart symbol="BTC" />);
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(handleLiveKline).toEqual(expect.any(Function)));
+
+  const candleSeries = mockSeriesInstances[0];
+  const setDataCallsBefore = candleSeries.setData.mock.calls.length;
+
+  // 币安合约 K 线约 250ms 推送一次；真实消息各自在独立任务里到达，
+  // 所以每条单独 act，模拟 React 无法自动合并的场景
+  for (let index = 0; index < 10; index += 1) {
+    // eslint-disable-next-line no-loop-func
+    act(() => {
+      handleLiveKline({
+        type: 'kline',
+        symbol: 'BTC',
+        interval: '4h',
+        isClosed: false,
+        kline: {
+          openTime: '2026-01-03T00:00:00.000Z',
+          closeTime: '2026-01-03T03:59:59.999Z',
+          open: 98,
+          high: 140,
+          low: 96,
+          close: 130 + index,
+          volume: 18,
+        },
+      });
+    });
+  }
+
+  await waitFor(
+    () => expect(screen.getByText('Close 139.00')).toBeInTheDocument(),
+    { timeout: 2000 },
+  );
+  expect(candleSeries.setData.mock.calls.length - setDataCallsBefore).toBeLessThanOrEqual(2);
 });
 
 test('keeps the newest interval result when an older request resolves last', async () => {

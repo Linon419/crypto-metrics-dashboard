@@ -224,13 +224,22 @@ function getMetricPublishedAt(metric) {
   return null;
 }
 
+// rows 已按 time 升序：二分查找，等距时取较早的一根。
+// 逐行扫描是 O(指标数 × K线数)，实时推送时会把主线程拖死。
 function findNearestRow(rows, timestamp) {
   if (!rows.length || timestamp === null) return null;
-  return rows.reduce((nearest, row) => {
-    const distance = Math.abs(row.time - timestamp);
-    const nearestDistance = Math.abs(nearest.time - timestamp);
-    return distance < nearestDistance ? row : nearest;
-  }, rows[0]);
+  let low = 0;
+  let high = rows.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (rows[middle].time < timestamp) low = middle + 1;
+    else high = middle;
+  }
+  if (low === 0) return rows[0];
+  if (low === rows.length) return rows[rows.length - 1];
+  const before = rows[low - 1];
+  const after = rows[low];
+  return timestamp - before.time <= after.time - timestamp ? before : after;
 }
 
 export function findNearestMetricEventForTime(metricEvents, time, maxDistanceSeconds) {
@@ -334,9 +343,11 @@ export function mergeKlinesByOpenTime(currentKlines = [], incomingKlines = []) {
     byOpenTime.set(kline.openTime, kline);
   });
 
-  return Array.from(byOpenTime.values()).sort((left, right) => (
-    new Date(left.openTime).getTime() - new Date(right.openTime).getTime()
-  ));
+  // 每根只解析一次时间；比较器里 new Date 会在每次比较时重复解析
+  return Array.from(byOpenTime.values())
+    .map(kline => [new Date(kline.openTime).getTime(), kline])
+    .sort((left, right) => left[0] - right[0])
+    .map(([, kline]) => kline);
 }
 
 function getMetricVersionKey(metric = {}) {

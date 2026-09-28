@@ -49,6 +49,9 @@ const { Text } = Typography;
 
 // 切币期间用同一个空数组引用，避免下游 useMemo 因为新数组白跑一次
 const EMPTY_KLINES = [];
+// 币安合约 K 线约 250ms 推一次，每次都会整套重建模型并重绘三张图。
+// 合并到每秒最多一次写入，秒级以下的跳动对 K 线图没有意义。
+const LIVE_KLINE_FLUSH_INTERVAL_MS = 1000;
 
 // 图表模型构建逻辑位于 utils/otcCycleChartModel；此处再导出测试所需的纯函数
 export {
@@ -300,20 +303,46 @@ function OtcCycleChart({
   useEffect(() => {
     if (normalizedSymbol === 'VEGA' || isYahooFinanceSource) return () => {};
 
-    return subscribeCoinKlineStream(symbol, {
+    // 同一根 K 线在窗口内只保留最新一条
+    const pendingKlines = new Map();
+    let flushTimer = null;
+    let lastFlushAt = 0;
+    const flushPendingKlines = () => {
+      flushTimer = null;
+      lastFlushAt = Date.now();
+      const incoming = Array.from(pendingKlines.values());
+      pendingKlines.clear();
+      if (incoming.length > 0) {
+        setKlines(current => mergeKlinesByOpenTime(current, incoming));
+      }
+    };
+
+    const unsubscribe = subscribeCoinKlineStream(symbol, {
       interval: selectedPeriod.value,
       onMessage: (message) => {
         if (
           message?.interval !== selectedPeriod.value ||
           !message?.kline?.openTime
         ) return;
-        setKlines(current => mergeKlinesByOpenTime(current, [message.kline]));
+        pendingKlines.set(message.kline.openTime, message.kline);
+        if (flushTimer) return;
+        const waitMs = LIVE_KLINE_FLUSH_INTERVAL_MS - (Date.now() - lastFlushAt);
+        if (waitMs <= 0) {
+          flushPendingKlines();
+        } else {
+          flushTimer = window.setTimeout(flushPendingKlines, waitMs);
+        }
       },
       onError: (event) => {
         const message = event?.message || '实时K线连接异常';
         console.warn('[OtcCycleChart] live kline stream error:', message);
       },
     });
+
+    return () => {
+      if (flushTimer) window.clearTimeout(flushTimer);
+      unsubscribe?.();
+    };
   }, [isYahooFinanceSource, normalizedSymbol, selectedPeriod.value, setKlines, symbol]);
 
   const model = useMemo(
@@ -336,7 +365,7 @@ function OtcCycleChart({
   const hasChartRows = model.rows.length > 0;
 
   // 图表实例只在容器/尺寸变化时创建一次；下面注册的回调统一从这个 ref 读取最新渲染值，
-  // 这样实时K线每 250ms 推送一次也不会把三个图表销毁重建。
+  // 这样实时K线持续推送也不会把三个图表销毁重建。
   chartContextRef.current = {
     hoverSnapSeconds,
     loadOlderKlines,

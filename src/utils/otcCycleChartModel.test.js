@@ -6,8 +6,10 @@ jest.mock('lightweight-charts', () => ({
 }));
 
 import {
+  buildTradingViewCycleModel,
   formatChartAxisTime,
   formatChartTickMark,
+  mergeKlinesByOpenTime,
   resolveIsYahooFinanceSource,
   shouldUseYahooFinanceKlines,
   syncTimeRange,
@@ -120,5 +122,72 @@ describe('syncTimeRange', () => {
 
     expect(() => synchronize({ from: 100, to: 200 })).toThrow('chart update failed');
     expect(syncingRef.current).toBe(false);
+  });
+});
+
+describe('mergeKlinesByOpenTime', () => {
+  const kline = (openTime, close) => ({ openTime, open: 1, high: 2, low: 0, close });
+
+  test('sorts by open time and lets incoming klines replace existing ones', () => {
+    const current = [
+      kline('2026-01-02T00:00:00.000Z', 2),
+      kline('2026-01-01T00:00:00.000Z', 1),
+    ];
+    const merged = mergeKlinesByOpenTime(current, [
+      kline('2026-01-02T00:00:00.000Z', 20),
+      kline('2026-01-03T00:00:00.000Z', 3),
+    ]);
+
+    expect(merged.map(item => item.close)).toEqual([1, 20, 3]);
+    expect(current.map(item => item.close)).toEqual([2, 1]);
+  });
+
+  test('orders mixed timestamp formats by actual time', () => {
+    const merged = mergeKlinesByOpenTime(
+      [kline('2026-01-01T08:00:00.000+08:00', 1)],
+      [kline('2025-12-31T23:30:00.000Z', 0)],
+    );
+
+    expect(merged.map(item => item.close)).toEqual([0, 1]);
+  });
+});
+
+describe('buildTradingViewCycleModel metric alignment', () => {
+  const hourlyKlines = Array.from({ length: 5 }, (_, index) => ({
+    openTime: new Date(Date.UTC(2026, 2, 1, index)).toISOString(),
+    open: 100 + index,
+    high: 110 + index,
+    low: 90 + index,
+    close: 105 + index,
+  }));
+  const rowTime = index => Math.floor(Date.UTC(2026, 2, 1, index) / 1000);
+  const metricAt = timestamp => ({ date: '2026-03-01', timestamp, otc_index: 1000, explosion_index: 200 });
+
+  test('aligns each metric to the nearest candle, clamping outside the range', () => {
+    const model = buildTradingViewCycleModel({
+      klines: hourlyKlines,
+      metrics: [
+        metricAt('2026-02-28T20:00:00.000Z'),
+        metricAt('2026-03-01T01:20:00.000Z'),
+        metricAt('2026-03-01T02:40:00.000Z'),
+        metricAt('2026-03-01T09:00:00.000Z'),
+      ],
+    });
+
+    expect(model.metricEvents.map(event => event.alignedTime)).toEqual([
+      rowTime(0),
+      rowTime(1),
+      rowTime(3),
+      rowTime(4),
+    ]);
+  });
+
+  test('prefers the earlier candle when a metric sits exactly between two candles', () => {
+    const model = buildTradingViewCycleModel({
+      klines: hourlyKlines,
+      metrics: [metricAt('2026-03-01T02:30:00.000Z')],
+    });
+
+    expect(model.metricEvents[0].alignedTime).toBe(rowTime(2));
   });
 });
