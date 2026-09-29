@@ -543,7 +543,8 @@ function getExplosionSignals(previousExplosion, currentExplosion) {
       priceKey: 'markerPriceBelow',
     });
   }
-  if (previousExplosion < 0 && currentExplosion > 0) {
+  // 由负转正：小于 0 变成大于等于 0
+  if (previousExplosion < 0 && currentExplosion >= 0) {
     signals.push({
       type: 'negativeToPositive',
       text: '转正',

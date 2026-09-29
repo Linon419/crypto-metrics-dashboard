@@ -75,6 +75,19 @@ function testLongOnExplosionFlipOrEntryFirstDay() {
   assert.strictEqual(flipSignal.level, 'long_trigger');
   assert.ok(flipSignal.reasons.includes('爆破指数负转正'));
 
+  // 由负转正按字面：小于 0 变成大于等于 0
+  const flipToZero = evaluateStrategySignal(makeMetric({
+    explosionIndex: 0,
+    previousDayData: { otc_index: 100, explosion_index: -5 },
+  }));
+  assert.ok(flipToZero.reasons.includes('爆破指数负转正'), '-5 → 0 算负转正');
+
+  const zeroToPositive = evaluateStrategySignal(makeMetric({
+    explosionIndex: 5,
+    previousDayData: { otc_index: 100, explosion_index: 0 },
+  }));
+  assert.ok(!zeroToPositive.reasons.includes('爆破指数负转正'), '0 → 5 不是由负转正');
+
   const entryStartSignal = evaluateStrategySignal(makeMetric({
     entryExitType: 'entry',
     entryExitDay: 1,

@@ -97,6 +97,23 @@ describe('OtcIndexTable', () => {
     expect(logos[0]).toHaveAttribute('src', 'http://localhost:3001/api/logos/COIN1?v=20260623-new-symbol-logos-v2');
   });
 
+  test('tags a move from below zero to zero as turning positive', () => {
+    const coinAt = (symbol, prevExplosion, currExplosion) => ({
+      ...mockCoins[0],
+      symbol,
+      explosionIndex: String(currExplosion),
+      previousDayData: { otc_index: '1000', explosion_index: String(prevExplosion) },
+    });
+    render(<OtcIndexTable coins={[coinAt('FLIP', -5, 0), coinAt('ZERO', 0, 5)]} onCoinSelect={jest.fn()} />);
+
+    const rowTags = symbol => Array.from(
+      screen.getByRole('button', { name: symbol }).closest('tr').querySelectorAll('.ant-tag')
+    ).map(tag => tag.textContent);
+
+    expect(rowTags('FLIP')).toContain('负转正');
+    expect(rowTags('ZERO')).not.toContain('负转正');
+  });
+
   test('renders asterisk momentum indicator', () => {
     render(
       <OtcIndexTable

@@ -323,7 +323,8 @@ function OtcIndexTable({
         // }
 
         const wasNegative = prevData && prevExplosionIndex !== undefined && !isNaN(prevExplosionIndex) && prevExplosionIndex < 0;
-        const turnedPositive = wasNegative && numericValue > 0;
+        // 由负转正：小于 0 变成大于等于 0
+        const turnedPositive = wasNegative && numericValue >= 0;
         const brokeThreshold = prevData && prevExplosionIndex !== undefined && !isNaN(prevExplosionIndex) && prevExplosionIndex >= 200 && numericValue < 200;
 
         return (
@@ -534,7 +535,7 @@ function OtcIndexTable({
                 </span>
                 {prevData && prevExplosionIndex !== undefined && !isNaN(prevExplosionIndex) && (
                   <span className="ml-1">
-                    {prevExplosionIndex < 0 && numericExplosionIndex > 0 ? (
+                    {prevExplosionIndex < 0 && numericExplosionIndex >= 0 ? (
                       <Tag color="success" className="ml-1 text-xs">负转正</Tag>
                     ) : prevExplosionIndex >= 200 && numericExplosionIndex < 200 ? (
                       <Tag color="error" className="ml-1 text-xs">跌破200</Tag>

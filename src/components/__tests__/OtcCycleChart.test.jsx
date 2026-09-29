@@ -837,6 +837,30 @@ test('marks each explosion down-cross below 200 and negative-to-positive cross',
   expect(explosionTexts.filter(text => text.includes('转正'))).toHaveLength(1);
 });
 
+test('marks negative-to-positive only when crossing from below zero to zero or above', () => {
+  const zeroKlines = Array.from({ length: 5 }, (_, index) => ({
+    openTime: `2026-03-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+    open: 100,
+    high: 110,
+    low: 90,
+    close: 104,
+    volume: 10,
+  }));
+  // -20→0 算，0→5 不算，5→-3 不算，-3→0 算
+  const zeroMetrics = [-20, 0, 5, -3, 0].map((explosionIndex, index) => ({
+    date: `2026-03-${String(index + 1).padStart(2, '0')}`,
+    otc_index: 1000,
+    explosion_index: explosionIndex,
+    entry_exit_type: 'exit',
+    entry_exit_day: index + 1,
+  }));
+
+  const model = buildTradingViewCycleModel({ klines: zeroKlines, metrics: zeroMetrics });
+  const turnLabels = model.annotationTracks.explosion.filter(label => label.text.includes('转正'));
+
+  expect(turnLabels).toHaveLength(2);
+});
+
 test('aligns metric timestamps to nearest kline while keeping original publish time', () => {
   const intradayKlines = [
     { openTime: '2026-03-01T00:00:00.000Z', open: 100, high: 106, low: 96, close: 104, volume: 10 },

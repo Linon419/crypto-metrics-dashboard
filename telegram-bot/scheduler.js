@@ -513,8 +513,9 @@ function isExplosionTurnPositive(metric) {
         && previousExplosionValue !== null
         && previousExplosionValue !== undefined
         && Number.isFinite(previousExplosion)
-        && previousExplosion <= 0
-        && currentExplosion > 0;
+        // 由负转正按字面：小于 0 变成大于等于 0，与周期质量的节点定义一致
+        && previousExplosion < 0
+        && currentExplosion >= 0;
 }
 
 function isImportantMomentumIndicator(indicator) {
@@ -613,6 +614,40 @@ function isTelegramChatUnavailable(error) {
     return error?.response?.statusCode === 403 || error?.response?.body?.error_code === 403;
 }
 
+// TG 单条上限 4096 字符；留出余量。摘要里每个 HTML 标签都在同一行内闭合，按行拆分不会拆坏标签
+const TELEGRAM_MESSAGE_LIMIT = 3800;
+
+function splitTelegramMessage(message, limit = TELEGRAM_MESSAGE_LIMIT) {
+    const text = String(message || '');
+    if (text.length <= limit) return [text];
+
+    const chunks = [];
+    let current = [];
+    let currentLength = 0;
+    const flush = () => {
+        if (current.length > 0) chunks.push(current.join('\n'));
+        current = [];
+        currentLength = 0;
+    };
+
+    text.split('\n').forEach((line) => {
+        const addedLength = line.length + (current.length > 0 ? 1 : 0);
+        if (currentLength + addedLength > limit) flush();
+        current.push(line);
+        currentLength += line.length + (current.length > 1 ? 1 : 0);
+    });
+    flush();
+    return chunks;
+}
+
+async function sendTelegramChunks(chatId, message) {
+    let lastResult = null;
+    for (const chunk of splitTelegramMessage(message)) {
+        lastResult = await bot.sendMessage(chatId, chunk, getTelegramMessageOptions());
+    }
+    return lastResult;
+}
+
 // TG 与网页并行、互不牵连：网页先入待发表再立即尝试写入；
 // TG 失败时抛错让本期不记为已发送，下次检查重试（网页去重键稳定，不会重复）
 async function deliverNotification(chatId, telegramMessage, webPayloads) {
@@ -621,7 +656,7 @@ async function deliverNotification(chatId, telegramMessage, webPayloads) {
     }
 
     const [telegramResult] = await Promise.allSettled([
-        bot.sendMessage(chatId, telegramMessage, getTelegramMessageOptions()),
+        sendTelegramChunks(chatId, telegramMessage),
         flushWebNotificationOutbox({ chatId })
     ]);
 
@@ -718,13 +753,15 @@ function getLastSnapshotCoin(lastSnapshot, symbol) {
     return lastSnapshot.coins.find(coin => coin.symbol === symbol) || null;
 }
 
-function getEntryQualityChange(metric, lastSnapshot) {
+// 同一周期内质量标签变化（进场、退场都算）；进退场切换由"新进入进场/退场期"覆盖，不在这里重复
+function getPeriodQualityChange(metric, lastSnapshot) {
     const symbol = metric?.coin?.symbol;
     const lastCoin = getLastSnapshotCoin(lastSnapshot, symbol);
+    const periodType = metric?.entry_exit_type;
 
     if (
-        metric?.entry_exit_type !== 'entry'
-        || lastCoin?.entry_exit_type !== 'entry'
+        !['entry', 'exit'].includes(periodType)
+        || lastCoin?.entry_exit_type !== periodType
         || !metric.period_quality
         || !lastCoin.period_quality
         || metric.period_quality === lastCoin.period_quality
@@ -733,6 +770,7 @@ function getEntryQualityChange(metric, lastSnapshot) {
     }
 
     return {
+        periodType,
         previousQuality: lastCoin.period_quality,
         currentQuality: metric.period_quality
     };
@@ -1097,13 +1135,14 @@ function analyzeDataChanges(metrics, lastSnapshot = null) {
     const significantChanges = [];
     
     metrics.forEach(metric => {
-        const entryQualityChange = getEntryQualityChange(metric, lastSnapshot);
-        if (entryQualityChange) {
+        const qualityChange = getPeriodQualityChange(metric, lastSnapshot);
+        if (qualityChange) {
+            const isEntry = qualityChange.periodType === 'entry';
             significantChanges.push({
                 coin: metric.coin,
-                changeType: '进场质量变化',
-                description: `${entryQualityChange.previousQuality} → ${entryQualityChange.currentQuality}`,
-                notificationKey: 'change_entry_quality',
+                changeType: isEntry ? '进场质量变化' : '退场质量变化',
+                description: `${qualityChange.previousQuality} → ${qualityChange.currentQuality}`,
+                notificationKey: isEntry ? 'change_entry_quality' : 'change_exit_quality',
                 currentData: {
                     otc_index: metric.otc_index,
                     explosion_index: metric.explosion_index
@@ -1153,7 +1192,8 @@ function analyzeDataChanges(metrics, lastSnapshot = null) {
         }
     });
     
-    return significantChanges.slice(0, 5);
+    // 关键节点不设上限；摘要过长时由 splitTelegramMessage 拆成多条发送
+    return significantChanges;
 }
 
 // 检查用户收藏币种的所有状态
@@ -1193,7 +1233,8 @@ async function checkUserFavoriteAlerts(chatId, metrics) {
         console.error(`Error checking favorite alerts for user ${chatId}:`, error);
     }
     
-    return alerts.slice(0, 3); // 最多显示3个收藏提醒
+    // 收藏币种的风险提醒不设上限
+    return alerts;
 }
 
 // 检查动能指标并发送通知
@@ -1420,7 +1461,8 @@ async function analyzeQualityOpportunities(metrics, chatId, currentDate, notific
         });
     });
     
-    return opportunities.slice(0, 5); // 增加到最多显示5个机会
+    // 进场/退场首日与负转正都是关键节点，不设上限
+    return opportunities;
 }
 
 // 分析策略关键信息
@@ -1671,6 +1713,7 @@ module.exports = {
         checkUserFavoriteAlerts,
         deliverNotification,
         flushWebNotificationOutbox,
+        splitTelegramMessage,
         formatComprehensiveNotification,
         formatMomentumNotification,
         isExplosionDropBelow200,

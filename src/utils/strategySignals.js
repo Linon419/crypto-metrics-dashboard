@@ -164,7 +164,8 @@ export function evaluateStrategySignal(coin) {
   }
 
   const longTriggerReasons = [];
-  if (prevExplosion !== null && currExplosion !== null && prevExplosion < 0 && currExplosion > 0) {
+  // 由负转正按字面：小于 0 变成大于等于 0，与后端一致
+  if (prevExplosion !== null && currExplosion !== null && prevExplosion < 0 && currExplosion >= 0) {
     longTriggerReasons.push('爆破指数负转正');
   }
   if (entryExitType === 'entry' && entryExitDay === 1) {

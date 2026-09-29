@@ -398,6 +398,16 @@ async function run() {
     explosion_index_change_percent: 80,
   }), false);
 
+  // 由负转正按字面：小于 0 变成大于等于 0
+  assert.strictEqual(isExplosionTurnPositive({
+    explosion_index: 0,
+    previous_day_data: { explosion_index: -5 },
+  }), true, '-5 → 0 算负转正');
+  assert.strictEqual(isExplosionTurnPositive({
+    explosion_index: 5,
+    previous_day_data: { explosion_index: 0 },
+  }), false, '0 → 5 不是由负转正');
+
   assert.strictEqual(isImportantMomentumIndicator('$'), true);
   assert.strictEqual(isImportantMomentumIndicator('‼'), true);
   assert.strictEqual(isImportantMomentumIndicator('※'), false);
@@ -501,11 +511,118 @@ async function run() {
   assert.ok(message.includes('场外三连降'));
   assert.ok(!message.includes('**SOL**'));
 
+  await testPeriodQualityAndKeyNodeCoverage();
+  await testLongSummarySplitsIntoTelegramChunks();
   await testDataUpdateWebPayloads();
   await testRestartCatchUp();
   await testWebDeliveryIndependentOfTelegram();
 
   console.log('telegramScheduler.test.js passed');
+}
+
+// 退场质量变化也要推送；关键节点（市场变化、优质机会、收藏提醒）不能被条数上限截掉
+async function testPeriodQualityAndKeyNodeCoverage() {
+  const { checkUserFavoriteAlerts } = scheduler.__testUtils;
+
+  const exitQualityChange = analyzeDataChanges([{
+    coin: { symbol: 'ETH', name: 'Ethereum' },
+    otc_index: 1300,
+    explosion_index: 20,
+    entry_exit_type: 'exit',
+    entry_exit_day: 12,
+    period_quality: '低质量退场',
+  }], {
+    coins: [{ symbol: 'ETH', entry_exit_type: 'exit', period_quality: '高质量退场' }],
+  });
+  assert.strictEqual(exitQualityChange.length, 1);
+  assert.strictEqual(exitQualityChange[0].changeType, '退场质量变化');
+  assert.strictEqual(exitQualityChange[0].description, '高质量退场 → 低质量退场');
+  assert.strictEqual(exitQualityChange[0].notificationKey, 'change_exit_quality');
+
+  // 进场 → 退场是周期切换，由"新进入退场期"覆盖，不算质量变化
+  assert.deepStrictEqual(analyzeDataChanges([{
+    coin: { symbol: 'SOL', name: 'Solana' },
+    otc_index: 1300,
+    explosion_index: 20,
+    entry_exit_type: 'exit',
+    entry_exit_day: 3,
+    period_quality: '低质量退场',
+  }], {
+    coins: [{ symbol: 'SOL', entry_exit_type: 'entry', period_quality: '高质量进场' }],
+  }), []);
+
+  const eightCoins = Array.from({ length: 8 }, (_, index) => ({
+    coin: { symbol: `C${index}`, name: `Coin ${index}` },
+    otc_index: 1000 + index,
+    explosion_index: 150,
+    previous_day_data: { explosion_index: 230 },
+    entry_exit_type: 'entry',
+    entry_exit_day: 10,
+    period_quality: '高质量进场',
+  }));
+  assert.strictEqual(analyzeDataChanges(eightCoins).length, 8, '8 个币跌破 200 都要推送');
+
+  const eightTurnPositive = eightCoins.map(coin => ({
+    ...coin,
+    explosion_index: 5,
+    previous_day_data: { explosion_index: -10 },
+  }));
+  const opportunities = await analyzeQualityOpportunities(eightTurnPositive, 1, '2026-08-19', async () => false);
+  assert.strictEqual(opportunities.length, 8, '8 个币负转正都要推送');
+
+  const originalRequest = UserAuth.makeUserAuthenticatedRequest;
+  try {
+    UserAuth.makeUserAuthenticatedRequest = async () => eightCoins.map(coin => coin.coin.symbol);
+    const favoriteAlerts = await checkUserFavoriteAlerts(1, eightCoins);
+    assert.strictEqual(favoriteAlerts.length, 8, '收藏币种的风险提醒不能截断');
+  } finally {
+    UserAuth.makeUserAuthenticatedRequest = originalRequest;
+  }
+}
+
+// 去掉条数上限后摘要可能超过 TG 单条 4096 字符：按行拆成多条，每条标签完整
+async function testLongSummarySplitsIntoTelegramChunks() {
+  const { splitTelegramMessage, deliverNotification } = scheduler.__testUtils;
+  const changes = Array.from({ length: 60 }, (_, index) => ({
+    coin: { symbol: `COIN${index}`, name: `Coin ${index}` },
+    changeType: '爆破跌破 200',
+    description: '爆破 230 → 150',
+    notificationKey: 'explosion_drop_200',
+    currentData: { otc_index: 1000 + index, explosion_index: 150 },
+  }));
+  const message = formatComprehensiveNotification([
+    { type: 'market_changes', title: '📊 市场重要变化', content: changes },
+  ], '2026-08-19');
+  assert.ok(message.length > 4096, '测试前提：摘要超过单条上限');
+
+  const chunks = splitTelegramMessage(message);
+  assert.ok(chunks.length >= 2);
+  chunks.forEach(chunk => {
+    assert.ok(chunk.length <= 4000, `每条不超过上限，实际 ${chunk.length}`);
+    assert.strictEqual((chunk.match(/<b>/g) || []).length, (chunk.match(/<\/b>/g) || []).length, '标签不能被拆开');
+  });
+  assert.strictEqual(chunks.join('\n'), message, '拆分不丢内容');
+  assert.deepStrictEqual(splitTelegramMessage('短消息'), ['短消息']);
+
+  const fakeDb = createFakeDb();
+  const sent = [];
+  scheduler.initializeDependencies({
+    async sendMessage(chatId, text) {
+      sent.push(text);
+      return { message_id: sent.length };
+    },
+  }, fakeDb);
+  const originalRequest = UserAuth.makeUserAuthenticatedRequest;
+  try {
+    UserAuth.makeUserAuthenticatedRequest = async () => ({ success: true });
+    await deliverNotification(10, message, [
+      { externalId: 'telegram:long', title: 't', content: 'c', category: 'market', priority: 'high' },
+    ]);
+  } finally {
+    UserAuth.makeUserAuthenticatedRequest = originalRequest;
+  }
+  assert.strictEqual(sent.length, chunks.length, '长摘要按顺序分多条发送');
+  assert.strictEqual(sent.join('\n'), message);
 }
 
 // 综合摘要：TG 与网页都是一期一条；分组、币种、各组优先级放进 metadata，未读数每期只加 1
