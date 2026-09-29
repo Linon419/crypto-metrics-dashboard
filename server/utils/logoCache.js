@@ -330,12 +330,18 @@ function getInlineLogoResponse(symbol) {
   return null;
 }
 
+// 与前端一致：币种管理里的 Logo URL 也可以填官网域名
+const LOGO_DOMAIN_PATTERN = /^(?=.{3,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
 function getRemoteLogoUrl(symbol, explicitLogoUrl) {
   const trimmedLogoUrl = String(explicitLogoUrl || '').trim();
   if (/^https?:\/\//i.test(trimmedLogoUrl)) return trimmedLogoUrl;
 
   const normalizedSymbol = normalizeSymbol(symbol);
-  const domain = DOMAIN_LOGO_HOSTS[normalizedSymbol];
+  const explicitDomain = trimmedLogoUrl.toLowerCase();
+  const domain = LOGO_DOMAIN_PATTERN.test(explicitDomain)
+    ? explicitDomain
+    : DOMAIN_LOGO_HOSTS[normalizedSymbol];
   if (domain) return `https://icons.duckduckgo.com/ip3/${domain}.ico`;
 
   return `${CRYPTO_ICON_BASE}/${normalizedSymbol.toLowerCase()}@2x.png`;

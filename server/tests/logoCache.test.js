@@ -24,6 +24,20 @@ async function run() {
       getRemoteLogoUrl('SPCX'),
       'https://icons.duckduckgo.com/ip3/spacex.com.ico'
     );
+    // 币种管理里填官网域名：未上市公司没有代码，按域名取网站图标
+    assert.strictEqual(
+      getRemoteLogoUrl('ANTHROPIC', ' Anthropic.com '),
+      'https://icons.duckduckgo.com/ip3/anthropic.com.ico'
+    );
+    assert.strictEqual(
+      getRemoteLogoUrl('OPENAI', 'www.openai.com'),
+      'https://icons.duckduckgo.com/ip3/www.openai.com.ico'
+    );
+    // 不是域名的文本不当域名用
+    assert.strictEqual(
+      getRemoteLogoUrl('BTC', 'not a domain'),
+      'https://assets.coincap.io/assets/icons/btc@2x.png'
+    );
 
     const aaoiLogo = await getLogoResponse('AAOI', { cacheDir: tempDir });
     assert.strictEqual(aaoiLogo.contentType, 'image/svg+xml; charset=utf-8');

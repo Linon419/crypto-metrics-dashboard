@@ -19,7 +19,34 @@ describe('coinLogos', () => {
   test('uses Brandfetch auto-detection for a newly added stock symbol', () => {
     window.runtimeConfig = { BRANDFETCH_CLIENT_ID: 'client-123' };
 
-    expect(getCoinLogoUrl('GLW')).toBe('https://cdn.brandfetch.io/GLW?c=client-123');
+    // fallback/404：Brandfetch 认不出时返回 404，<img> 的 onError 才会退回字母头像，
+    // 否则会得到一张 200 的空白图，页面上什么都不显示
+    expect(getCoinLogoUrl('GLW')).toBe('https://cdn.brandfetch.io/GLW/fallback/404?c=client-123');
+  });
+
+  test('looks up Brandfetch by official domain when one is configured', () => {
+    window.runtimeConfig = { BRANDFETCH_CLIENT_ID: 'client-123' };
+
+    expect(getCoinLogoUrl('ANTHROPIC', 'anthropic.com'))
+      .toBe('https://cdn.brandfetch.io/anthropic.com/fallback/404?c=client-123');
+    expect(getCoinLogoUrl('OPENAI', ' OpenAI.com '))
+      .toBe('https://cdn.brandfetch.io/openai.com/fallback/404?c=client-123');
+    // 内置标的填了域名也以域名为准
+    expect(getCoinLogoUrl('BTC', 'bitcoin.org'))
+      .toBe('https://cdn.brandfetch.io/bitcoin.org/fallback/404?c=client-123');
+  });
+
+  test('sends configured domains to the backend when Brandfetch is unconfigured', () => {
+    window.runtimeConfig = {};
+
+    expect(getCoinLogoUrl('ANTHROPIC', 'anthropic.com')).toContain('/api/logos/ANTHROPIC');
+  });
+
+  test('does not treat arbitrary text as a domain', () => {
+    window.runtimeConfig = { BRANDFETCH_CLIENT_ID: 'client-123' };
+
+    expect(getCoinLogoUrl('GLW', 'not a domain'))
+      .toBe('https://cdn.brandfetch.io/GLW/fallback/404?c=client-123');
   });
 
   test('keeps backend artwork for special assets', () => {

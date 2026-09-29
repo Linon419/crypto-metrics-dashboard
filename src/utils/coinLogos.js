@@ -111,8 +111,19 @@ function getBrandfetchClientId() {
   return String(window.runtimeConfig?.BRANDFETCH_CLIENT_ID || '').trim();
 }
 
-function getBrandfetchLogoUrl(symbol, clientId) {
-  return `https://cdn.brandfetch.io/${encodeURIComponent(symbol)}?c=${encodeURIComponent(clientId)}`;
+// Logo URL 里可以直接填官网域名（如 anthropic.com）：未上市公司没有股票代码，
+// Brandfetch 只能按域名识别
+const LOGO_DOMAIN_PATTERN = /^(?=.{3,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+function parseLogoDomain(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return LOGO_DOMAIN_PATTERN.test(normalized) ? normalized : null;
+}
+
+// fallback/404：认不出时返回 404 触发 <img> 的 onError，退回字母头像；
+// 不加的话 Brandfetch 会返回一张 200 的空白图，页面上什么都不显示
+function getBrandfetchLogoUrl(identifier, clientId) {
+  return `https://cdn.brandfetch.io/${encodeURIComponent(identifier)}/fallback/404?c=${encodeURIComponent(clientId)}`;
 }
 
 export function getCoinLogoUrl(symbol, explicitLogoUrl) {
@@ -123,6 +134,12 @@ export function getCoinLogoUrl(symbol, explicitLogoUrl) {
 
   const normalizedSymbol = normalizeSymbol(symbol);
   if (!normalizedSymbol) return getCoinLogoFallbackUrl(symbol);
+
+  const logoDomain = parseLogoDomain(trimmedLogoUrl);
+  if (logoDomain) {
+    const clientId = getBrandfetchClientId();
+    if (clientId) return getBrandfetchLogoUrl(logoDomain, clientId);
+  }
 
   const hasExplicitRemoteLogo = /^https?:\/\//i.test(trimmedLogoUrl);
   if (!hasExplicitRemoteLogo && !BACKEND_LOGO_SYMBOLS.has(normalizedSymbol)) {

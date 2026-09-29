@@ -345,8 +345,12 @@ function CoinManagement() {
           <Form.Item label="当前价格" name="current_price">
             <InputNumber style={{ width: '100%' }} min={0} placeholder="可留空" />
           </Form.Item>
-          <Form.Item label="Logo URL" name="logo_url">
-            <Input placeholder="可留空" />
+          <Form.Item
+            label="Logo URL"
+            name="logo_url"
+            extra="可填图片地址，或官网域名（如 anthropic.com，适合没有股票代码的公司）；留空则自动识别"
+          >
+            <Input placeholder="https://… 或 anthropic.com，可留空" />
           </Form.Item>
           <Form.Item className="mb-0">
             <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
