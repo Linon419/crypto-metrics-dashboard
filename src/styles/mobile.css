@@ -166,7 +166,7 @@
 
   .ant-layout-header.dashboard-topbar {
     height: auto !important;
-    min-height: 56px;
+    min-height: 48px;
     line-height: 1.2 !important;
   }
   

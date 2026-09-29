@@ -46,3 +46,22 @@ test('keeps the favorite action separate from the card selection action', () => 
   expect(onToggleFavorite).toHaveBeenCalledTimes(1);
   expect(onCardClick).not.toHaveBeenCalled();
 });
+
+test('hides the schelling point when the value is missing', () => {
+  const { rerender } = render(<CoinCard coin={{ ...coin, schellingPoint: null }} />);
+  expect(screen.queryByText('谢林:')).not.toBeInTheDocument();
+
+  rerender(<CoinCard coin={{ ...coin, schellingPoint: 98500 }} />);
+  expect(screen.getByText('谢林:')).toBeInTheDocument();
+  expect(screen.getByText('98,500')).toBeInTheDocument();
+});
+
+test('shows the warning icon only when explosion just dropped below 200', () => {
+  const { container, rerender } = render(
+    <CoinCard coin={{ ...coin, explosionIndex: 74, previousDayData: { explosion_index: 144 } }} />
+  );
+  expect(container.querySelector('.coin-card__warning')).not.toBeInTheDocument();
+
+  rerender(<CoinCard coin={{ ...coin, explosionIndex: 180, previousDayData: { explosion_index: 230 } }} />);
+  expect(container.querySelector('.coin-card__warning')).toBeInTheDocument();
+});

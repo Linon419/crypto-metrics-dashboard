@@ -58,6 +58,9 @@ const BLUE = '#2563eb';
 const PURPLE = '#8b5cf6';
 const EXPLOSION_UP = '#0891b2';
 const EXPLOSION_DOWN = '#be123c';
+// 均线颜色避开布林线（灰/橙）与 K 线（红/绿）
+const EMA100_COLOR = '#0f766e';
+const EMA200_COLOR = '#1e3a8a';
 const TEXT = '#2f3337';
 const RIGHT_PRICE_SCALE_WIDTH = 72;
 const ANNOTATION_TRACK_LAYOUT = [
@@ -760,6 +763,21 @@ function buildBollingerBands(rows, period = 20, multiplier = 2) {
   return { upper, middle, lower };
 }
 
+// 标准 EMA：前 period 根收盘价的简单平均作为起点，之后按 k = 2/(period+1) 递推；
+// K 线不足 period 根时不画线
+function buildEma(rows, period) {
+  if (rows.length < period) return [];
+
+  const k = 2 / (period + 1);
+  let value = rows.slice(0, period).reduce((sum, row) => sum + row.close, 0) / period;
+  const points = [{ time: rows[period - 1].time, value }];
+  for (let index = period; index < rows.length; index += 1) {
+    value = rows[index].close * k + value * (1 - k);
+    points.push({ time: rows[index].time, value });
+  }
+  return points;
+}
+
 export function buildTradingViewCycleModel({ klines = [], metrics = [] }) {
   const { rows, metricEvents, latestEvents } = buildAlignedRows(klines, metrics);
   const latest = rows.at(-1) || null;
@@ -773,6 +791,8 @@ export function buildTradingViewCycleModel({ klines = [], metrics = [] }) {
     metricEvents,
     candles: buildTimelineCandles(rows),
     boll,
+    ema100: buildEma(rows, 100),
+    ema200: buildEma(rows, 200),
     otcIndex: buildAlignedMetricSeries(rows, latestEvents, 'otcIndex'),
     explosionIndex: buildAlignedMetricSeries(rows, latestEvents, 'explosionIndex'),
     otcPointMarkers: buildMetricPointMarkers(latestEvents, 'otcIndex', BLUE),
@@ -1018,6 +1038,8 @@ export {
   BLUE,
   CHART_PERIODS,
   DEFAULT_CHART_INTERVAL,
+  EMA100_COLOR,
+  EMA200_COLOR,
   GREEN,
   LEFT_EXPAND_LIMIT,
   ORANGE,

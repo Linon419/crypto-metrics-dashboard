@@ -52,7 +52,7 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     entryExitDay,
     explosionIndex = 0,
     otcIndex = 0,
-    schellingPoint = 0,
+    schellingPoint = null,
     otcIndexChangePercent,
     explosionIndexChangePercent,
     nearThreshold = false,
@@ -60,6 +60,9 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
     logo_url: logoUrl,
     logoUrl: camelLogoUrl,
   } = coin || {};
+  const prevExplosion = Number(
+    coin?.previousDayData?.explosion_index ?? coin?.previousDayData?.explosionIndex
+  );
 
   // Safe number conversion
   const safeNumber = (value, defaultValue = 0) => {
@@ -71,6 +74,9 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
 
   // Check if explosion index is safe (above 200)
   const isExplosionSafe = safeNumber(explosionIndex) >= 200;
+  // 低于 200 已经用红色表示；⚠ 只标出"刚跌破 200"这个关键节点，避免几乎每张卡都带图标
+  const justDroppedBelow200 = !isExplosionSafe && Number.isFinite(prevExplosion) && prevExplosion >= 200;
+  const hasSchellingPoint = typeof schellingPoint === 'number' && Number.isFinite(schellingPoint);
   
   const renderIcon = () => {
     const fallbackLogoUrl = getCoinLogoFallbackUrl(symbol);
@@ -210,8 +216,8 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
               <span>爆破:</span>
               <strong>{safeNumber(explosionIndex)}</strong>
               {formatChangePercent(explosionIndexChangePercent)}
-              {!isExplosionSafe && (
-                <Tooltip title="低于安全阈值200">
+              {justDroppedBelow200 && (
+                <Tooltip title={`爆破指数刚跌破 200（前一期 ${prevExplosion}）`}>
                     <WarningOutlined className="coin-card__warning" />
                 </Tooltip>
               )}
@@ -225,19 +231,18 @@ function CoinCard({ coin, isFavorite, onToggleFavorite, onCardClick, isMobile = 
               <span>{safeNumber(otcIndex)}</span>
               {formatChangePercent(otcIndexChangePercent)}
             </div>
-            <div className="coin-card__metric">
-              <span className="coin-card__metric-label coin-card__metric-label--schelling">谢林:</span>
-              <span>
-                {typeof schellingPoint === 'number' ?
-                  (schellingPoint > 1000 ?
+            {hasSchellingPoint && (
+              <div className="coin-card__metric">
+                <span className="coin-card__metric-label coin-card__metric-label--schelling">谢林:</span>
+                <span>
+                  {schellingPoint > 1000 ?
                     isMobile ?
                       Intl.NumberFormat('en', {notation: 'compact'}).format(schellingPoint) :
                       schellingPoint.toLocaleString()
-                    : schellingPoint.toFixed(schellingPoint < 1 ? 3 : schellingPoint < 10 ? 2 : 0))
-                  : '-'
-                }
-              </span>
-            </div>
+                    : schellingPoint.toFixed(schellingPoint < 1 ? 3 : schellingPoint < 10 ? 2 : 0)}
+                </span>
+              </div>
+            )}
           </div>
 
 

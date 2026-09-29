@@ -1,7 +1,7 @@
 // src/App.jsx
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
-import { Layout, Menu } from 'antd';
+import { ConfigProvider, Layout, Menu } from 'antd';
 import { StyleProvider } from '@ant-design/cssinjs';
 import { Provider } from 'react-redux';
 import { store } from './redux/store';
@@ -19,6 +19,16 @@ import './styles/mobile.css';
 import './styles/design-system.css';
 
 const { Header, Content, Footer } = Layout;
+
+// 全站主色与顶栏一致（design-system.css 的 --cm-navy-raised），
+// 替换 antd 默认亮蓝：分页、分段控件、开关、主按钮、链接都跟着统一
+const APP_THEME = {
+  token: {
+    colorPrimary: '#0a243c',
+    colorLink: '#366c91',
+    borderRadius: 8,
+  },
+};
 
 // 期权页带 Plotly / ECharts，管理页只有管理员用：按需加载，不拖慢看板首屏
 const DataInputForm = lazy(() => import('./components/DataInputForm'));
@@ -93,7 +103,9 @@ const AppWithRedux = () => {
         antd 的白色文字保留下来——白字透明底，全站主按钮（含登录按钮）直接隐形。
       */}
       <StyleProvider hashPriority="high">
-        <AppContent />
+        <ConfigProvider theme={APP_THEME}>
+          <AppContent />
+        </ConfigProvider>
       </StyleProvider>
     </Provider>
   );
@@ -171,7 +183,7 @@ const AppContent = () => {
           </Suspense>
         </Content>
         
-        <Footer className="app-footer">加密货币指标看板 ©2025</Footer>
+        <Footer className="app-footer">加密货币指标看板 ©{new Date().getFullYear()}</Footer>
       </Layout>
     </Router>
   );

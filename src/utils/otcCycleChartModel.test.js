@@ -191,3 +191,52 @@ describe('buildTradingViewCycleModel metric alignment', () => {
     expect(model.metricEvents[0].alignedTime).toBe(rowTime(2));
   });
 });
+
+describe('buildTradingViewCycleModel EMA', () => {
+  const makeKlines = (count) => Array.from({ length: count }, (_, index) => {
+    const close = 100 + index + (index % 7) * 1.5;
+    return {
+      openTime: new Date(Date.UTC(2026, 0, 1) + index * 86400000).toISOString(),
+      open: close - 1,
+      high: close + 2,
+      low: close - 2,
+      close,
+    };
+  });
+
+  // 参考实现：前 period 根收盘价的简单平均作为起点，之后按 k = 2/(period+1) 递推
+  const referenceEma = (closes, period) => {
+    const k = 2 / (period + 1);
+    let value = closes.slice(0, period).reduce((sum, close) => sum + close, 0) / period;
+    const values = [value];
+    for (let index = period; index < closes.length; index += 1) {
+      value = closes[index] * k + value * (1 - k);
+      values.push(value);
+    }
+    return values;
+  };
+
+  test('computes EMA100 and EMA200 on close prices', () => {
+    const klines = makeKlines(260);
+    const closes = klines.map(kline => kline.close);
+    const model = buildTradingViewCycleModel({ klines, metrics: [] });
+
+    expect(model.ema100).toHaveLength(260 - 99);
+    expect(model.ema200).toHaveLength(260 - 199);
+    // 第一个点落在第 period 根 K 线上
+    expect(model.ema100[0].time).toBe(model.rows[99].time);
+    expect(model.ema200[0].time).toBe(model.rows[199].time);
+
+    const expected100 = referenceEma(closes, 100);
+    const expected200 = referenceEma(closes, 200);
+    model.ema100.forEach((point, index) => expect(point.value).toBeCloseTo(expected100[index], 8));
+    model.ema200.forEach((point, index) => expect(point.value).toBeCloseTo(expected200[index], 8));
+  });
+
+  test('returns no EMA points when there are fewer bars than the period', () => {
+    const model = buildTradingViewCycleModel({ klines: makeKlines(150), metrics: [] });
+
+    expect(model.ema100).toHaveLength(51);
+    expect(model.ema200).toEqual([]);
+  });
+});

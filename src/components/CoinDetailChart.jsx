@@ -342,7 +342,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
                 timePrecision: metric.time_precision,
                 blastIndex: coin.explosionIndex !== undefined ? coin.explosionIndex : metric.explosion_index || 0,
                 otcIndex: coin.otcIndex !== undefined ? coin.otcIndex : metric.otc_index || 0,
-                schellingPoint: coin.schellingPoint !== undefined ? coin.schellingPoint : metric.schelling_point || 0,
+                schellingPoint: coin.schellingPoint !== undefined ? coin.schellingPoint : metric.schelling_point ?? null,
                 actionType: coin.entryExitType || metric.entry_exit_type || 'neutral',
                 actionDay: coin.entryExitDay !== undefined ? coin.entryExitDay : metric.entry_exit_day || 0,
                 nearThreshold: coin.nearThreshold !== undefined ? coin.nearThreshold : metric.near_threshold || false,
@@ -360,7 +360,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
               timePrecision: metric.time_precision,
               blastIndex: metric.explosion_index || 0,
               otcIndex: metric.otc_index || 0,
-              schellingPoint: metric.schelling_point || 0,
+              schellingPoint: metric.schelling_point ?? null,
               actionType: metric.entry_exit_type === 'entry' ? '进场' : metric.entry_exit_type === 'exit' ? '退场' : '中性',
               actionDay: metric.entry_exit_day || 0,
               nearThreshold: metric.near_threshold || false,
@@ -500,7 +500,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
-      const schellingPointValue = Number(data.schellingPoint ?? 0);
+      const hasSchellingPoint = typeof data.schellingPoint === 'number' && Number.isFinite(data.schellingPoint);
       const isWarning = (data.blastIndex || 0) < 200;
       const qualityMeta = data.periodQuality ? getPeriodQualityMeta(data.periodQuality) : null;
       const actionInfo = data.actionType === '中性' ? 
@@ -545,7 +545,7 @@ function CoinDetailChart({ coin, onRefresh, selectedDate, useLatestKlineWindow =
           </div>
           
           <div className="mt-2 text-xs">
-            <span className="text-purple-600 font-medium">谢林点: {schellingPointValue.toLocaleString()}</span>
+            <span className="text-purple-600 font-medium">谢林点: {hasSchellingPoint ? data.schellingPoint.toLocaleString() : '-'}</span>
           </div>
         </div>
       );

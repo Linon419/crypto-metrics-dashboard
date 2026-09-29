@@ -53,82 +53,50 @@ function AdminSettings() {
         items={[
           {
             key: 'coins',
-            label: (
-              <span>
-                <DatabaseOutlined />
-                币种管理
-              </span>
-            ),
+            label: '币种管理',
+            icon: <DatabaseOutlined />,
             children: <CoinManagement />,
           },
           {
             key: 'users',
-            label: (
-              <span>
-                <UserOutlined />
-                用户管理
-              </span>
-            ),
+            label: '用户管理',
+            icon: <UserOutlined />,
             children: <UserManagement />,
           },
           {
             key: 'kline-mappings',
-            label: (
-              <span>
-                <BarChartOutlined />
-                K线映射
-              </span>
-            ),
+            label: 'K线映射',
+            icon: <BarChartOutlined />,
             children: <KlineMappingSettings />,
           },
           {
             key: 'kline-cleanup',
-            label: (
-              <span>
-                <DeleteOutlined />
-                K线清理
-              </span>
-            ),
+            label: 'K线清理',
+            icon: <DeleteOutlined />,
             children: <KlineCleanupSettings />,
           },
           {
             key: 'ai-model-settings',
-            label: (
-              <span>
-                <ApiOutlined />
-                AI模型
-              </span>
-            ),
+            label: 'AI模型',
+            icon: <ApiOutlined />,
             children: <AIModelSettings />,
           },
           {
             key: 'prompt-settings',
-            label: (
-              <span>
-                <FileTextOutlined />
-                AI解析 Prompt
-              </span>
-            ),
+            label: 'AI解析 Prompt',
+            icon: <FileTextOutlined />,
             children: <PromptSettings />,
           },
           {
             key: 'agent-token',
-            label: (
-              <span>
-                <KeyOutlined />
-                Agent 访问
-              </span>
-            ),
+            label: 'Agent 访问',
+            icon: <KeyOutlined />,
             children: <AgentTokenSettings />,
           },
           {
             key: 'logo-settings',
-            label: (
-              <span>
-                <PictureOutlined />
-                Logo
-              </span>
-            ),
+            label: 'Logo',
+            icon: <PictureOutlined />,
             children: <LogoSettings />,
           },
         ]}

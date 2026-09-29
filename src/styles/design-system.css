@@ -87,6 +87,12 @@ body {
   white-space: nowrap;
 }
 
+.ant-layout-header.global-nav .global-nav__brand {
+  /* 品牌是链接，会被 antd 的链接色覆盖；主色改为深蓝后在顶栏上会看不见 */
+  color: #e9f2fb;
+}
+
+.ant-layout-header.global-nav .global-nav__brand:hover,
 .global-nav__brand:hover {
   color: #ffffff;
 }
@@ -171,6 +177,16 @@ body {
 .notification-drawer .ant-drawer-title,
 .notification-drawer .ant-drawer-close {
   color: #fbf7ed;
+}
+
+/* antd 的 CSS-in-JS 在运行时注入、排在本文件之后，同优先级时它会赢；这里多写一层保证深色标题栏上的关闭按钮可见 */
+.notification-drawer .ant-drawer-header .ant-drawer-header-title .ant-drawer-close {
+  color: rgba(251, 247, 237, 0.82);
+}
+
+.notification-drawer .ant-drawer-header .ant-drawer-header-title .ant-drawer-close:hover {
+  color: #fbf7ed;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .notification-drawer .ant-drawer-body {
@@ -543,6 +559,21 @@ body {
   font-weight: 700;
 }
 
+/* 同上：多一层选择器压过 antd 注入样式，否则深蓝顶栏上的日期是深色字，几乎看不见 */
+.ant-layout-header.dashboard-topbar .ant-picker .ant-picker-input > input,
+.ant-layout-header.dashboard-topbar .ant-picker.ant-picker-disabled .ant-picker-input > input {
+  color: #f7fbff;
+}
+
+.ant-layout-header.dashboard-topbar .ant-picker.ant-picker-disabled {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(226, 237, 246, 0.14);
+}
+
+.ant-layout-header.dashboard-topbar .ant-picker.ant-picker-disabled .ant-picker-input > input {
+  color: rgba(247, 251, 255, 0.55);
+}
+
 .dashboard-topbar .ant-picker-suffix {
   color: rgba(226, 237, 246, 0.72);
 }
@@ -554,10 +585,11 @@ body {
 }
 
 .dashboard-overview-strip {
-  display: flex;
+  /* 两行：统计标签 + 期权调参；BTC RV/IV 独占第二行，避免三块挤在一行里各自折行 */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px 12px;
   margin-bottom: 10px;
   padding: 8px 10px;
   border: 1px solid rgba(78, 68, 50, 0.12);
@@ -603,9 +635,8 @@ body {
 .option-tuning-panel {
   display: inline-flex;
   flex: 0 0 auto;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
+  align-items: center;
+  gap: 8px;
   min-height: 30px;
   padding: 4px 8px;
   border: 1px solid rgba(29, 78, 216, 0.16);
@@ -790,6 +821,14 @@ body {
 
 .tv-cycle-chart__legend-line--otc {
   border-color: #2563eb;
+}
+
+.tv-cycle-chart__legend-line--ema100 {
+  border-color: #0f766e;
+}
+
+.tv-cycle-chart__legend-line--ema200 {
+  border-color: #1e3a8a;
 }
 
 .tv-cycle-chart__legend-line--explosion {
@@ -1404,9 +1443,20 @@ body {
 
 .market-search-trigger .ant-input {
   width: 100% !important;
+  padding-inline: 0;
   background: transparent;
   color: #f7fbff;
   font-weight: 650;
+}
+
+.market-search-trigger--icon {
+  justify-content: center;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  color: #f7fbff;
+  font-size: 16px;
 }
 
 .market-search-trigger .ant-input::placeholder {
@@ -1481,6 +1531,13 @@ body {
   color: rgba(31, 36, 33, 0.5);
 }
 
+.dashboard-overview-strip .btc-vol-panel {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  padding-top: 8px;
+  border-top: 1px solid rgba(78, 68, 50, 0.1);
+}
+
 .chart-panel .ant-card-head,
 .dashboard-shell .ant-card-head {
   border-color: rgba(78, 68, 50, 0.12);
@@ -1529,6 +1586,22 @@ body {
   box-shadow: var(--cm-shadow);
 }
 
+/* 与顶栏的 CM 标识一致 */
+.login-card__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: var(--cm-navy);
+  color: var(--cm-gold);
+  font-family: "DIN Alternate", "Avenir Next", sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+}
+
 @media (max-width: 1100px) {
   .dashboard-brand {
     gap: 12px;
@@ -1563,13 +1636,15 @@ body {
     display: none;
   }
 
+  /* mobile.css 把全局导航定为 48px（!important），这里必须同值，否则两栏之间露出一条缝 */
   .ant-layout-header.dashboard-topbar {
-    top: 52px;
-    padding: 8px 10px;
+    top: 48px;
+    min-height: 48px;
+    padding: 6px 10px;
   }
 
   .dashboard-topbar.is-hidden-on-scroll {
-    transform: translateY(calc(-100% - 52px));
+    transform: translateY(calc(-100% - 48px));
   }
 
   .dashboard-brand {
@@ -1580,8 +1655,9 @@ body {
     min-width: auto;
   }
 
-  .dashboard-brand__title {
-    font-size: 17px;
+  /* 全局导航已标明当前在看板页，手机上省掉标题，顶栏压成一行 */
+  .dashboard-brand__identity {
+    display: none;
   }
 
   .dashboard-brand__meta {
@@ -1589,8 +1665,8 @@ body {
   }
 
   .market-search-trigger {
-    min-width: 92px;
-    width: 92px;
+    min-width: 36px;
+    width: 36px;
     height: 36px;
   }
 
@@ -1678,7 +1754,9 @@ body {
     min-height: 108px;
   }
 
+  .dashboard-overview-strip .btc-vol-panel,
   .btc-vol-panel {
+    flex-wrap: wrap;
     justify-content: flex-start;
     min-width: 0;
     margin-top: 8px;
@@ -1686,9 +1764,11 @@ body {
     border-top: 1px solid rgba(78, 68, 50, 0.1);
   }
 
+  /* 指标换到标题下方、横向折行，不再竖着排成一长列 */
   .btc-vol-panel__metrics {
+    flex: 1 1 100%;
     justify-content: flex-start;
-    gap: 7px;
+    gap: 4px 12px;
   }
 
   .dashboard-hero-main {

@@ -20,12 +20,14 @@ import {
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import {
   createAdminCoin,
   deleteAdminCoin,
   fetchAdminCoins,
   updateAdminCoin,
 } from '../services/api';
+import { getCoinLogoFallbackUrl, getCoinLogoUrl } from '../utils/coinLogos';
 
 const { Text } = Typography;
 
@@ -225,14 +227,30 @@ function CoinManagement() {
       dataIndex: 'logo_url',
       key: 'logo_url',
       ellipsis: true,
-      render: value => (value ? <Text copyable>{value}</Text> : '-'),
+      // 直接预览实际显示效果，便于发现白色图标、空白图之类的问题
+      render: (value, record) => (
+        <Space size={8}>
+          <img
+            src={getCoinLogoUrl(record.symbol, value)}
+            alt={`${record.symbol} logo`}
+            width={24}
+            height={24}
+            style={{ borderRadius: '50%', border: '1px solid #e5e7eb', background: '#fff', objectFit: 'cover', flexShrink: 0 }}
+            onError={(event) => {
+              event.currentTarget.onerror = null;
+              event.currentTarget.src = getCoinLogoFallbackUrl(record.symbol);
+            }}
+          />
+          {value ? <Text copyable ellipsis>{value}</Text> : <Text type="secondary">自动识别</Text>}
+        </Space>
+      ),
     },
     {
       title: '更新时间',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
       width: 160,
-      render: value => (value ? new Date(value).toLocaleString() : '-'),
+      render: value => (value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-'),
     },
     {
       title: '操作',

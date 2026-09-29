@@ -114,6 +114,17 @@ describe('OtcIndexTable', () => {
     expect(rowTags('ZERO')).not.toContain('负转正');
   });
 
+  test('hides the schelling point column when no coin has a value', () => {
+    const { unmount } = render(
+      <OtcIndexTable coins={mockCoins.slice(0, 3).map(coin => ({ ...coin, schellingPoint: null }))} />
+    );
+    expect(screen.queryByText('谢林点')).not.toBeInTheDocument();
+    unmount();
+
+    render(<OtcIndexTable coins={mockCoins.slice(0, 3)} />);
+    expect(screen.getByText('谢林点')).toBeInTheDocument();
+  });
+
   test('renders asterisk momentum indicator', () => {
     render(
       <OtcIndexTable

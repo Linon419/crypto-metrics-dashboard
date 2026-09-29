@@ -14,6 +14,8 @@ import {
   BLUE,
   CHART_PERIODS,
   DEFAULT_CHART_INTERVAL,
+  EMA100_COLOR,
+  EMA200_COLOR,
   GREEN,
   LEFT_EXPAND_LIMIT,
   ORANGE,
@@ -431,6 +433,24 @@ function OtcCycleChart({
       priceFormat,
     });
 
+    const ema100Series = priceChart.addSeries(LineSeries, {
+      color: EMA100_COLOR,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+      priceFormat,
+    });
+
+    const ema200Series = priceChart.addSeries(LineSeries, {
+      color: EMA200_COLOR,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+      priceFormat,
+    });
+
     const otcSeries = otcChart.addSeries(LineSeries, {
       color: BLUE,
       lineWidth: 2,
@@ -657,6 +677,8 @@ function OtcCycleChart({
       bollLowerSeries,
       bollMiddleSeries,
       bollUpperSeries,
+      ema100Series,
+      ema200Series,
       candleMarkers,
       candleSeries,
       charts,
@@ -707,6 +729,8 @@ function OtcCycleChart({
       handles.bollUpperSeries.setData(model.boll.upper);
       handles.bollMiddleSeries.setData(model.boll.middle);
       handles.bollLowerSeries.setData(model.boll.lower);
+      handles.ema100Series.setData(model.ema100);
+      handles.ema200Series.setData(model.ema200);
       handles.otcSeries.setData(model.otcIndex);
       handles.explosionSeries.setData(model.explosionIndex);
     } finally {
@@ -853,6 +877,8 @@ function OtcCycleChart({
             <span>{symbol} K线</span>
             <b>Close {formatPrice(latest?.close)}</b>
             <b><i className="tv-cycle-chart__legend-line tv-cycle-chart__legend-line--boll" />BOLL(20,2)</b>
+            <b><i className="tv-cycle-chart__legend-line tv-cycle-chart__legend-line--ema100" />EMA100 {formatPrice(model.ema100.at(-1)?.value)}</b>
+            <b><i className="tv-cycle-chart__legend-line tv-cycle-chart__legend-line--ema200" />EMA200 {formatPrice(model.ema200.at(-1)?.value)}</b>
             <b><i className="tv-cycle-chart__legend-line tv-cycle-chart__legend-line--otc" />场外 {formatMetric(latest?.otcIndex)}</b>
             <b><i className="tv-cycle-chart__legend-line tv-cycle-chart__legend-line--explosion" />爆破 {formatMetric(latest?.explosionIndex)}</b>
             <b>最近 {visibleBars || 0} 根</b>

@@ -119,7 +119,8 @@ test('renders BTC cycle chart with TradingView-style panels', async () => {
   await waitFor(() => expect(fetchCoinKlines).toHaveBeenCalledWith('BTC', expect.objectContaining({ interval: '4h' })));
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('BTC K线');
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('BOLL(20,2)');
-  expect(screen.getByTestId('cycle-chart')).not.toHaveTextContent('EMA10');
+  // EMA10 已按需求移除；EMA100/EMA200 是另外加的长期均线，不能被这条断言误伤
+  expect(screen.getByTestId('cycle-chart')).not.toHaveTextContent(/EMA10(?!\d)/);
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('场外指数');
   expect(screen.getByTestId('cycle-chart')).toHaveTextContent('爆破指数');
   expect(screen.getByText('场外指数 / 1000')).toBeInTheDocument();
@@ -160,6 +161,45 @@ test('preserves sub-dollar price precision when a low-priced symbol opens', asyn
     expectedPriceFormat,
     expectedPriceFormat,
   ]);
+});
+
+test('draws EMA100 and EMA200 on the price pane with legend values', async () => {
+  const longKlines = Array.from({ length: 220 }, (_, index) => {
+    const openTime = new Date(Date.UTC(2026, 0, 1, index * 4));
+    return {
+      openTime: openTime.toISOString(),
+      closeTime: new Date(openTime.getTime() + 4 * 60 * 60 * 1000 - 1).toISOString(),
+      open: 100 + index,
+      high: 102 + index,
+      low: 99 + index,
+      close: 101 + index,
+      volume: 10,
+    };
+  });
+  fetchCoinKlines.mockResolvedValue({ symbol: 'BTC', interval: '4h', klines: longKlines });
+  fetchCoinMetrics.mockResolvedValue([]);
+
+  render(<OtcCycleChart symbol="BTC" />);
+
+  await screen.findByText('量化 K 线');
+  await waitFor(() => expect(createChart).toHaveBeenCalledTimes(3));
+
+  const priceChart = mockChartInstances[0];
+  const priceSeriesOptions = priceChart.addSeries.mock.calls.map(([, options]) => options);
+  const emaSeries = priceChart.addSeries.mock.results
+    .map((result, index) => ({ series: result.value, options: priceSeriesOptions[index] }))
+    .filter(({ options }) => options?.color === '#0f766e' || options?.color === '#1e3a8a');
+  expect(emaSeries).toHaveLength(2);
+
+  await waitFor(() => {
+    emaSeries.forEach(({ series }) => expect(series.setData).toHaveBeenCalled());
+  });
+  const [ema100Data, ema200Data] = emaSeries.map(({ series }) => series.setData.mock.calls.at(-1)[0]);
+  expect(ema100Data).toHaveLength(220 - 99);
+  expect(ema200Data).toHaveLength(220 - 199);
+
+  expect(screen.getByText(/EMA100/)).toBeInTheDocument();
+  expect(screen.getByText(/EMA200/)).toBeInTheDocument();
 });
 
 test('does not add a symbol title to the current price axis label', async () => {

@@ -5,7 +5,6 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   InfoCircleOutlined,
-  WarningOutlined,
   RightOutlined
 } from '@ant-design/icons';
 import { getPeriodQualityMeta } from '../utils/periodQualityMeta';
@@ -13,6 +12,9 @@ import { evaluateStrategySignal } from '../utils/strategySignals';
 import { getCoinLogoFallbackUrl, getCoinLogoUrl } from '../utils/coinLogos';
 
 const { Title, Text } = Typography;
+
+// 谢林点常整体缺失（null）；parseFloat(null) 为 NaN，空串同理
+const hasSchellingValue = value => value !== null && value !== undefined && value !== '' && Number.isFinite(parseFloat(value));
 const { Panel } = Collapse;
 
 // 默认一页显示全部币种；仍可切回固定条数分页
@@ -355,11 +357,6 @@ function OtcIndexTable({
               </Tooltip>
             )}
 
-            {isWarning && (
-              <Tooltip title="爆破指数低于200，处于风险区域">
-                <WarningOutlined className="ml-2 text-amber-500" />
-              </Tooltip>
-            )}
           </div>
         );
       }
@@ -401,14 +398,21 @@ function OtcIndexTable({
     }
   ];
 
+  const showSchellingPoint = tableData.some(row => hasSchellingValue(row.schellingPoint));
+  const visibleColumns = showSchellingPoint
+    ? columns
+    : columns.filter(column => column.key !== 'schellingPoint');
+
   // Sorting options for mobile
   const sortOptions = [
     { label: '场外指数从高到低', value: 'otcIndex-desc' },
     { label: '场外指数从低到高', value: 'otcIndex-asc' },
     { label: '爆破指数从高到低', value: 'explosionIndex-desc' },
     { label: '爆破指数从低到高', value: 'explosionIndex-asc' },
-    { label: '谢林点从高到低', value: 'schellingPoint-desc' },
-    { label: '谢林点从低到高', value: 'schellingPoint-asc' }
+    ...(showSchellingPoint ? [
+      { label: '谢林点从高到低', value: 'schellingPoint-desc' },
+      { label: '谢林点从低到高', value: 'schellingPoint-asc' },
+    ] : []),
   ];
 
   // Handle mobile sort change
@@ -552,23 +556,20 @@ function OtcIndexTable({
                     ) : null}
                   </span>
                 )}
-                {!isExplosionSafe && (
-                  <WarningOutlined className="ml-1 text-amber-500" />
-                )}
               </div>
             </div>
           </div>
 
-          <div className="mt-1">
-            <Text type="secondary" className="text-xs">谢林点:</Text>
-            <span className="text-purple-600 ml-1">
-              {typeof parseFloat(coin.schellingPoint) === 'number' && !isNaN(parseFloat(coin.schellingPoint)) ? (
-                parseFloat(coin.schellingPoint) > 1000 ?
+          {hasSchellingValue(coin.schellingPoint) && (
+            <div className="mt-1">
+              <Text type="secondary" className="text-xs">谢林点:</Text>
+              <span className="text-purple-600 ml-1">
+                {parseFloat(coin.schellingPoint) > 1000 ?
                   Intl.NumberFormat('en', { notation: 'compact' }).format(parseFloat(coin.schellingPoint)) :
-                  parseFloat(coin.schellingPoint).toFixed(parseFloat(coin.schellingPoint) < 1 ? 3 : parseFloat(coin.schellingPoint) < 10 ? 2 : 0)
-              ) : '-'}
-            </span>
-          </div>
+                  parseFloat(coin.schellingPoint).toFixed(parseFloat(coin.schellingPoint) < 1 ? 3 : parseFloat(coin.schellingPoint) < 10 ? 2 : 0)}
+              </span>
+            </div>
+          )}
         </div>
       </List.Item>
     );
@@ -658,7 +659,7 @@ function OtcIndexTable({
         // Desktop view - Table
         <>
           <Table
-            columns={columns}
+            columns={visibleColumns}
             dataSource={tableData}
             pagination={tableData.length > PAGE_SIZE_OPTIONS[0] ? {
               pageSize: effectivePageSize,

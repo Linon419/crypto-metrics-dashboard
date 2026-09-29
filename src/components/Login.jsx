@@ -44,6 +44,7 @@ function Login() {
     <div className="login-shell flex justify-center items-center">
       <Card className="login-card w-full max-w-md">
         <div className="text-center mb-6">
+          <span className="login-card__mark" aria-hidden="true">CM</span>
           <Title level={2}>加密货币指标看板</Title>
           <Text type="secondary">登录以访问系统</Text>
         </div>

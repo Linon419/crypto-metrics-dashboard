@@ -1197,7 +1197,7 @@ function Dashboard() {
 
         <div className="p-4">
           <Text type="secondary">
-            加密货币指标看板 ©2025
+            加密货币指标看板 ©{new Date().getFullYear()}
           </Text>
         </div>
       </Drawer>

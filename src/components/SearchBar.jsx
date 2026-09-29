@@ -188,32 +188,39 @@ function SearchBar({ coins, onSelect, favorites = [], onToggleFavorite, loading 
   
   return (
     <div className="market-search relative" ref={dropdownRef}>
-      {/* Search button/input */}
-      <div
-        className="market-search-trigger"
-        onClick={handleSearchIconClick}
-      >
-        {loading ? (
-          <LoadingOutlined className="text-gray-400 mr-2" />
-        ) : (
-          <SearchOutlined className="text-gray-400 mr-2" />
-        )}
-        <Input
-          placeholder={isMobile ? "搜索" : "搜索币种..."}
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isMobile) {
-              setIsDrawerOpen(true);
-            } else {
+      {/* 手机上顶栏放不下输入框：只放一个图标按钮，点开全屏搜索面板 */}
+      {isMobile ? (
+        <button
+          type="button"
+          className="market-search-trigger market-search-trigger--icon"
+          onClick={handleSearchIconClick}
+          aria-label="搜索币种"
+        >
+          {loading ? <LoadingOutlined /> : <SearchOutlined />}
+        </button>
+      ) : (
+        <div
+          className="market-search-trigger"
+          onClick={handleSearchIconClick}
+        >
+          {loading ? (
+            <LoadingOutlined className="text-gray-400 mr-2" />
+          ) : (
+            <SearchOutlined className="text-gray-400 mr-2" />
+          )}
+          {/* 外层容器已有边框，输入框本身不再画框 */}
+          <Input
+            variant="borderless"
+            placeholder="搜索币种..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onClick={(e) => {
+              e.stopPropagation();
               setIsDropdownOpen(true);
-            }
-          }}
-          className="bg-transparent border-0 text-white placeholder-gray-500"
-          style={{ width: isMobile ? '70px' : '180px' }}
-        />
-      </div>
+            }}
+          />
+        </div>
+      )}
       
       {/* Desktop dropdown */}
       {!isMobile && isDropdownOpen && (
