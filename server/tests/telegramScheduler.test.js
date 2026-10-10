@@ -511,6 +511,8 @@ async function run() {
   assert.ok(message.includes('场外三连降'));
   assert.ok(!message.includes('**SOL**'));
 
+  await testSameDateNewVersionNotifiesOnlyNewNodes();
+  await testRestartCatchUpForSameDateVersion();
   await testPeriodQualityAndKeyNodeCoverage();
   await testLongSummarySplitsIntoTelegramChunks();
   await testDataUpdateWebPayloads();
@@ -518,6 +520,151 @@ async function run() {
   await testWebDeliveryIndependentOfTelegram();
 
   console.log('telegramScheduler.test.js passed');
+}
+
+// 同一数据日期可以录入多个版本（例如 9.29 00:27 与 9.29 18:53）：
+// 每个版本各自判断，但同一天推过的节点不再重复推
+function versionMetrics(timestamp, overridesBySymbol) {
+  const base = {
+    BTC: { coin: { id: 1, symbol: 'BTC', name: 'Bitcoin' }, entry_exit_type: 'entry', entry_exit_day: 1, period_quality: '高质量进场', explosion_index: 230, previous_day_data: { explosion_index: 220 } },
+    ETH: { coin: { id: 2, symbol: 'ETH', name: 'Ethereum' }, entry_exit_type: 'entry', entry_exit_day: 20, period_quality: '高质量进场', explosion_index: 230, previous_day_data: { explosion_index: 230 } },
+    SOL: { coin: { id: 3, symbol: 'SOL', name: 'Solana' }, entry_exit_type: 'entry', entry_exit_day: 30, period_quality: '高质量进场', explosion_index: 230, previous_day_data: { explosion_index: 230 } },
+  };
+  return Object.entries(base).map(([symbol, metric]) => ({
+    date: '2026-08-20',
+    timestamp,
+    otc_index: 1200,
+    momentum_indicators: [],
+    ...metric,
+    ...(overridesBySymbol[symbol] || {}),
+  }));
+}
+
+const PREVIOUS_DAY_RESPONSE = {
+  success: true,
+  date: '2026-08-19',
+  coins: ['BTC', 'ETH', 'SOL'].map((symbol, index) => ({
+    id: index + 1,
+    symbol,
+    name: symbol,
+    otcIndex: 1200,
+    explosionIndex: 230,
+    entryExitType: symbol === 'BTC' ? 'neutral' : 'entry',
+    entryExitDay: symbol === 'BTC' ? 0 : 19,
+    period_quality: symbol === 'BTC' ? '观望' : '高质量进场',
+  })),
+};
+
+function installVersionedData({ latestSequence, favorites = [] }) {
+  const posted = [];
+  let latestCalls = 0;
+  UserAuth.getUserCredentials = async () => ({ username: 'test' });
+  UserAuth.makeUserAuthenticatedRequest = async (chatId, method, endpoint, data) => {
+    if (endpoint === '/data/latest') {
+      const index = Math.min(latestCalls, latestSequence.length - 1);
+      latestCalls += 1;
+      return { success: true, date: '2026-08-20', metrics: latestSequence[index] };
+    }
+    if (endpoint === '/data/available-dates') return { success: true, dates: ['2026-08-20', '2026-08-19'] };
+    if (endpoint === '/data/by-date/2026-08-19') return PREVIOUS_DAY_RESPONSE;
+    if (endpoint === '/favorites') return favorites;
+    if (endpoint === '/notifications' && method === 'post') {
+      posted.push(data);
+      return { success: true };
+    }
+    throw new Error(`Unexpected request: ${method} ${endpoint}`);
+  };
+  return posted;
+}
+
+async function testSameDateNewVersionNotifiesOnlyNewNodes() {
+  const fakeDb = createFakeDb({ subscribers: [11] });
+  // 前一天已发过，机器人据此恢复基线
+  fakeDb.history.add('11|SYSTEM|data_update|2026-08-19');
+  const sent = [];
+  const originalGetUserCredentials = UserAuth.getUserCredentials;
+  const originalRequest = UserAuth.makeUserAuthenticatedRequest;
+
+  // 早上版本：BTC 新进场；晚上版本：ETH 跌破 200（BTC 仍是进场第 1 天，不应重复）；
+  // 再晚一版：数值变了但没有新节点
+  const morning = versionMetrics('2026-08-20T00:27:00.000Z', {});
+  const evening = versionMetrics('2026-08-20T08:53:00.000Z', {
+    ETH: { explosion_index: 150, previous_day_data: { explosion_index: 230 } },
+  });
+  const later = versionMetrics('2026-08-20T10:00:00.000Z', {
+    ETH: { explosion_index: 140, otc_index: 1100, previous_day_data: { explosion_index: 230 } },
+  });
+
+  try {
+    const posted = installVersionedData({ latestSequence: [morning, morning, evening, later] });
+    scheduler.initializeDependencies({
+      async sendMessage(chatId, message) {
+        sent.push(message);
+        return { message_id: sent.length };
+      },
+    }, fakeDb);
+
+    await scheduler.checkDataUpdates();
+    assert.strictEqual(sent.length, 1, '早上版本正常推送');
+    assert.match(sent[0], /新进入进场期/);
+    assert.match(sent[0], /数据时间：<b>10:27<\/b>/, '摘要标明数据时间（悉尼时区）');
+
+    await scheduler.checkDataUpdates();
+    assert.strictEqual(sent.length, 1, '同一版本不重复推送');
+
+    await scheduler.checkDataUpdates();
+    assert.strictEqual(sent.length, 2, '同一天的新版本有新节点时要推送');
+    assert.match(sent[1], /爆破跌破 200/);
+    assert.match(sent[1], /数据时间：<b>18:53<\/b>/);
+    assert.ok(!sent[1].includes('<b>BTC</b>'), '早上推过的 BTC 节点不重复');
+
+    await scheduler.checkDataUpdates();
+    assert.strictEqual(sent.length, 2, '没有新节点的版本不推送');
+
+    assert.strictEqual(posted.length, 2);
+    assert.notStrictEqual(posted[0].externalId, posted[1].externalId, '两个版本各自一条网页通知');
+    assert.strictEqual(posted[1].title, '数据摘要 · 2026-08-20 18:53');
+  } finally {
+    UserAuth.getUserCredentials = originalGetUserCredentials;
+    UserAuth.makeUserAuthenticatedRequest = originalRequest;
+  }
+}
+
+// 部署当天的真实情况：旧代码已按日期发过早上版本（只有日期级记录），
+// 重启后发现晚上版本没发过，要补发且只含新节点；收藏提醒沿用市场变化的记录去重
+async function testRestartCatchUpForSameDateVersion() {
+  const fakeDb = createFakeDb({ subscribers: [12] });
+  ['12|SYSTEM|data_update|2026-08-20', '12|BTC|change_entry_day_1|2026-08-20',
+    '12|BTC|quality_entry_start|2026-08-20', '12|ETH|explosion_drop_200|2026-08-20']
+    .forEach(key => fakeDb.history.add(key));
+  const sent = [];
+  const originalGetUserCredentials = UserAuth.getUserCredentials;
+  const originalRequest = UserAuth.makeUserAuthenticatedRequest;
+
+  const evening = versionMetrics('2026-08-20T08:53:00.000Z', {
+    ETH: { explosion_index: 150, previous_day_data: { explosion_index: 230 } },
+    SOL: { entry_exit_type: 'exit', entry_exit_day: 1, period_quality: '高质量退场' },
+  });
+
+  try {
+    installVersionedData({ latestSequence: [evening], favorites: ['ETH'] });
+    scheduler.initializeDependencies({
+      async sendMessage(chatId, message) {
+        sent.push(message);
+        return { message_id: sent.length };
+      },
+    }, fakeDb);
+
+    await scheduler.checkDataUpdates();
+  } finally {
+    UserAuth.getUserCredentials = originalGetUserCredentials;
+    UserAuth.makeUserAuthenticatedRequest = originalRequest;
+  }
+
+  assert.strictEqual(sent.length, 1, '重启后补发同一天漏掉的新版本');
+  assert.match(sent[0], /<b>SOL<\/b>/, '新节点：SOL 进入退场期');
+  assert.ok(!sent[0].includes('<b>BTC</b>'), '已推过的 BTC 新进场不重复');
+  assert.ok(!sent[0].includes('<b>ETH</b>'), '已推过的 ETH 跌破 200（含收藏提醒）不重复');
 }
 
 // 退场质量变化也要推送；关键节点（市场变化、优质机会、收藏提醒）不能被条数上限截掉
@@ -538,6 +685,28 @@ async function testPeriodQualityAndKeyNodeCoverage() {
   assert.strictEqual(exitQualityChange[0].changeType, '退场质量变化');
   assert.strictEqual(exitQualityChange[0].description, '高质量退场 → 低质量退场');
   assert.strictEqual(exitQualityChange[0].notificationKey, 'change_exit_quality');
+
+  // 「待观察」「数据不足」不是质量结论，与之相互切换不算质量变化
+  assert.deepStrictEqual(analyzeDataChanges([{
+    coin: { symbol: 'OPENAI', name: 'OPENAI' },
+    otc_index: 1474,
+    explosion_index: 230,
+    entry_exit_type: 'entry',
+    entry_exit_day: 12,
+    period_quality: '数据不足',
+  }], {
+    coins: [{ symbol: 'OPENAI', entry_exit_type: 'entry', period_quality: '进场期 (待观察)' }],
+  }), []);
+  assert.deepStrictEqual(analyzeDataChanges([{
+    coin: { symbol: 'LTC', name: 'LTC' },
+    otc_index: 1457,
+    explosion_index: 230,
+    entry_exit_type: 'entry',
+    entry_exit_day: 12,
+    period_quality: '高质量进场',
+  }], {
+    coins: [{ symbol: 'LTC', entry_exit_type: 'entry', period_quality: '进场期 (待观察)' }],
+  }), []);
 
   // 进场 → 退场是周期切换，由"新进入退场期"覆盖，不算质量变化
   assert.deepStrictEqual(analyzeDataChanges([{

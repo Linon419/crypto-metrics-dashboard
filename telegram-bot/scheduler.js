@@ -103,10 +103,37 @@ function getMomentumIndicators(metric) {
     return [];
 }
 
+// 同一数据日期可以录入多个版本（例如 9.29 00:27 与 9.29 18:53），用数据时间区分版本
+function getDataVersion(data) {
+    const times = (Array.isArray(data?.metrics) ? data.metrics : [])
+        .map(metric => new Date(metric?.timestamp).getTime())
+        .filter(Number.isFinite);
+    return times.length > 0 ? new Date(Math.max(...times)).toISOString() : '';
+}
+
+// 没有数据时间时退回按日期去重（旧行为）
+function getDataUpdateVersionKey(version) {
+    return version ? `${DATA_UPDATE_NOTIFICATION_KEY}@${version}` : DATA_UPDATE_NOTIFICATION_KEY;
+}
+
+// 与录入时的浏览器时区一致，按机器人时区显示数据时间
+function formatDataVersionTime(version) {
+    if (!version) return '';
+    const date = new Date(version);
+    if (!Number.isFinite(date.getTime())) return '';
+    return new Intl.DateTimeFormat('en-GB', {
+        timeZone: SCHEDULER_TIMEZONE,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    }).format(date);
+}
+
 // 创建数据快照用于比较
 function createDataSnapshot(data) {
     return {
         date: data.date,
+        version: getDataVersion(data),
         totalCoins: data.metrics.length,
         coins: data.metrics.map(metric => ({
             symbol: metric.coin.symbol,
@@ -126,6 +153,11 @@ function createDataSnapshot(data) {
 function hasDataChanged(lastSnapshot, currentSnapshot) {
     // 如果数据日期不同，说明有更新
     if (lastSnapshot.date !== currentSnapshot.date) {
+        return true;
+    }
+
+    // 同一天录入了新版本
+    if (lastSnapshot.version !== currentSnapshot.version) {
         return true;
     }
 
@@ -443,7 +475,7 @@ const PRIORITY_RANK = Object.freeze({ normal: 0, high: 1, critical: 2 });
 
 // 一期一条网页通知：未读数每期只加 1；各组的分类、优先级、币种放进 metadata 供筛选和 Agent 使用。
 // 整条的优先级与分类取本期最高优先级那一组。
-function buildDataUpdateWebPayload(notifications, dataDate, now = new Date()) {
+function buildDataUpdateWebPayload(notifications, dataDate, now = new Date(), dataVersion = '') {
     const groups = notifications.map(group => ({
         type: group.type,
         category: DATA_UPDATE_GROUP_CATEGORIES[group.type] || 'market',
@@ -461,9 +493,9 @@ function buildDataUpdateWebPayload(notifications, dataDate, now = new Date()) {
 
     return buildWebNotificationPayload(body, {
         now,
-        title: `数据摘要 · ${dataDate}`,
+        title: `数据摘要 · ${dataDate}${formatDataVersionTime(dataVersion) ? ` ${formatDataVersionTime(dataVersion)}` : ''}`,
         notificationDate: dataDate,
-        dedupeKey: `${DATA_UPDATE_NOTIFICATION_KEY}:${dataDate}`,
+        dedupeKey: `${DATA_UPDATE_NOTIFICATION_KEY}:${dataDate}${dataVersion ? `:${dataVersion}` : ''}`,
         category: topGroup?.category || 'market',
         priority: topGroup?.priority || 'normal',
         coinSymbol: coins.length === 1 ? coins[0] : null,
@@ -687,17 +719,39 @@ function getLastDataUpdateDate(chatId) {
 
 // 内存基线在重启后为空：用上次已发送那一期的数据当基线，之后的日期照常逐日补发。
 // 从没发过（新订阅）或已经发到最新一期时返回 null，保持静默建立基线。
+async function getPreviousDataDate(chatId, date) {
+    const availableData = await UserAuth.makeUserAuthenticatedRequest(chatId, 'get', '/data/available-dates');
+    const dates = (Array.isArray(availableData?.dates) ? availableData.dates : [])
+        .filter(value => isDataDate(value) && value < date)
+        .sort();
+    return dates[dates.length - 1] || null;
+}
+
 async function restoreBaselineSnapshot(chatId, latestData) {
     const lastSentDate = await getLastDataUpdateDate(chatId);
-    if (!isDataDate(lastSentDate) || lastSentDate >= latestData.date) {
+    if (!isDataDate(lastSentDate)) {
         return null;
+    }
+
+    let baselineDate = lastSentDate;
+    if (lastSentDate >= latestData.date) {
+        // 最新日期已发过：只有同一天出现了还没发过的新版本才需要补发
+        const versionKey = getDataUpdateVersionKey(getDataVersion(latestData));
+        if (
+            versionKey === DATA_UPDATE_NOTIFICATION_KEY
+            || await hasNotificationSent(chatId, 'SYSTEM', versionKey, latestData.date)
+        ) {
+            return null;
+        }
+        baselineDate = await getPreviousDataDate(chatId, latestData.date);
+        if (!baselineDate) return null;
     }
 
     try {
         const dateData = await UserAuth.makeUserAuthenticatedRequest(
             chatId,
             'get',
-            `/data/by-date/${encodeURIComponent(lastSentDate)}`
+            `/data/by-date/${encodeURIComponent(baselineDate)}`
         );
         const normalizedData = normalizeDateDataResponse(dateData);
         if (!normalizedData.success || normalizedData.metrics.length === 0) {
@@ -705,7 +759,7 @@ async function restoreBaselineSnapshot(chatId, latestData) {
         }
         return createDataSnapshot(normalizedData);
     } catch (error) {
-        console.error(`Failed to restore baseline for ${chatId} from ${lastSentDate}:`, error.message);
+        console.error(`Failed to restore baseline for ${chatId} from ${baselineDate}:`, error.message);
         return null;
     }
 }
@@ -759,11 +813,14 @@ function getPeriodQualityChange(metric, lastSnapshot) {
     const lastCoin = getLastSnapshotCoin(lastSnapshot, symbol);
     const periodType = metric?.entry_exit_type;
 
+    // 只在明确的质量结论之间切换才算变化；「待观察」「数据不足」不是结论
+    const isDefinitiveQuality = quality => /^(高|低)质量(进场|退场)$/.test(String(quality || ''));
+
     if (
         !['entry', 'exit'].includes(periodType)
         || lastCoin?.entry_exit_type !== periodType
-        || !metric.period_quality
-        || !lastCoin.period_quality
+        || !isDefinitiveQuality(metric.period_quality)
+        || !isDefinitiveQuality(lastCoin.period_quality)
         || metric.period_quality === lastCoin.period_quality
     ) {
         return null;
@@ -1022,8 +1079,12 @@ async function collectDataUpdateNotifications(chatId, data, lastSnapshot, dataDa
     return allNotifications;
 }
 
-async function recordDataUpdateNotifications(chatId, notifications, dataDate) {
+async function recordDataUpdateNotifications(chatId, notifications, dataDate, versionKey = DATA_UPDATE_NOTIFICATION_KEY) {
+    // 日期级记录供重启恢复基线（MAX(notification_date)）使用，版本级记录用于同一天多版本去重
     await recordNotification(chatId, 'SYSTEM', DATA_UPDATE_NOTIFICATION_KEY, dataDate);
+    if (versionKey !== DATA_UPDATE_NOTIFICATION_KEY) {
+        await recordNotification(chatId, 'SYSTEM', versionKey, dataDate);
+    }
 
     for (const notification of notifications) {
         for (const item of notification.content) {
@@ -1039,32 +1100,67 @@ async function recordDataUpdateNotifications(chatId, notifications, dataDate) {
     }
 }
 
+// 旧版本的收藏提醒没有节点标识；它们与市场变化里的同名节点是同一事件，用来兼容去重
+const FAVORITE_EQUIVALENT_KEYS = Object.freeze({
+    favorite_explosion_drop_200: 'explosion_drop_200',
+    favorite_exit_day_1: 'change_exit_day_1'
+});
+
+// 同一数据日期内已经推过的节点（币种 + 节点类型）不再重复推送
+async function filterAlreadyNotifiedItems(chatId, notifications, dataDate) {
+    const remaining = [];
+    for (const group of notifications) {
+        const content = [];
+        for (const item of group.content) {
+            const symbol = item.coin?.symbol;
+            if (!symbol || !item.notificationKey) {
+                content.push(item);
+                continue;
+            }
+            const keys = [item.notificationKey, FAVORITE_EQUIVALENT_KEYS[item.notificationKey]].filter(Boolean);
+            let alreadySent = false;
+            for (const key of keys) {
+                if (await hasNotificationSent(chatId, symbol, key, dataDate)) {
+                    alreadySent = true;
+                    break;
+                }
+            }
+            if (!alreadySent) content.push(item);
+        }
+        if (content.length > 0) remaining.push({ ...group, content });
+    }
+    return remaining;
+}
+
 async function processDataUpdate(chatId, data, lastSnapshot, currentSnapshot) {
     const dataDate = currentSnapshot.date;
-    const alreadyNotified = await hasNotificationSent(
-        chatId,
-        'SYSTEM',
-        DATA_UPDATE_NOTIFICATION_KEY,
-        dataDate
-    );
+    const version = currentSnapshot.version || '';
+    const versionKey = getDataUpdateVersionKey(version);
+    const alreadyNotified = await hasNotificationSent(chatId, 'SYSTEM', versionKey, dataDate);
     if (alreadyNotified) {
-        console.log(`Data summary for ${dataDate} already sent to ${chatId}`);
+        console.log(`Data summary for ${dataDate} ${version} already sent to ${chatId}`);
         return;
     }
 
-    const notifications = await collectDataUpdateNotifications(
+    const collected = await collectDataUpdateNotifications(
         chatId,
         data,
         lastSnapshot,
         dataDate
     );
+    const notifications = await filterAlreadyNotifiedItems(chatId, collected, dataDate);
     if (notifications.length === 0) {
+        // 同一天的新版本没有新节点：记为已处理，不再重复分析
+        if (collected.length > 0) {
+            await recordNotification(chatId, 'SYSTEM', versionKey, dataDate);
+            console.log(`No new key nodes for ${dataDate} ${version}, skipped for ${chatId}`);
+        }
         return;
     }
 
-    const message = formatComprehensiveNotification(notifications, dataDate);
-    await deliverNotification(chatId, message, [buildDataUpdateWebPayload(notifications, dataDate)]);
-    await recordDataUpdateNotifications(chatId, notifications, dataDate);
+    const message = formatComprehensiveNotification(notifications, dataDate, version);
+    await deliverNotification(chatId, message, [buildDataUpdateWebPayload(notifications, dataDate, new Date(), version)]);
+    await recordDataUpdateNotifications(chatId, notifications, dataDate, versionKey);
     console.log(
         `Comprehensive notification for ${dataDate} sent to ${chatId} with ${notifications.length} types`
     );
@@ -1215,6 +1311,7 @@ async function checkUserFavoriteAlerts(chatId, metrics) {
                     coin: coinData.coin,
                     alertType: '爆破跌破 200',
                     description: `爆破 ${formatNumber(getPreviousExplosionIndex(coinData))} → ${formatNumber(coinData.explosion_index)}`,
+                    notificationKey: 'favorite_explosion_drop_200',
                     priority: 'high'
                 });
             }
@@ -1225,6 +1322,7 @@ async function checkUserFavoriteAlerts(chatId, metrics) {
                     coin: coinData.coin,
                     alertType: '进入退场期',
                     description: `退场期第${coinData.entry_exit_day}天`,
+                    notificationKey: 'favorite_exit_day_1',
                     priority: 'high'
                 });
             }
@@ -1552,11 +1650,15 @@ async function analyzeMomentumIndicators(metrics, chatId, currentDate) {
 }
 
 // 格式化综合通知消息
-function formatComprehensiveNotification(notifications, dataDate = null) {
+function formatComprehensiveNotification(notifications, dataDate = null, dataVersion = '') {
     let message = `<b>Crypto Metrics</b>\n`;
     message += `重要时间提醒\n`;
     if (isDataDate(dataDate)) {
         message += `数据日期：<b>${escapeHtml(dataDate)}</b>\n`;
+    }
+    const dataTime = formatDataVersionTime(dataVersion);
+    if (dataTime) {
+        message += `数据时间：<b>${escapeHtml(dataTime)}</b>\n`;
     }
     message += `${new Date().toLocaleString('zh-CN', { timeZone: 'Australia/Sydney' })}\n\n`;
 
