@@ -617,7 +617,8 @@ function OtcCycleChart({
         const left = Math.max(0, Math.min(startX, endX) - barHalfWidth);
         const right = Math.min(chartWidth, Math.max(startX, endX) + barHalfWidth);
         const band = document.createElement('div');
-        band.className = `tv-cycle-chart__phase-band tv-cycle-chart__phase-band--${range.phase}`;
+        band.className = `tv-cycle-chart__phase-band tv-cycle-chart__phase-band--${range.phase}`
+          + (range.quality ? ` tv-cycle-chart__phase-band--${range.quality}` : '');
         band.style.left = `${left}px`;
         band.style.width = `${Math.max(2, right - left)}px`;
         layer.appendChild(band);

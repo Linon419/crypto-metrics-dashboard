@@ -2,6 +2,7 @@
 // OtcCycleChart 的图表模型构建：K线/指标对齐、周期相位、标记与注释轨道、
 // 布林带、TradingView 基础图配置。从组件文件拆出，逻辑未改动。
 import { ColorType, CrosshairMode, createChart } from 'lightweight-charts';
+import { normalizePeriodQualityLabel } from './periodQualityMeta';
 
 // 15m 已停止采集：打开该周期会触发按需补库与实时流写入，是 K 线库膨胀的主因。
 // 未知周期会回落到 CHART_PERIODS[0]，因此移除该项不会影响历史选择状态。
@@ -451,28 +452,47 @@ function buildAlignedRows(klines = [], metrics = []) {
   return { rows, metricEvents, latestEvents };
 }
 
+// 按当期（as-of）质量标签归档：与当前阶段一致的高/低质量返回 high/low，
+// 待观察、观望、数据不足、阶段不符等一律视为 pending；没有质量字段返回 null
+function getPhaseQualityLevel(phase, quality) {
+  if (!quality) return null;
+  const label = normalizePeriodQualityLabel(quality);
+  const phaseText = phase === 'entry' ? '进场' : '退场';
+  if (label === `高质量${phaseText}`) return 'high';
+  if (label === `低质量${phaseText}`) return 'low';
+  return 'pending';
+}
+
 function buildPhaseRanges(rows) {
   const ranges = [];
   let current = null;
   let activePhase = null;
+  let activeQuality = null;
 
   rows.forEach((row, index) => {
     const phase = row.metric?.entry_exit_type || row.metric?.entryExitType;
     const normalizedPhase = phase === 'entry' || phase === 'exit' ? phase : null;
 
     if (normalizedPhase) {
+      const day = normalizePeriodDay(row.metric?.entry_exit_day ?? row.metric?.entryExitDay);
+      if (normalizedPhase !== activePhase || day === 1) activeQuality = null;
       activePhase = normalizedPhase;
     }
 
     if (!activePhase) return;
 
-    if (!current || current.phase !== activePhase) {
+    // 质量与阶段一样沿用到无指标的 K 线上，直到下一条带质量的指标
+    const quality = getPhaseQualityLevel(activePhase, row.metric?.period_quality || row.metric?.periodQuality);
+    if (quality) activeQuality = quality;
+
+    if (!current || current.phase !== activePhase || (current.quality || null) !== activeQuality) {
       if (current) {
         current.endTime = rows[index - 1]?.time || current.startTime;
         ranges.push(current);
       }
       current = {
         phase: activePhase,
+        ...(activeQuality ? { quality: activeQuality } : {}),
         startTime: row.time,
         endTime: row.time,
       };
@@ -657,9 +677,26 @@ function buildAnnotationTracks(metricEvents) {
   const period = new Map();
   const explosion = new Map();
   const otc = new Map();
+  const qualityChanges = new Map();
+  let activePhase = null;
+  let activeQuality = null;
 
   metricEvents.forEach((event, index) => {
     const day = normalizePeriodDay(event.day);
+    const isPhaseEvent = event.phase === 'entry' || event.phase === 'exit';
+    const isPeriodStart = isPhaseEvent && (event.phase !== activePhase || day === 1);
+    if (isPhaseEvent) activePhase = event.phase;
+    if (isPeriodStart) activeQuality = null;
+    const quality = activePhase ? getPhaseQualityLevel(activePhase, event.periodQuality) : null;
+    // 同一周期内质量转为高/低时标注；周期开头已有「进1/退1」，不重复标注
+    if (quality && activeQuality && quality !== activeQuality && quality !== 'pending') {
+      qualityChanges.set(event.alignedTime, {
+        text: quality === 'high' ? '→高质量' : '→低质量',
+        color: activePhase === 'entry' ? GREEN : RED,
+        sourceTime: event.publishedTime,
+      });
+    }
+    if (quality) activeQuality = quality;
     const currentExplosion = event.explosionIndex;
     const previousEvent = metricEvents
       .slice(0, index)
@@ -689,6 +726,14 @@ function buildAnnotationTracks(metricEvents) {
       });
       pushOtcTrackLabel(otc, event);
     });
+  });
+
+  // 最后再合并质量变化：同一根 K 线上后到的分时指标会覆盖「进N」标签
+  qualityChanges.forEach((change, time) => {
+    const existing = period.get(time);
+    period.set(time, existing
+      ? { ...existing, text: `${existing.text}${change.text}` }
+      : { id: `period-${time}`, time, ...change });
   });
 
   return {

@@ -954,6 +954,31 @@ body {
   background: rgba(239, 68, 68, 0.05);
 }
 
+/* 周期质量：高质量加深底色，低质量同色系斜纹；待观察沿用上面的浅底色 */
+.tv-cycle-chart__phase-band--entry.tv-cycle-chart__phase-band--high {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.tv-cycle-chart__phase-band--entry.tv-cycle-chart__phase-band--low {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(34, 197, 94, 0.14) 0 2px,
+    rgba(34, 197, 94, 0.035) 2px 8px
+  );
+}
+
+.tv-cycle-chart__phase-band--exit.tv-cycle-chart__phase-band--high {
+  background: rgba(239, 68, 68, 0.11);
+}
+
+.tv-cycle-chart__phase-band--exit.tv-cycle-chart__phase-band--low {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(239, 68, 68, 0.13) 0 2px,
+    rgba(239, 68, 68, 0.035) 2px 8px
+  );
+}
+
 .tv-cycle-chart__pane-label {
   position: absolute;
   z-index: 3;

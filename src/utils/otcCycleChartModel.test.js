@@ -240,3 +240,109 @@ describe('buildTradingViewCycleModel EMA', () => {
     expect(model.ema200).toEqual([]);
   });
 });
+
+describe('buildTradingViewCycleModel period quality', () => {
+  const makeDailyKlines = count => Array.from({ length: count }, (_, index) => ({
+    openTime: new Date(Date.UTC(2026, 4, 1) + index * 86400000).toISOString(),
+    open: 100,
+    high: 110,
+    low: 90,
+    close: 105,
+  }));
+  const metricOn = (index, phase, day, quality) => ({
+    date: new Date(Date.UTC(2026, 4, 1) + index * 86400000).toISOString().slice(0, 10),
+    otc_index: 1000,
+    explosion_index: 100,
+    entry_exit_type: phase,
+    entry_exit_day: day,
+    period_quality: quality,
+  });
+
+  test('splits phase bands by as-of quality and carries quality across missing metrics', () => {
+    const model = buildTradingViewCycleModel({
+      klines: makeDailyKlines(8),
+      metrics: [
+        metricOn(0, 'entry', 1, '进场期 (待观察)'),
+        metricOn(2, 'entry', 3, '高质量进场'),
+        metricOn(5, 'entry', 6, '低质量进场'),
+        metricOn(7, 'exit', 1, '高质量退场'),
+      ],
+    });
+    const t = index => model.rows[index].time;
+
+    expect(model.phaseRanges).toEqual([
+      { phase: 'entry', quality: 'pending', startTime: t(0), endTime: t(1) },
+      { phase: 'entry', quality: 'high', startTime: t(2), endTime: t(4) },
+      { phase: 'entry', quality: 'low', startTime: t(5), endTime: t(6) },
+      { phase: 'exit', quality: 'high', startTime: t(7), endTime: t(7) },
+    ]);
+  });
+
+  test('normalizes legacy labels and treats mismatched or neutral labels as pending', () => {
+    const model = buildTradingViewCycleModel({
+      klines: makeDailyKlines(4),
+      metrics: [
+        metricOn(0, 'exit', 1, '观察型退场'),
+        metricOn(1, 'exit', 2, '计算出错'),
+        metricOn(2, 'entry', 1, '高质量退场'),
+        metricOn(3, 'neutral', 0, '观望'),
+      ],
+    });
+    const t = index => model.rows[index].time;
+
+    expect(model.phaseRanges).toEqual([
+      { phase: 'exit', quality: 'low', startTime: t(0), endTime: t(0) },
+      { phase: 'exit', quality: 'pending', startTime: t(1), endTime: t(1) },
+      { phase: 'entry', quality: 'pending', startTime: t(2), endTime: t(3) },
+    ]);
+  });
+
+  test('does not carry the previous period quality into a new same-phase period without quality', () => {
+    const model = buildTradingViewCycleModel({
+      klines: makeDailyKlines(3),
+      metrics: [
+        metricOn(0, 'entry', 1, '高质量进场'),
+        { ...metricOn(2, 'entry', 1, null) },
+      ],
+    });
+    const t = index => model.rows[index].time;
+
+    expect(model.phaseRanges).toEqual([
+      { phase: 'entry', quality: 'high', startTime: t(0), endTime: t(1) },
+      { phase: 'entry', startTime: t(2), endTime: t(2) },
+    ]);
+  });
+
+  test('labels in-period quality changes on the period track without dropping the day label', () => {
+    const model = buildTradingViewCycleModel({
+      klines: makeDailyKlines(8),
+      metrics: [
+        metricOn(0, 'entry', 1, '高质量进场'),
+        metricOn(1, 'entry', 2, '高质量进场'),
+        metricOn(2, 'entry', 3, '低质量进场'),
+        metricOn(3, 'entry', 4, '高质量进场'),
+        metricOn(4, 'exit', 1, '退场期 (待观察)'),
+        metricOn(5, 'exit', 2, '高质量退场'),
+        metricOn(6, 'exit', 3, '退场期 (待观察)'),
+        metricOn(7, 'entry', 1, '低质量进场'),
+      ],
+    });
+
+    expect(model.annotationTracks.period.map(label => label.text)).toEqual([
+      '进1', '进2', '进3→低质量', '进4→高质量', '退1', '退2→高质量', '退3', '进1',
+    ]);
+  });
+
+  test('keeps the quality change label when a later intrabar metric lands on the same candle', () => {
+    const model = buildTradingViewCycleModel({
+      klines: makeDailyKlines(3),
+      metrics: [
+        metricOn(0, 'entry', 1, '进场期 (待观察)'),
+        { ...metricOn(1, 'entry', 2, '高质量进场'), timestamp: '2026-05-02T02:00:00.000Z' },
+        { ...metricOn(1, 'entry', 2, '高质量进场'), timestamp: '2026-05-02T05:00:00.000Z' },
+      ],
+    });
+
+    expect(model.annotationTracks.period.map(label => label.text)).toEqual(['进1', '进2→高质量']);
+  });
+});
