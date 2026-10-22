@@ -1,7 +1,7 @@
 # 多阶段构建 Dockerfile
 
 # 阶段 1: 构建前端
-FROM node:18-alpine AS frontend-builder
+FROM node:22.23.4-alpine AS frontend-builder
 WORKDIR /app
 
 # 复制前端文件
@@ -16,7 +16,7 @@ ENV GENERATE_SOURCEMAP=false
 RUN npm run build
 
 # 阶段 2: 设置API服务器和Telegram机器人
-FROM node:18-alpine
+FROM node:22.23.4-alpine
 WORKDIR /app
 
 # 复制服务器代码

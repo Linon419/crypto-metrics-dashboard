@@ -7,7 +7,7 @@
 [English](README.md) · [简体中文](README.zh-CN.md)
 
 [![Docker Image](https://github.com/Linon419/crypto-metrics-dashboard/actions/workflows/docker-image.yml/badge.svg)](https://github.com/Linon419/crypto-metrics-dashboard/actions/workflows/docker-image.yml)
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-22.23.4%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite-3-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -91,8 +91,14 @@ This path builds the frontend, starts the API and browser, and keeps all data on
 
 Requirements:
 
-- Node.js 18 or a newer LTS release
+- Node.js 22.23.4 or a current, security-patched LTS release (Node 24.22.1+)
 - npm
+
+Docker builds use Node.js 22.23.4 for both the frontend build and application runtime;
+the standalone Telegram image uses the same version. `.nvmrc` selects this version
+for local development. These versions include the [21 October 2026 Node.js security
+fixes](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases).
+When updating the pinned runtime, align both Dockerfiles, `.nvmrc`, and the CI versions.
 
 > [!TIP]
 > The launcher first checks whether Node.js and npm are available. An existing installation is used automatically.

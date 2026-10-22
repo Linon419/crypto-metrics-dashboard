@@ -10,7 +10,7 @@
     },
     "//": "版本必须与仓库根 package.json 保持一致：Docker 只装 server/ 的依赖，而一键启动器打包时不带 server/node_modules、只能解析到根依赖。两边版本一旦分叉，同一份代码在容器里和本地跑的就是不同的库（此前 express 4 与 5 的分叉曾导致启动器直接崩溃）。",
     "engines": {
-        "node": ">=18"
+        "node": ">=22.23.4"
     },
     "dependencies": {
         "axios": "^1.9.0",
