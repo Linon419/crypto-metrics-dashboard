@@ -2,16 +2,17 @@ const assert = require('assert');
 const {
   AGENT_TOKEN_PREFIX,
   createAgentToken,
-  getAgentTokenStatus,
   isAgentRequestAllowed,
+  listAgentTokens,
   revokeAgentToken,
   verifyAgentToken,
 } = require('../utils/agentToken');
-const { createAuthMiddleware } = require('../middleware/auth');
+const { createAuthMiddleware, requireAdminOrAgentWriter } = require('../middleware/auth');
 
 /**
- * Agent 只读 Token 回归测试：
- * 这枚 Token 会长期放在本机 skill 的环境变量里，必须锁死为"只读 + 白名单"。
+ * Agent Token 回归测试：
+ * Token 会长期放在本机 skill 的环境变量里，必须锁死为"白名单"：
+ * 默认只读，勾选写入的 Token 也只能多调一个录入接口。
  */
 
 function createAppSettingModel() {
@@ -62,25 +63,75 @@ async function invoke(middleware, { token, method = 'GET', url }) {
 
 async function testTokenLifecycle() {
   const AppSettingModel = createAppSettingModel();
-  assert.deepStrictEqual(await getAgentTokenStatus({ AppSettingModel }), { active: false });
+  assert.deepStrictEqual(await listAgentTokens({ AppSettingModel }), []);
 
   await assert.rejects(() => createAgentToken({ AppSettingModel }), /ownerUserId/);
+  await assert.rejects(
+    () => createAgentToken({ AppSettingModel, ownerUserId: 1, name: 'x'.repeat(51) }),
+    error => error.statusCode === 400
+  );
 
-  const { token, status } = await createAgentToken({ AppSettingModel, ownerUserId: 1, createdBy: 'admin' });
-  assert.ok(token.startsWith(AGENT_TOKEN_PREFIX));
-  assert.strictEqual(status.last4, token.slice(-4));
-  assert.ok(!AppSettingModel.rows.get('agent_api_token').value.includes(token), '库里不能存明文');
-  assert.deepStrictEqual(await verifyAgentToken(token, { AppSettingModel }), { ownerUserId: 1 });
-  assert.strictEqual(await verifyAgentToken(`${token}x`, { AppSettingModel }), null);
+  const first = await createAgentToken({ AppSettingModel, ownerUserId: 1, createdBy: 'admin', name: ' MacBook ' });
+  assert.ok(first.token.startsWith(AGENT_TOKEN_PREFIX));
+  assert.strictEqual(first.tokenInfo.last4, first.token.slice(-4));
+  assert.strictEqual(first.tokenInfo.name, 'MacBook');
+  assert.strictEqual(first.tokenInfo.canWrite, false, '默认只读');
+  assert.ok(!AppSettingModel.rows.get('agent_api_token').value.includes(first.token), '库里不能存明文');
+  assert.deepStrictEqual(
+    await verifyAgentToken(first.token, { AppSettingModel }),
+    { id: first.tokenInfo.id, ownerUserId: 1, canWrite: false }
+  );
+  assert.strictEqual(await verifyAgentToken(`${first.token}x`, { AppSettingModel }), null);
 
-  // 重新生成即吊销旧 Token
-  const { token: rotated } = await createAgentToken({ AppSettingModel, ownerUserId: 1 });
+  // 多枚 Token 并存，各自的权限独立
+  const second = await createAgentToken({ AppSettingModel, ownerUserId: 1, canWrite: true });
+  assert.notStrictEqual(second.tokenInfo.id, first.tokenInfo.id);
+  assert.strictEqual((await verifyAgentToken(first.token, { AppSettingModel })).canWrite, false);
+  assert.strictEqual((await verifyAgentToken(second.token, { AppSettingModel })).canWrite, true);
+  const listed = await listAgentTokens({ AppSettingModel });
+  assert.deepStrictEqual(listed.map(item => item.id), [first.tokenInfo.id, second.tokenInfo.id]);
+  assert.ok(listed.every(item => !('hash' in item) && !('ownerUserId' in item)), '列表不返回哈希');
+
+  // 只有字面 true 才算勾选写入
+  const truthy = await createAgentToken({ AppSettingModel, ownerUserId: 1, canWrite: 'true' });
+  assert.strictEqual(truthy.tokenInfo.canWrite, false);
+
+  // 吊销一枚不影响其他
+  assert.strictEqual((await revokeAgentToken(first.tokenInfo.id, { AppSettingModel })).id, first.tokenInfo.id);
+  assert.strictEqual(await verifyAgentToken(first.token, { AppSettingModel }), null);
+  assert.ok(await verifyAgentToken(second.token, { AppSettingModel }));
+  assert.strictEqual(await revokeAgentToken('missing', { AppSettingModel }), null);
+  await revokeAgentToken(second.tokenInfo.id, { AppSettingModel });
+  await revokeAgentToken(truthy.tokenInfo.id, { AppSettingModel });
+  assert.deepStrictEqual(await listAgentTokens({ AppSettingModel }), []);
+}
+
+// 升级前库里存的是单个对象，升级后原 Token 必须继续可用、且仍是只读
+async function testLegacySingleToken() {
+  const AppSettingModel = createAppSettingModel();
+  const { token, tokenInfo } = await createAgentToken({ AppSettingModel, ownerUserId: 3, createdBy: 'admin' });
+  const [{ id, name, canWrite, ...legacy }] = JSON.parse(AppSettingModel.rows.get('agent_api_token').value);
+  AppSettingModel.rows.set('agent_api_token', { key: 'agent_api_token', value: JSON.stringify(legacy) });
+
+  assert.deepStrictEqual(
+    await verifyAgentToken(token, { AppSettingModel }),
+    { id: 'legacy', ownerUserId: 3, canWrite: false }
+  );
+  assert.deepStrictEqual(await listAgentTokens({ AppSettingModel }), [{
+    id: 'legacy',
+    name: '',
+    last4: tokenInfo.last4,
+    canWrite: false,
+    createdAt: tokenInfo.createdAt,
+    createdBy: 'admin',
+  }]);
+
+  // 新增一枚后旧 Token 依然有效
+  await createAgentToken({ AppSettingModel, ownerUserId: 3 });
+  assert.ok(await verifyAgentToken(token, { AppSettingModel }));
+  await revokeAgentToken('legacy', { AppSettingModel });
   assert.strictEqual(await verifyAgentToken(token, { AppSettingModel }), null);
-  assert.deepStrictEqual(await verifyAgentToken(rotated, { AppSettingModel }), { ownerUserId: 1 });
-
-  await revokeAgentToken({ AppSettingModel });
-  assert.strictEqual(await verifyAgentToken(rotated, { AppSettingModel }), null);
-  assert.deepStrictEqual(await getAgentTokenStatus({ AppSettingModel }), { active: false });
+  assert.strictEqual((await listAgentTokens({ AppSettingModel })).length, 1);
 }
 
 function testAllowlist() {
@@ -119,6 +170,25 @@ function testAllowlist() {
   denied.forEach(([method, url]) => (
     assert.strictEqual(isAgentRequestAllowed(method, url), false, `${method} ${url}`)
   ));
+
+  // 写入权限只多放行 POST /api/data/input，其他写接口依旧拒绝
+  const writer = { canWrite: true };
+  assert.strictEqual(isAgentRequestAllowed('POST', '/api/data/input'), false);
+  assert.strictEqual(isAgentRequestAllowed('POST', '/api/data/input', writer), true);
+  allowed.forEach(url => assert.strictEqual(isAgentRequestAllowed('GET', url, writer), true, url));
+  [
+    ['GET', '/api/data/input'],
+    ['PUT', '/api/data/input'],
+    ['POST', '/api/data/input?force=1'],
+    ['POST', '/api/data/import-database'],
+    ['POST', '/api/metrics'],
+    ['POST', '/api/notifications'],
+    ['POST', '/api/admin/agent-token'],
+    ['POST', '/api/admin/../data/input'],
+    ['POST', '/api/data/%69nput'],
+  ].concat(denied).forEach(([method, url]) => (
+    assert.strictEqual(isAgentRequestAllowed(method, url, writer), false, `writer ${method} ${url}`)
+  ));
 }
 
 async function testMiddleware() {
@@ -152,6 +222,15 @@ async function testMiddleware() {
   assert.strictEqual(write.nextCalled, false);
   assert.strictEqual(write.res.statusCode, 403);
 
+  // 勾选写入的 Token 能录入，但身份仍是 agent，过不了 requireAdmin
+  const { token: writerToken } = await createAgentToken({ AppSettingModel, ownerUserId: 7, canWrite: true });
+  const writerInput = await invoke(middleware, { token: writerToken, method: 'POST', url: '/api/data/input' });
+  assert.strictEqual(writerInput.nextCalled, true);
+  assert.strictEqual(writerInput.req.user.role, 'agent');
+  assert.strictEqual(writerInput.req.user.agentCanWrite, true);
+  const writerAdmin = await invoke(middleware, { token: writerToken, method: 'POST', url: '/api/admin/agent-token' });
+  assert.strictEqual(writerAdmin.res.statusCode, 403);
+
   const admin = await invoke(middleware, { token, url: '/api/admin/users' });
   assert.strictEqual(admin.nextCalled, false);
   assert.strictEqual(admin.res.statusCode, 403);
@@ -177,10 +256,28 @@ async function testMiddleware() {
   assert.strictEqual(deleted.res.statusCode, 401);
   owner = { id: 7, username: 'boss', role: 'admin', status: 'active' };
 
-  await revokeAgentToken({ AppSettingModel });
+  const [readerInfo] = await listAgentTokens({ AppSettingModel });
+  await revokeAgentToken(readerInfo.id, { AppSettingModel });
   const revoked = await invoke(middleware, { token, url: '/api/data/latest' });
   assert.strictEqual(revoked.nextCalled, false);
   assert.strictEqual(revoked.res.statusCode, 401);
+  const stillValid = await invoke(middleware, { token: writerToken, url: '/api/data/latest' });
+  assert.strictEqual(stillValid.nextCalled, true, '吊销一枚不影响另一枚');
+}
+
+function testRequireAdminOrAgentWriter() {
+  const run = (user) => {
+    const res = createResponse();
+    let nextCalled = false;
+    requireAdminOrAgentWriter({ user }, res, () => { nextCalled = true; });
+    return { nextCalled, statusCode: res.statusCode };
+  };
+  assert.strictEqual(run({ role: 'admin', status: 'active' }).nextCalled, true);
+  assert.strictEqual(run({ role: 'agent', status: 'active', agent: true, agentCanWrite: true }).nextCalled, true);
+  assert.strictEqual(run({ role: 'agent', status: 'active', agent: true, agentCanWrite: false }).statusCode, 403);
+  // 普通用户伪造不出 agent 标记（req.user 由鉴权中间件生成），这里仍确认非 agent 不会被放行
+  assert.strictEqual(run({ role: 'user', status: 'active', agentCanWrite: true }).statusCode, 403);
+  assert.strictEqual(run(undefined).statusCode, 401);
 }
 
 async function testNotificationsReadOnly() {
@@ -204,8 +301,10 @@ async function testNotificationsReadOnly() {
 
 async function run() {
   await testTokenLifecycle();
+  await testLegacySingleToken();
   testAllowlist();
   await testMiddleware();
+  testRequireAdminOrAgentWriter();
   await testNotificationsReadOnly();
   console.log('agentToken tests passed');
 }

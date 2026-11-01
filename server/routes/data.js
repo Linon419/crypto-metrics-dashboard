@@ -6,6 +6,7 @@ const { Coin, DailyMetric, LiquidityOverview, OptionTuning, TrendingCoin, sequel
 const { Op } = require('sequelize');
 
 const openaiService = require('../services/openaiService');
+const { validateOpenAIModelSettings } = require('../utils/openaiModelSettings');
 const {
   QUALITY_LOOKBACK_DAYS,
   buildKeyNodeComparisons,
@@ -13,7 +14,7 @@ const {
 } = require('../utils/periodQuality');
 const { buildPeriodRiskNotes } = require('../utils/periodRiskNotes');
 const { evaluateStrategySignal } = require('../utils/strategySignals');
-const { requireAdmin } = require('../middleware/auth');
+const { requireAdmin, requireAdminOrAgentWriter } = require('../middleware/auth');
 
 // 指标归一化/序列化/版本查询与持久化已抽至 utils/dailyMetrics
 const {
@@ -34,10 +35,22 @@ const {
 } = require('../utils/dailyMetrics');
 
 // --- 路由：处理原始数据输入并存储 ---
-router.post('/input', requireAdmin, async (req, res) => {
+router.post('/input', requireAdminOrAgentWriter, async (req, res) => {
   const { rawData, clientTimezoneOffsetMinutes } = req.body;
   if (!rawData || typeof rawData !== 'string' || rawData.trim() === '') {
     return res.status(400).json({ success: false, error: 'Raw data is required and must be a non-empty string' });
+  }
+  // 可选：只替换本次解析用的模型名，供应商/地址/密钥仍用 Admin 设置；不传就用默认模型
+  let model = null;
+  if (req.body.model !== undefined && req.body.model !== null && req.body.model !== '') {
+    if (typeof req.body.model !== 'string') {
+      return res.status(400).json({ success: false, error: 'model must be a string' });
+    }
+    try {
+      ({ model } = validateOpenAIModelSettings({ model: req.body.model }));
+    } catch (validationError) {
+      return res.status(400).json({ success: false, error: validationError.message });
+    }
   }
 
   console.log(`[DATA_INPUT] Received raw data input request, length: ${rawData.length}`);
@@ -46,7 +59,7 @@ router.post('/input', requireAdmin, async (req, res) => {
   try {
     console.log('[DATA_INPUT] Calling OpenAI to process data...');
     const openaiStartTime = Date.now();
-    const processedData = await openaiService.processRawData(rawData);
+    const processedData = await openaiService.processRawData(rawData, { model });
     const openaiEndTime = Date.now();
     console.log(`[DATA_INPUT] ⏱️ OpenAI处理总耗时: ${((openaiEndTime - openaiStartTime) / 1000).toFixed(2)} 秒`);
     console.log('[DATA_INPUT] OpenAI processing complete. Validating data structure...');
@@ -74,6 +87,7 @@ router.post('/input', requireAdmin, async (req, res) => {
       success: true,
       message: 'Data processed and stored successfully.',
       date: processedData.date,
+      model, // null 表示用了 Admin 设置里的默认模型
       processedSummary: {
         coinsProcessed: result.coins.length,
         liquidityUpdated: result.liquidityUpdated,

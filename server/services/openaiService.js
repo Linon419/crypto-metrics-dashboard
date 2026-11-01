@@ -372,9 +372,11 @@ async function resolvePromptConfig(processedText) {
 /**
  * 处理原始加密货币指标数据
  * @param {string} rawText - 原始文本数据
+ * @param {Object} [options]
+ * @param {string|null} [options.model] - 本次使用的模型名，留空用 Admin 设置里的默认模型
  * @returns {Promise<Object>} - 处理后的结构化JSON数据
  */
-async function processRawData(rawText) {
+async function processRawData(rawText, { model: modelOverride = null } = {}) {
   try {
     console.log('============ 原始输入数据 ============');
     console.log(rawText);
@@ -390,11 +392,11 @@ async function processRawData(rawText) {
 
     // 调用OpenAI API
     const openaiClient = getOpenAIClient(modelSettings);
-    const model = modelSettings.model;
+    const model = modelOverride || modelSettings.model;
     console.log('使用的供应商:', modelSettings.provider);
     console.log('使用的 Base URL:', modelSettings.baseURL);
     console.log('使用的模型:', model);
-    console.log('模型来源:', modelSettings.sources.model);
+    console.log('模型来源:', modelOverride ? 'request' : modelSettings.sources.model);
     console.log('模型配置来源:', modelSettings.sources);
     console.log('Prompt来源:', promptSource);
     console.log('数据大小:', rawText.length, '字符');

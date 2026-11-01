@@ -1,12 +1,15 @@
 #!/usr/bin/env node
-// crypto-metrics 只读取数脚本：给 Claude Code / Codex skill 调用，输出精简 JSON。
+// crypto-metrics 取数脚本：给 Claude Code / Codex skill 调用，输出精简 JSON。
 // 需要 Node 18+（内置 fetch），无第三方依赖。
 //
 // 环境变量：
 //   CRYPTO_METRICS_URL    看板地址，如 https://metrics.example.com 或 http://127.0.0.1:3001
 //   CRYPTO_METRICS_TOKEN  Admin 设置 → Agent 访问 里生成的 cmagent_ 开头的 Token
+//                         （input 命令需要生成时勾选了「允许写入数据」的 Token）
 
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 
 const USAGE = `用法: cm.mjs <命令> [参数]
@@ -19,7 +22,9 @@ const USAGE = `用法: cm.mjs <命令> [参数]
   liquidity [--days 14]      资金流动性历史
   volatility                 BTC 实现波动率 vs 隐含波动率
   klines <SYMBOL> [--interval 1d] [--limit 60]   K 线（1h / 4h / 1d）
-  notifications [--limit 30] [--unread]           看板通知（新→旧，只读，不会标为已读）`;
+  notifications [--limit 30] [--unread]           看板通知（新→旧，只读，不会标为已读）
+  input [FILE] [--model M]   录入原始数据（读 FILE，省略则读 stdin），看板 AI 解析后入库；
+                             不给 --model 用看板 Admin 设置里的默认模型`;
 
 const toNumber = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -140,11 +145,23 @@ export function parseArgs(argv) {
   return { command: positional[0], args: positional.slice(1), options };
 }
 
-export function createClient({ baseUrl, token, fetchImpl = globalThis.fetch }) {
+function resolveApiBase(baseUrl, token) {
   if (!baseUrl || !token) {
     throw new Error('缺少环境变量 CRYPTO_METRICS_URL 或 CRYPTO_METRICS_TOKEN');
   }
-  const apiBase = `${String(baseUrl).replace(/\/+$/, '').replace(/\/api$/, '')}/api`;
+  return `${String(baseUrl).replace(/\/+$/, '').replace(/\/api$/, '')}/api`;
+}
+
+function parseBody(text) {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return text;
+  }
+}
+
+export function createClient({ baseUrl, token, fetchImpl = globalThis.fetch }) {
+  const apiBase = resolveApiBase(baseUrl, token);
 
   return async function get(path, params = {}) {
     const url = new URL(`${apiBase}${path}`);
@@ -153,12 +170,7 @@ export function createClient({ baseUrl, token, fetchImpl = globalThis.fetch }) {
     });
     const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${token}` } });
     const text = await response.text();
-    let body;
-    try {
-      body = text ? JSON.parse(text) : null;
-    } catch {
-      body = text;
-    }
+    const body = parseBody(text);
     if (!response.ok) {
       const detail = body?.error || body?.message || text || response.statusText;
       throw new Error(`GET ${url.pathname} 失败 (${response.status}): ${detail}`);
@@ -167,12 +179,73 @@ export function createClient({ baseUrl, token, fetchImpl = globalThis.fetch }) {
   };
 }
 
+// 录入时 AI 解析最长约 6 分钟；内置 fetch 等响应头超过 5 分钟就会断开，
+// 而服务端仍会继续入库，所以写请求改用 node:http，不设客户端超时
+export function createPoster({ baseUrl, token }) {
+  const apiBase = resolveApiBase(baseUrl, token);
+
+  return function post(path, payload) {
+    const url = new URL(`${apiBase}${path}`);
+    const data = JSON.stringify(payload);
+    const request = url.protocol === 'https:' ? https.request : http.request;
+    return new Promise((resolve, reject) => {
+      const req = request(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data),
+        },
+      }, (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { text += chunk; });
+        res.on('end', () => {
+          const body = parseBody(text);
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(body);
+            return;
+          }
+          const detail = body?.rawError || body?.error || body?.message || text || res.statusMessage;
+          reject(new Error(`POST ${url.pathname} 失败 (${res.statusCode}): ${detail}`));
+        });
+      });
+      req.on('error', reject);
+      req.end(data);
+    });
+  };
+}
+
+// 与 src/utils/inputPreprocess.js 的 getRawDataTimezoneOffset 一致：
+// 按原文首行的日期时间取本机时区偏移，跨夏令时录入也能落到正确时间
+export function rawDataTimezoneOffset(rawData, now = new Date()) {
+  const firstLine = String(rawData || '').split('\n')[0].trim();
+  const match = firstLine.match(/^(?:(\d{2,4})[-.])?(\d{1,2})[-.](\d{1,2})(?:[ T](\d{1,2})(?::(\d{2}))?)?$/);
+  if (!match) return now.getTimezoneOffset();
+
+  const [, yearText, monthText, dayText, hourText, minuteText] = match;
+  const month = Number(monthText);
+  let year = yearText ? Number(yearText) : now.getFullYear();
+  if (year < 100) year += 2000;
+  if (!yearText && month > now.getMonth() + 7) year -= 1;
+  if (!yearText && month < now.getMonth() - 5) year += 1;
+
+  const localDate = new Date(year, month - 1, Number(dayText), Number(hourText || 0), Number(minuteText || 0));
+  return Number.isNaN(localDate.getTime()) ? now.getTimezoneOffset() : localDate.getTimezoneOffset();
+}
+
+function readInputText(file) {
+  if (file) return fs.readFileSync(file, 'utf8');
+  if (process.stdin.isTTY) throw new Error('用法: input [FILE] [--model M]（省略 FILE 时从 stdin 读取原文）');
+  return fs.readFileSync(0, 'utf8');
+}
+
 async function newestDate(get) {
   const result = await get('/data/available-dates');
   return result?.newestDate || null;
 }
 
-export async function runCommand({ command, args, options }, get) {
+export async function runCommand({ command, args, options }, get, { post, readText = readInputText } = {}) {
   switch (command) {
     case 'latest':
       return buildSnapshot(await get('/data/latest'));
@@ -294,6 +367,22 @@ export async function runCommand({ command, args, options }, get) {
       };
     }
 
+    case 'input': {
+      const rawData = readText(args[0]);
+      if (!rawData.trim()) throw new Error('原始数据为空');
+      if (options.model === true) throw new Error('--model 需要指定模型名');
+      const result = await post('/data/input', {
+        rawData,
+        clientTimezoneOffsetMinutes: rawDataTimezoneOffset(rawData),
+        model: options.model || undefined,
+      });
+      return {
+        date: result?.date,
+        model: result?.model || '默认模型',
+        ...result?.processedSummary,
+      };
+    }
+
     default:
       throw new Error(USAGE);
   }
@@ -305,11 +394,12 @@ async function main() {
     console.log(USAGE);
     return;
   }
-  const get = createClient({
+  const connection = {
     baseUrl: process.env.CRYPTO_METRICS_URL,
     token: process.env.CRYPTO_METRICS_TOKEN,
-  });
-  const result = await runCommand(parsed, get);
+  };
+  const get = createClient(connection);
+  const result = await runCommand(parsed, get, { post: createPoster(connection) });
   console.log(JSON.stringify(result));
 }
 

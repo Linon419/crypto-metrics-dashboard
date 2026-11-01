@@ -57,7 +57,12 @@ function run() {
   assertAdminOnly(coins, 'PUT', '/:id');
   assertAdminOnly(coins, 'DELETE', '/:id');
 
-  assertAdminOnly(data, 'POST', '/input');
+  // 录入接口额外允许勾选了写入权限的 Agent Token，守卫换成 requireAdminOrAgentWriter
+  const input = findRoute(data, 'POST', '/input');
+  assert.ok(
+    input.handlers.includes('requireAdminOrAgentWriter'),
+    `POST /input 必须挂载 requireAdminOrAgentWriter，当前处理链: [${input.handlers.join(', ')}]`
+  );
   assertAdminOnly(data, 'GET', '/export-all');
   assertAdminOnly(data, 'POST', '/import-database');
   assertAdminOnly(data, 'POST', '/debug/add-test-data');
@@ -86,6 +91,7 @@ function run() {
     .forEach(([name, routes]) => {
       routes
         .filter(route => writeMethods.has(route.method))
+        .filter(route => !(name === 'data' && route.method === 'POST' && route.path === '/input'))
         .forEach(route => {
           assert.ok(
             route.handlers.includes('requireAdmin'),

@@ -24,7 +24,7 @@ const { getSystemSettings, updateSystemSettings } = require('../utils/settings')
 const { getLogoSettings, updateLogoSettings } = require('../utils/logoSettings');
 const {
   createAgentToken,
-  getAgentTokenStatus,
+  listAgentTokens,
   revokeAgentToken,
 } = require('../utils/agentToken');
 const {
@@ -1325,57 +1325,66 @@ router.put('/logo-settings', async (req, res) => {
   }
 });
 
-// Agent 只读 Token：明文只在生成时返回一次
+// Agent Token：可同时存在多枚，明文只在生成时返回一次
 router.get('/agent-token', async (req, res) => {
   try {
-    const status = await getAgentTokenStatus({ AppSettingModel: AppSetting });
-    res.json({ success: true, status });
+    const tokens = await listAgentTokens({ AppSettingModel: AppSetting });
+    res.json({ success: true, tokens });
   } catch (error) {
-    console.error('获取 Agent Token 状态失败:', error);
-    res.status(500).json({ success: false, error: '获取 Agent Token 状态失败' });
+    console.error('获取 Agent Token 列表失败:', error);
+    res.status(500).json({ success: false, error: '获取 Agent Token 列表失败' });
   }
 });
 
 router.post('/agent-token', async (req, res) => {
   try {
-    const { token, status } = await createAgentToken({
+    const { token, tokenInfo } = await createAgentToken({
       AppSettingModel: AppSetting,
       ownerUserId: req.user?.id,
       createdBy: req.user?.username || null,
+      name: req.body?.name,
+      canWrite: req.body?.canWrite === true,
     });
     try {
       await writeUserAuditLog(userManagementModels, {
         actor: req.user,
         target: req.user,
         action: 'settings.agent_token.create',
-        details: { last4: status.last4 },
+        details: { id: tokenInfo.id, name: tokenInfo.name, last4: tokenInfo.last4, canWrite: tokenInfo.canWrite },
         ip: req.ip,
       });
     } catch (auditError) {
       console.error('记录 Agent Token 审计日志失败:', auditError);
     }
-    res.json({ success: true, token, status });
+    res.json({ success: true, token, tokenInfo });
   } catch (error) {
-    console.error('生成 Agent Token 失败:', error);
-    res.status(500).json({ success: false, error: '生成 Agent Token 失败' });
+    const statusCode = error.statusCode || 500;
+    if (statusCode === 500) console.error('生成 Agent Token 失败:', error);
+    res.status(statusCode).json({
+      success: false,
+      error: statusCode === 500 ? '生成 Agent Token 失败' : error.message,
+    });
   }
 });
 
-router.delete('/agent-token', async (req, res) => {
+router.delete('/agent-token/:id', async (req, res) => {
   try {
-    const status = await revokeAgentToken({ AppSettingModel: AppSetting });
+    const revoked = await revokeAgentToken(req.params.id, { AppSettingModel: AppSetting });
+    if (!revoked) {
+      return res.status(404).json({ success: false, error: 'Agent Token 不存在' });
+    }
     try {
       await writeUserAuditLog(userManagementModels, {
         actor: req.user,
         target: req.user,
         action: 'settings.agent_token.revoke',
-        details: {},
+        details: { id: revoked.id, name: revoked.name, last4: revoked.last4 },
         ip: req.ip,
       });
     } catch (auditError) {
       console.error('记录 Agent Token 审计日志失败:', auditError);
     }
-    res.json({ success: true, status });
+    res.json({ success: true, tokenInfo: revoked });
   } catch (error) {
     console.error('吊销 Agent Token 失败:', error);
     res.status(500).json({ success: false, error: '吊销 Agent Token 失败' });

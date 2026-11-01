@@ -321,14 +321,16 @@ const apiDocs = {
           path: "/data/input",
           description: "提交新的数据",
           headers: {
-            Authorization: "Bearer <token> - 需要管理员权限"
+            Authorization: "Bearer <token> - 需要管理员权限，或勾选了「允许写入数据」的 Agent Token"
           },
           body: {
-            rawData: "string - 原始数据"
+            rawData: "string - 原始数据",
+            model: "string（可选）- 本次解析用的模型名，不传则用 Admin 设置里的默认模型"
           },
           response: {
             success: "boolean",
-            message: "string"
+            message: "string",
+            model: "string | null - 本次指定的模型，null 表示默认模型"
           }
         },
         {

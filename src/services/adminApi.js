@@ -353,20 +353,20 @@ export const updateLogoSettings = async (payload) => {
   }
 };
 
-// Agent 只读 Token：生成接口只返回一次明文
-export const getAgentTokenStatus = async () => {
+// Agent Token：可同时存在多枚，生成接口只返回一次明文
+export const listAgentTokens = async () => {
   try {
     const response = await callApiWithRetry(() => api.get('/admin/agent-token'));
     return response.data;
   } catch (error) {
-    console.error('[getAgentTokenStatus] 获取 Agent Token 状态失败:', error.displayMessage || error.message);
+    console.error('[listAgentTokens] 获取 Agent Token 列表失败:', error.displayMessage || error.message);
     throw error;
   }
 };
 
-export const createAgentToken = async () => {
+export const createAgentToken = async (payload) => {
   try {
-    const response = await api.post('/admin/agent-token');
+    const response = await api.post('/admin/agent-token', payload);
     return response.data;
   } catch (error) {
     console.error('[createAgentToken] 生成 Agent Token 失败:', error.displayMessage || error.message);
@@ -374,9 +374,9 @@ export const createAgentToken = async () => {
   }
 };
 
-export const revokeAgentToken = async () => {
+export const revokeAgentToken = async (id) => {
   try {
-    const response = await api.delete('/admin/agent-token');
+    const response = await api.delete(`/admin/agent-token/${encodeURIComponent(id)}`);
     return response.data;
   } catch (error) {
     console.error('[revokeAgentToken] 吊销 Agent Token 失败:', error.displayMessage || error.message);

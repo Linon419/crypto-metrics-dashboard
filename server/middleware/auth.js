@@ -30,8 +30,9 @@ function sendUnauthorized(res, message = 'Token is not valid') {
 async function authenticateAgentRequest(req, res, next, token, { UserModel, AppSettingModel }) {
   const requestPath = String(req.originalUrl || '').split('?')[0];
   let ownerUserId;
+  let verified;
   try {
-    const verified = await verifyAgentToken(token, AppSettingModel ? { AppSettingModel } : undefined);
+    verified = await verifyAgentToken(token, AppSettingModel ? { AppSettingModel } : undefined);
     if (!verified) return sendUnauthorized(res, 'Agent token is not valid');
 
     // Token 跟随生成它的管理员：账号被封禁、降级或删除后立即失效
@@ -45,14 +46,21 @@ async function authenticateAgentRequest(req, res, next, token, { UserModel, AppS
     return res.status(500).json({ error: 'Authentication service unavailable' });
   }
 
-  if (!isAgentRequestAllowed(req.method, req.originalUrl)) {
-    console.warn(`[agent] 拒绝 ${req.method} ${requestPath}`);
-    return res.status(403).json({ error: 'Agent token is read-only and cannot access this endpoint' });
+  if (!isAgentRequestAllowed(req.method, req.originalUrl, { canWrite: verified.canWrite })) {
+    console.warn(`[agent:${verified.id}] 拒绝 ${req.method} ${requestPath}`);
+    return res.status(403).json({ error: 'Agent token cannot access this endpoint' });
   }
 
-  console.log(`[agent] ${req.method} ${requestPath}`);
+  console.log(`[agent:${verified.id}] ${req.method} ${requestPath}`);
   // id 用于读取该管理员的通知；role 不是 admin，白名单外的接口也进不去
-  req.user = { id: ownerUserId, username: 'agent', role: 'agent', status: 'active', agent: true };
+  req.user = {
+    id: ownerUserId,
+    username: 'agent',
+    role: 'agent',
+    status: 'active',
+    agent: true,
+    agentCanWrite: verified.canWrite,
+  };
   return next();
 }
 
@@ -159,10 +167,17 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
+// 录入原始数据：管理员，或生成时勾选了「允许写入」的 Agent Token
+function requireAdminOrAgentWriter(req, res, next) {
+  if (req.user?.agent === true && req.user.agentCanWrite === true) return next();
+  return requireAdmin(req, res, next);
+}
+
 module.exports = {
   createAuthMiddleware,
   verifyToken: authMiddleware,
   requireAdmin,
+  requireAdminOrAgentWriter,
   requirePasswordChange,
   __authTestUtils: {
     resolvedJwtSecret: JWT_SECRET,

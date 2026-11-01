@@ -1,4 +1,5 @@
 const assert = require('assert');
+const http = require('http');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
@@ -177,6 +178,88 @@ async function run() {
     { category: 'market', priority: 'high', coins: ['BTC'] },
     { category: 'favorite', priority: 'critical', coins: ['SOL'] },
   ]);
+
+  // input：原文原样提交，不给 --model 时不带 model 字段
+  const posted = [];
+  const fakePost = async (apiPath, payload) => {
+    posted.push({ apiPath, payload });
+    return {
+      success: true,
+      date: '2026-11-01',
+      model: payload.model || null,
+      processedSummary: { coinsProcessed: 42, liquidityUpdated: true, trendingCoinsProcessed: 3 },
+    };
+  };
+  const rawText = '11.1\nBTC 场外 1040';
+  const defaultInput = await cm.runCommand(
+    { command: 'input', args: ['raw.txt'], options: {} },
+    fakeGet,
+    { post: fakePost, readText: file => (file === 'raw.txt' ? rawText : '') },
+  );
+  assert.strictEqual(posted[0].apiPath, '/data/input');
+  assert.strictEqual(posted[0].payload.rawData, rawText);
+  assert.strictEqual(posted[0].payload.model, undefined);
+  assert.strictEqual(typeof posted[0].payload.clientTimezoneOffsetMinutes, 'number');
+  assert.deepStrictEqual(defaultInput, {
+    date: '2026-11-01',
+    model: '默认模型',
+    coinsProcessed: 42,
+    liquidityUpdated: true,
+    trendingCoinsProcessed: 3,
+  });
+
+  const modelInput = await cm.runCommand(
+    { command: 'input', args: [], options: { model: 'deepseek-v4-pro' } },
+    fakeGet,
+    { post: fakePost, readText: () => rawText },
+  );
+  assert.strictEqual(posted[1].payload.model, 'deepseek-v4-pro');
+  assert.strictEqual(modelInput.model, 'deepseek-v4-pro');
+
+  await assert.rejects(
+    () => cm.runCommand({ command: 'input', args: [], options: {} }, fakeGet, { post: fakePost, readText: () => '  \n' }),
+    /原始数据为空/
+  );
+  await assert.rejects(
+    () => cm.runCommand({ command: 'input', args: [], options: { model: true } }, fakeGet, { post: fakePost, readText: () => rawText }),
+    /--model/
+  );
+  assert.strictEqual(posted.length, 2, '参数错误时不能发请求');
+
+  // 时区偏移按原文首行日期取，和前端录入页一致
+  const now = new Date(2026, 10, 1, 12, 0);
+  assert.strictEqual(cm.rawDataTimezoneOffset('9.15 20:30\nBTC', now), new Date(2026, 8, 15, 20, 30).getTimezoneOffset());
+  assert.strictEqual(cm.rawDataTimezoneOffset('BTC', now), now.getTimezoneOffset());
+
+  // createPoster：真实 HTTP 往返，带 Bearer 与 JSON，错误信息优先用 rawError
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      const payload = JSON.parse(body);
+      res.setHeader('Content-Type', 'application/json');
+      if (payload.rawData === 'boom') {
+        res.statusCode = 500;
+        res.end(JSON.stringify({ success: false, error: 'Error processing or storing data', rawError: 'model not found' }));
+        return;
+      }
+      res.end(JSON.stringify({ path: req.url, method: req.method, auth: req.headers.authorization, payload }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const post = cm.createPoster({ baseUrl: `http://127.0.0.1:${server.address().port}/api`, token: 'cmagent_w' });
+    const echoed = await post('/data/input', { rawData: '11.1\nBTC', model: 'm' });
+    assert.deepStrictEqual(echoed, {
+      path: '/api/data/input',
+      method: 'POST',
+      auth: 'Bearer cmagent_w',
+      payload: { rawData: '11.1\nBTC', model: 'm' },
+    });
+    await assert.rejects(() => post('/data/input', { rawData: 'boom' }), /500.*model not found/);
+  } finally {
+    server.close();
+  }
 
   console.log('agent skill script tests passed');
 }
